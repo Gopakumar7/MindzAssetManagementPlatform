@@ -1,0 +1,21 @@
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/.pytest_cache/
+backend/.coverage
+**/__pycache__/
+*.pyc
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Node/Angular
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/.sass-cache/
+
+# Docker
+*.log

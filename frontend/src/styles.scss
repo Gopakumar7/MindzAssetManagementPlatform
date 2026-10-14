@@ -1,0 +1,17 @@
+@use './app/components/registry/registry';
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(180deg, #eff6ff 0%, #f8fafc 100%);
+  color: #0f172a;
+}
+
+body {
+  min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
+}
