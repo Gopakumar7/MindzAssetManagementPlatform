@@ -1,29 +1,58 @@
+import { provideHttpClient, withXhr } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { provideRouter, Router } from '@angular/router';
 import { AppComponent } from './app.component';
+import { routes } from './app.routes';
 
 describe('AppComponent', () => {
-  beforeEach(async () => {
-    await TestBed.configureTestingModule({
+  let httpTestingController: HttpTestingController;
+  let router: Router;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
       imports: [AppComponent],
-    }).compileComponents();
+      providers: [
+        provideHttpClient(withXhr()),
+        provideHttpClientTesting(),
+        provideRouter(routes)
+      ]
+    });
+    httpTestingController = TestBed.inject(HttpTestingController);
+    router = TestBed.inject(Router);
   });
 
-  it('should create the app', () => {
-    const fixture = TestBed.createComponent(AppComponent);
-    const app = fixture.componentInstance;
-    expect(app).toBeTruthy();
+  afterEach(() => {
+    httpTestingController.verify();
   });
 
-  it(`should have the 'frontend' title`, () => {
-    const fixture = TestBed.createComponent(AppComponent);
-    const app = fixture.componentInstance;
-    expect(app.title).toEqual('frontend');
-  });
-
-  it('should render title', () => {
+  it('creates the router-based application root', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Hello, frontend');
+
+    expect(fixture.nativeElement.querySelector('router-outlet')).toBeTruthy();
+  });
+
+  it('loads the status page through the application router', async () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    await router.navigateByUrl('/status');
+    fixture.detectChanges();
+
+    const healthRequest = httpTestingController.expectOne('/api/v1/health');
+    expect(healthRequest.request.method).toBe('GET');
+    healthRequest.flush({ status: 'ok', service: 'mindzen-alcm', version: '0.1.0' });
+    fixture.detectChanges();
+
+    const readinessRequest = httpTestingController.expectOne('/api/v1/health/ready');
+    expect(readinessRequest.request.method).toBe('GET');
+    readinessRequest.flush({
+      status: 'ready',
+      database: { available: true, message: 'database connection is healthy' }
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('h1')?.textContent).toContain('System status');
+    expect(fixture.nativeElement.textContent).toContain('Database readiness');
+    expect(fixture.nativeElement.textContent).toContain('ready');
   });
 });

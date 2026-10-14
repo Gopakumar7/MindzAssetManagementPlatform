@@ -30,6 +30,24 @@ Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
 - Local Angular production build after a clean `npm ci`: **passed**.
 - `npm install --package-lock-only` was required to correct a pre-existing mismatch between `package.json` and `package-lock.json`. npm reported 64 dependency audit findings (7 low, 16 moderate, 39 high, 2 critical); dependency upgrades were not part of this containerization task.
 
+## Angular 22 upgrade and security reassessment (verified 2026-10-14)
+
+- Migrated one major at a time with Angular CLI schematics: 18 → 19 → 20 → 21 → 22.2.2. Each intermediate version built and passed the frontend tests before advancing.
+- Baseline versions were Angular framework 18.2.14, CLI/build 18.2.21, compiler CLI 18.2.14, TypeScript 5.5.4, RxJS 7.8.2, and Zone.js 0.14.10; the host toolchain was Node.js 20.17.0 with npm 11.0.0.
+- Final framework, CLI, compiler, and build package versions are **22.2.2**; TypeScript is **6.0.3**, RxJS **7.8.2**, and Zone.js **0.15.1**.
+- Migrated the workspace to Angular's `@angular/build` builders. The production Docker build uses Node.js **22.22.3** with npm **10.9.8**; its runtime stage remains Nginx-only. Angular 22 requires a compatible Node.js version; the machine's default Node.js 20.17.0 is below the minimum, so local Angular commands were run with a temporary Node.js 22.22.3 runtime.
+- Replaced the obsolete root-component starter test with router-root and `/status` API behavior tests. The final frontend production build passed and **2 frontend tests passed**. The Angular 19, 20, and 21 production builds and tests also passed during staged migration.
+- Backend tests: **8 passed, 1 skipped**. The PostgreSQL concurrency test requires `TEST_DATABASE_URL`.
+- Final Docker image build passed. The running frontend returned HTTP 200 for `/`, `/status`, and fingerprinted assets; the rendered `/status` page reported the backend and database ready. Same-origin health and readiness requests succeeded through Nginx. The backend and PostgreSQL ports remain unpublished.
+- Database verification found the existing `MINDZEN-DEMO` company, 11 categories, and 4 assets. Alembic remains at `b7b05462a977 (head)`; `alembic check` found no schema changes.
+
+### Audit results
+
+- Before the migration, `npm audit` reported **64 findings**: 7 low, 16 moderate, 39 high, and 2 critical. The Angular production dependency tree contained vulnerable Angular runtime packages.
+- After the migration, the full audit reports **6 high, 0 critical**, with no low or moderate findings. `npm audit --omit=dev` reports **0 production vulnerabilities**.
+- The remaining findings are development/test tooling only. They trace to `braces@3.0.3` (GHSA-vfj7-8cjw-p6xm), used by `chokidar@3.6.0` and `karma@6.4.4`, and propagate through Karma's Angular build/test peer and Jasmine adapters. No patched `braces` 3.x release is available; npm's suggested fixes downgrade Karma and its adapters across major versions and do not satisfy the Angular 22 builder's Karma peer requirements. Those changes were not applied. Angular documents migration of existing Karma projects to Vitest as experimental, so the existing supported Karma test runner was retained rather than changing test semantics as part of this security upgrade.
+- npm reports an upstream deprecation warning for Angular's animations package, which is still pulled in through `@angular/platform-browser`; the application does not import or use its legacy animation APIs.
+
 ## Phase 1 implementation
 
 ### Backend

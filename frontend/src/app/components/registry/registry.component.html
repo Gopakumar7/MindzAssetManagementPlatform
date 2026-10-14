@@ -4,22 +4,34 @@
       <p class="eyebrow">MindZen · ALCM / ITAM</p>
       <h1>Asset workspace</h1>
     </div>
-    <div class="company-picker" *ngIf="companies.length">
-      <label for="company-choice">Company scope</label>
-      <select id="company-choice" [ngModel]="companyId" (ngModelChange)="selectCompany($event)" name="company">
-        <option *ngFor="let item of companies" [value]="item.id">{{ item.name }} ({{ item.code }})</option>
-      </select>
-      <span class="scope-note">Company-scoped data</span>
-    </div>
+    @if (companies.length) {
+      <div class="company-picker">
+        <label for="company-choice">Company scope</label>
+        <select id="company-choice" [ngModel]="companyId" (ngModelChange)="selectCompany($event)" name="company">
+          @for (item of companies; track item) {
+            <option [value]="item.id">{{ item.name }} ({{ item.code }})</option>
+          }
+        </select>
+        <span class="scope-note">Company-scoped data</span>
+      </div>
+    }
   </header>
 
-  <div class="notice warning" *ngIf="companies.length">
-    Company selection scopes API records, but sign-in and user authorization are not implemented yet.
-    This is not production security isolation.
-  </div>
-  <div class="notice error" *ngIf="errorMessage" role="alert">{{ errorMessage }}</div>
-  <div class="notice success" *ngIf="successMessage" role="status">{{ successMessage }}</div>
-  <div class="loading" *ngIf="loading">Loading company data…</div>
+  @if (companies.length) {
+    <div class="notice warning">
+      Company selection scopes API records, but sign-in and user authorization are not implemented yet.
+      This is not production security isolation.
+    </div>
+  }
+  @if (errorMessage) {
+    <div class="notice error" role="alert">{{ errorMessage }}</div>
+  }
+  @if (successMessage) {
+    <div class="notice success" role="status">{{ successMessage }}</div>
+  }
+  @if (loading) {
+    <div class="loading">Loading company data…</div>
+  }
 
   <nav class="tabs" aria-label="Workspace sections">
     <button type="button" [class.active]="activeView === 'assets'" (click)="setView('assets')" [disabled]="!companyId">Assets</button>
@@ -30,243 +42,349 @@
     <button type="button" [class.active]="activeView === 'company'" (click)="setView('company')">Companies & numbering</button>
   </nav>
 
-  <section class="panel" *ngIf="activeView === 'company'">
-    <div class="section-heading">
-      <div>
-        <p class="eyebrow">Organisation</p>
-        <h2>{{ company && !creatingCompany ? 'Company settings' : 'Create a company' }}</h2>
+  @if (activeView === 'company') {
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Organisation</p>
+          <h2>{{ company && !creatingCompany ? 'Company settings' : 'Create a company' }}</h2>
+        </div>
+        @if (company && !creatingCompany) {
+          <button type="button" class="secondary" (click)="beginCompanyCreate()">Add company</button>
+        }
       </div>
-      <button type="button" class="secondary" *ngIf="company && !creatingCompany" (click)="beginCompanyCreate()">Add company</button>
-    </div>
-    <form class="form-grid" *ngIf="!company || creatingCompany" (ngSubmit)="createCompany()">
-      <label>Company code<input name="companyCode" [(ngModel)]="companyForm.code" required maxlength="32"></label>
-      <label>Company name<input name="companyName" [(ngModel)]="companyForm.name" required maxlength="160"></label>
-      <label>Default asset number prefix<input name="numberPrefix" [(ngModel)]="companyForm.number_prefix" required maxlength="24"></label>
-      <div class="form-actions"><button class="primary" type="submit" [disabled]="saving">Create company</button>
-        <button class="secondary" type="button" *ngIf="company" (click)="creatingCompany = false">Cancel</button></div>
-    </form>
-    <form class="form-grid" *ngIf="company && !creatingCompany" (ngSubmit)="saveCompany()">
-      <label>Company code<input name="currentCompanyCode" [ngModel]="company.code" disabled></label>
-      <label>Company name<input name="currentCompanyName" [(ngModel)]="companyForm.name" required maxlength="160"></label>
-      <label class="checkbox-line"><input type="checkbox" name="companyActive" [(ngModel)]="companyForm.is_active"> Active</label>
-      <div class="form-actions"><button class="primary" type="submit">Save company</button></div>
-    </form>
-
-    <h3>Company directory</h3>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Code</th><th>Company</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-          <tr *ngFor="let item of companies">
-            <td>{{ item.code }}</td><td>{{ item.name }}</td><td>{{ item.is_active ? 'Active' : 'Inactive' }}</td>
-            <td><button type="button" class="link-button" (click)="selectCompanyForEdit(item)">Select / edit</button></td>
-          </tr>
-          <tr *ngIf="companies.length === 0"><td colspan="4" class="empty">No companies yet. Create the first company above.</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <h3>Asset numbering</h3>
-    <p class="muted">A category-specific rule takes precedence; otherwise the company default is used. Generated numbers are not reused deliberately.</p>
-    <form class="form-grid rule-grid" *ngIf="companyId" (ngSubmit)="saveNumberRule()">
-      <label>Rule scope
-        <select name="ruleCategory" [(ngModel)]="ruleForm.category_id" (ngModelChange)="onRuleCategoryChange($event)">
-          <option value="">Company default</option>
-          <option *ngFor="let item of activeCategories" [value]="item.id">{{ item.name }}</option>
-        </select>
-      </label>
-      <label>Prefix<input name="rulePrefix" [(ngModel)]="ruleForm.prefix" required pattern="[A-Za-z0-9]+" maxlength="24"></label>
-      <label>Separator<input name="ruleSeparator" [(ngModel)]="ruleForm.separator" maxlength="3"></label>
-      <label>Zero padding<input type="number" name="rulePadding" [(ngModel)]="ruleForm.padding" min="1" max="12" required></label>
-      <div class="form-actions"><button class="primary" type="submit">Save numbering rule</button></div>
-    </form>
-    <p class="muted" *ngIf="!companyId">Create or select a company to configure numbering.</p>
-  </section>
-
-  <section class="panel" *ngIf="activeView === 'departments' || activeView === 'sites' || activeView === 'categories' || activeView === 'cost-centers'">
-    <div class="section-heading">
-      <div>
-        <p class="eyebrow">Company master data</p>
-        <h2>{{ activeView === 'departments' ? 'Departments' : activeView === 'sites' ? 'Sites and physical locations' : activeView === 'categories' ? 'Asset categories' : 'Cost centres' }}</h2>
+      @if (!company || creatingCompany) {
+        <form class="form-grid" (ngSubmit)="createCompany()">
+          <label>Company code<input name="companyCode" [(ngModel)]="companyForm.code" required maxlength="32"></label>
+          <label>Company name<input name="companyName" [(ngModel)]="companyForm.name" required maxlength="160"></label>
+          <label>Default asset number prefix<input name="numberPrefix" [(ngModel)]="companyForm.number_prefix" required maxlength="24"></label>
+          <div class="form-actions"><button class="primary" type="submit" [disabled]="saving">Create company</button>
+          @if (company) {
+            <button class="secondary" type="button" (click)="creatingCompany = false">Cancel</button>
+          }</div>
+        </form>
+      }
+      @if (company && !creatingCompany) {
+        <form class="form-grid" (ngSubmit)="saveCompany()">
+          <label>Company code<input name="currentCompanyCode" [ngModel]="company.code" disabled></label>
+          <label>Company name<input name="currentCompanyName" [(ngModel)]="companyForm.name" required maxlength="160"></label>
+          <label class="checkbox-line"><input type="checkbox" name="companyActive" [(ngModel)]="companyForm.is_active"> Active</label>
+          <div class="form-actions"><button class="primary" type="submit">Save company</button></div>
+        </form>
+      }
+      <h3>Company directory</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Code</th><th>Company</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            @for (item of companies; track item) {
+              <tr>
+                <td>{{ item.code }}</td><td>{{ item.name }}</td><td>{{ item.is_active ? 'Active' : 'Inactive' }}</td>
+                <td><button type="button" class="link-button" (click)="selectCompanyForEdit(item)">Select / edit</button></td>
+              </tr>
+            }
+            @if (companies.length === 0) {
+              <tr><td colspan="4" class="empty">No companies yet. Create the first company above.</td></tr>
+            }
+          </tbody>
+        </table>
       </div>
-    </div>
+      <h3>Asset numbering</h3>
+      <p class="muted">A category-specific rule takes precedence; otherwise the company default is used. Generated numbers are not reused deliberately.</p>
+      @if (companyId) {
+        <form class="form-grid rule-grid" (ngSubmit)="saveNumberRule()">
+          <label>Rule scope
+            <select name="ruleCategory" [(ngModel)]="ruleForm.category_id" (ngModelChange)="onRuleCategoryChange($event)">
+              <option value="">Company default</option>
+              @for (item of activeCategories; track item) {
+                <option [value]="item.id">{{ item.name }}</option>
+              }
+            </select>
+          </label>
+          <label>Prefix<input name="rulePrefix" [(ngModel)]="ruleForm.prefix" required pattern="[A-Za-z0-9]+" maxlength="24"></label>
+          <label>Separator<input name="ruleSeparator" [(ngModel)]="ruleForm.separator" maxlength="3"></label>
+          <label>Zero padding<input type="number" name="rulePadding" [(ngModel)]="ruleForm.padding" min="1" max="12" required></label>
+          <div class="form-actions"><button class="primary" type="submit">Save numbering rule</button></div>
+        </form>
+      }
+      @if (!companyId) {
+        <p class="muted">Create or select a company to configure numbering.</p>
+      }
+    </section>
+  }
 
-    <form class="form-grid" (ngSubmit)="saveMaster()">
-      <label *ngIf="!editingMasterId">Code<input name="masterCode" [(ngModel)]="masterForm.code" required maxlength="32"></label>
-      <label>{{ editingMasterId ? 'Edit name' : 'Name' }}<input name="masterName" [(ngModel)]="masterForm.name" required maxlength="160"></label>
-      <label *ngIf="activeView === 'sites'">Address<input name="siteAddress" [(ngModel)]="masterForm.address"></label>
-      <label *ngIf="activeView === 'categories'">Description<input name="categoryDescription" [(ngModel)]="masterForm.description"></label>
-      <label class="checkbox-line" *ngIf="editingMasterId"><input type="checkbox" name="masterActive" [(ngModel)]="masterForm.is_active"> Active</label>
-      <div class="form-actions">
-        <button class="primary" type="submit" [disabled]="saving">{{ editingMasterId ? 'Save changes' : 'Add record' }}</button>
-        <button class="secondary" type="button" *ngIf="editingMasterId" (click)="editingMasterId = ''; masterForm.name = ''">Cancel edit</button>
+  @if (activeView === 'departments' || activeView === 'sites' || activeView === 'categories' || activeView === 'cost-centers') {
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Company master data</p>
+          <h2>{{ activeView === 'departments' ? 'Departments' : activeView === 'sites' ? 'Sites and physical locations' : activeView === 'categories' ? 'Asset categories' : 'Cost centres' }}</h2>
+        </div>
       </div>
-    </form>
-
-    <div class="table-wrap" *ngIf="activeView !== 'sites'">
-      <table>
-        <thead><tr><th>Code</th><th>Name</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-          <tr *ngFor="let item of activeView === 'departments' ? departments : activeView === 'categories' ? categories : costCenters">
-            <td>{{ item.code }}</td><td>{{ item.name }}</td><td>{{ item.is_active ? 'Active' : 'Inactive' }}</td>
-            <td class="actions"><button type="button" class="link-button" (click)="editMaster(item)">Edit</button>
-              <button type="button" class="link-button danger-text" *ngIf="item.is_active" (click)="deactivateCurrentMaster(item)">Deactivate</button></td>
-          </tr>
-          <tr *ngIf="(activeView === 'departments' ? departments : activeView === 'categories' ? categories : costCenters).length === 0">
-            <td colspan="4" class="empty">No records available.</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div *ngIf="activeView === 'sites'" class="split-section">
-      <div>
+      <form class="form-grid" (ngSubmit)="saveMaster()">
+        @if (!editingMasterId) {
+          <label>Code<input name="masterCode" [(ngModel)]="masterForm.code" required maxlength="32"></label>
+        }
+        <label>{{ editingMasterId ? 'Edit name' : 'Name' }}<input name="masterName" [(ngModel)]="masterForm.name" required maxlength="160"></label>
+        @if (activeView === 'sites') {
+          <label>Address<input name="siteAddress" [(ngModel)]="masterForm.address"></label>
+        }
+        @if (activeView === 'categories') {
+          <label>Description<input name="categoryDescription" [(ngModel)]="masterForm.description"></label>
+        }
+        @if (editingMasterId) {
+          <label class="checkbox-line"><input type="checkbox" name="masterActive" [(ngModel)]="masterForm.is_active"> Active</label>
+        }
+        <div class="form-actions">
+          <button class="primary" type="submit" [disabled]="saving">{{ editingMasterId ? 'Save changes' : 'Add record' }}</button>
+          @if (editingMasterId) {
+            <button class="secondary" type="button" (click)="editingMasterId = ''; masterForm.name = ''">Cancel edit</button>
+          }
+        </div>
+      </form>
+      @if (activeView !== 'sites') {
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Code</th><th>Site</th><th>Address</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Code</th><th>Name</th><th>Status</th><th></th></tr></thead>
             <tbody>
-              <tr *ngFor="let item of sites">
-                <td>{{ item.code }}</td><td>{{ item.name }}</td><td>{{ item.address || '—' }}</td><td>{{ item.is_active ? 'Active' : 'Inactive' }}</td>
-                <td class="actions"><button type="button" class="link-button" (click)="editMaster(item)">Edit</button>
-                  <button type="button" class="link-button danger-text" *ngIf="item.is_active" (click)="deactivateMaster('sites', item)">Deactivate</button></td>
-              </tr>
-              <tr *ngIf="sites.length === 0"><td colspan="5" class="empty">No sites available.</td></tr>
+              @for (item of activeView === 'departments' ? departments : activeView === 'categories' ? categories : costCenters; track item) {
+                <tr>
+                  <td>{{ item.code }}</td><td>{{ item.name }}</td><td>{{ item.is_active ? 'Active' : 'Inactive' }}</td>
+                  <td class="actions"><button type="button" class="link-button" (click)="editMaster(item)">Edit</button>
+                  @if (item.is_active) {
+                    <button type="button" class="link-button danger-text" (click)="deactivateCurrentMaster(item)">Deactivate</button>
+                  }</td>
+                </tr>
+              }
+              @if ((activeView === 'departments' ? departments : activeView === 'categories' ? categories : costCenters).length === 0) {
+                <tr>
+                  <td colspan="4" class="empty">No records available.</td>
+                </tr>
+              }
             </tbody>
           </table>
         </div>
-      </div>
-      <div class="location-panel">
-        <label>Site for physical location
-          <select name="locationSite" [(ngModel)]="selectedSiteId" (ngModelChange)="onSiteChange($event)">
-            <option value="">Choose site</option>
-            <option *ngFor="let item of activeSites" [value]="item.id">{{ item.name }}</option>
-          </select>
-        </label>
-        <form class="form-grid compact" (ngSubmit)="saveLocation()">
-          <label *ngIf="!editingLocationId">Location code<input name="locationCode" [(ngModel)]="masterForm.code" required maxlength="32"></label>
-          <label>Location name<input name="locationName" [(ngModel)]="masterForm.name" required maxlength="160"></label>
-          <label>Details<input name="locationDetails" [(ngModel)]="masterForm.details"></label>
-          <div class="form-actions"><button class="primary" type="submit" [disabled]="saving || !selectedSiteId">{{ editingLocationId ? 'Save location' : 'Add location' }}</button>
-            <button type="button" class="secondary" *ngIf="editingLocationId" (click)="editingLocationId = ''; masterForm.name = ''">Cancel</button></div>
-        </form>
-        <div class="location-list">
-          <h3>Locations</h3>
-          <p *ngFor="let item of locations" class="location-item">
-            <span><strong>{{ item.code }}</strong> — {{ item.name }} <span *ngIf="!item.is_active">(inactive)</span></span>
-            <span><button type="button" class="link-button" (click)="editLocation(item)">Edit</button>
-              <button type="button" class="link-button danger-text" *ngIf="item.is_active" (click)="deactivateLocation(item)">Deactivate</button></span>
-          </p>
-          <p class="empty" *ngIf="selectedSiteId && locations.length === 0">No locations for this site.</p>
-          <p class="empty" *ngIf="!selectedSiteId">Choose a site to view its locations.</p>
+      }
+      @if (activeView === 'sites') {
+        <div class="split-section">
+          <div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Code</th><th>Site</th><th>Address</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  @for (item of sites; track item) {
+                    <tr>
+                      <td>{{ item.code }}</td><td>{{ item.name }}</td><td>{{ item.address || '—' }}</td><td>{{ item.is_active ? 'Active' : 'Inactive' }}</td>
+                      <td class="actions"><button type="button" class="link-button" (click)="editMaster(item)">Edit</button>
+                      @if (item.is_active) {
+                        <button type="button" class="link-button danger-text" (click)="deactivateMaster('sites', item)">Deactivate</button>
+                      }</td>
+                    </tr>
+                  }
+                  @if (sites.length === 0) {
+                    <tr><td colspan="5" class="empty">No sites available.</td></tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="location-panel">
+            <label>Site for physical location
+              <select name="locationSite" [(ngModel)]="selectedSiteId" (ngModelChange)="onSiteChange($event)">
+                <option value="">Choose site</option>
+                @for (item of activeSites; track item) {
+                  <option [value]="item.id">{{ item.name }}</option>
+                }
+              </select>
+            </label>
+            <form class="form-grid compact" (ngSubmit)="saveLocation()">
+              @if (!editingLocationId) {
+                <label>Location code<input name="locationCode" [(ngModel)]="masterForm.code" required maxlength="32"></label>
+              }
+              <label>Location name<input name="locationName" [(ngModel)]="masterForm.name" required maxlength="160"></label>
+              <label>Details<input name="locationDetails" [(ngModel)]="masterForm.details"></label>
+              <div class="form-actions"><button class="primary" type="submit" [disabled]="saving || !selectedSiteId">{{ editingLocationId ? 'Save location' : 'Add location' }}</button>
+              @if (editingLocationId) {
+                <button type="button" class="secondary" (click)="editingLocationId = ''; masterForm.name = ''">Cancel</button>
+              }</div>
+            </form>
+            <div class="location-list">
+              <h3>Locations</h3>
+              @for (item of locations; track item) {
+                <p class="location-item">
+                  <span><strong>{{ item.code }}</strong> — {{ item.name }} @if (!item.is_active) {
+                  <span>(inactive)</span>
+                }</span>
+                <span><button type="button" class="link-button" (click)="editLocation(item)">Edit</button>
+                @if (item.is_active) {
+                  <button type="button" class="link-button danger-text" (click)="deactivateLocation(item)">Deactivate</button>
+                }</span>
+              </p>
+            }
+            @if (selectedSiteId && locations.length === 0) {
+              <p class="empty">No locations for this site.</p>
+            }
+            @if (!selectedSiteId) {
+              <p class="empty">Choose a site to view its locations.</p>
+            }
+          </div>
         </div>
       </div>
-    </div>
+    }
   </section>
+}
 
-  <section class="panel" *ngIf="activeView === 'assets'">
+@if (activeView === 'assets') {
+  <section class="panel">
     <div class="section-heading">
       <div><p class="eyebrow">Inventory</p><h2>Asset registry</h2></div>
       <span class="count">{{ totalAssets }} assets</span>
     </div>
     <form class="filter-grid" (ngSubmit)="page = 1; loadAssets()">
       <label>Search asset / serial<input name="search" [(ngModel)]="filters.search" placeholder="Search"></label>
-      <label>Category<select name="assetCategoryFilter" [(ngModel)]="filters.category_id"><option value="">All categories</option><option *ngFor="let item of activeCategories" [value]="item.id">{{ item.name }}</option></select></label>
-      <label>Status<input name="statusFilter" [(ngModel)]="filters.status" placeholder="e.g. in_stock"></label>
-      <label>Site<select name="assetSiteFilter" [(ngModel)]="filters.site_id" (ngModelChange)="loadLocations($event)"><option value="">All sites</option><option *ngFor="let item of activeSites" [value]="item.id">{{ item.name }}</option></select></label>
-      <label>Location<select name="assetLocationFilter" [(ngModel)]="filters.location_id"><option value="">All locations</option><option *ngFor="let item of locations" [value]="item.id">{{ item.name }}</option></select></label>
-      <label>Department<select name="assetDepartmentFilter" [(ngModel)]="filters.department_id"><option value="">All departments</option><option *ngFor="let item of activeDepartments" [value]="item.id">{{ item.name }}</option></select></label>
-      <button class="primary" type="submit">Search</button>
-    </form>
-
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Asset number</th><th>Category</th><th>Serial number</th><th>Status</th><th>Custodian</th><th>Site</th><th>Location</th><th></th></tr></thead>
-        <tbody>
-          <tr *ngFor="let asset of assets">
-            <td><strong>{{ asset.asset_number }}</strong></td><td>{{ categoryName(asset.category_id) }}</td>
-            <td>{{ asset.serial_number || '—' }}</td><td><span class="status-pill">{{ asset.status }}</span></td>
-            <td>{{ asset.custodian_name || '—' }}</td><td>{{ siteName(asset.site_id) }}</td><td>{{ locationName(asset.location_id) }}</td>
-            <td><button type="button" class="link-button" (click)="openAsset(asset)">Details</button></td>
-          </tr>
-          <tr *ngIf="!loading && assets.length === 0"><td colspan="8" class="empty">No assets found. Register an asset below.</td></tr>
-        </tbody>
-      </table>
+      <label>Category<select name="assetCategoryFilter" [(ngModel)]="filters.category_id"><option value="">All categories</option>@for (item of activeCategories; track item) {
+      <option [value]="item.id">{{ item.name }}</option>
+    }</select></label>
+    <label>Status<input name="statusFilter" [(ngModel)]="filters.status" placeholder="e.g. in_stock"></label>
+    <label>Site<select name="assetSiteFilter" [(ngModel)]="filters.site_id" (ngModelChange)="loadLocations($event)"><option value="">All sites</option>@for (item of activeSites; track item) {
+    <option [value]="item.id">{{ item.name }}</option>
+  }</select></label>
+  <label>Location<select name="assetLocationFilter" [(ngModel)]="filters.location_id"><option value="">All locations</option>@for (item of locations; track item) {
+  <option [value]="item.id">{{ item.name }}</option>
+}</select></label>
+<label>Department<select name="assetDepartmentFilter" [(ngModel)]="filters.department_id"><option value="">All departments</option>@for (item of activeDepartments; track item) {
+<option [value]="item.id">{{ item.name }}</option>
+}</select></label>
+<button class="primary" type="submit">Search</button>
+</form>
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Asset number</th><th>Category</th><th>Serial number</th><th>Status</th><th>Custodian</th><th>Site</th><th>Location</th><th></th></tr></thead>
+    <tbody>
+      @for (asset of assets; track asset) {
+        <tr>
+          <td><strong>{{ asset.asset_number }}</strong></td><td>{{ categoryName(asset.category_id) }}</td>
+          <td>{{ asset.serial_number || '—' }}</td><td><span class="status-pill">{{ asset.status }}</span></td>
+          <td>{{ asset.custodian_name || '—' }}</td><td>{{ siteName(asset.site_id) }}</td><td>{{ locationName(asset.location_id) }}</td>
+          <td><button type="button" class="link-button" (click)="openAsset(asset)">Details</button></td>
+        </tr>
+      }
+      @if (!loading && assets.length === 0) {
+        <tr><td colspan="8" class="empty">No assets found. Register an asset below.</td></tr>
+      }
+    </tbody>
+  </table>
+</div>
+<div class="pagination">
+  <button type="button" class="secondary" (click)="pageBy(-1)" [disabled]="page <= 1">Previous</button>
+  <span>Page {{ page }} of {{ pageCount }}</span>
+  <button type="button" class="secondary" (click)="pageBy(1)" [disabled]="page * pageSize >= totalAssets">Next</button>
+</div>
+<details class="register-form">
+  <summary>Register an asset</summary>
+  <form class="form-grid" (ngSubmit)="createAsset()">
+    <label>Category<select name="newAssetCategory" [(ngModel)]="assetForm.category_id" required><option value="">Choose category</option>@for (item of activeCategories; track item) {
+    <option [value]="item.id">{{ item.name }}</option>
+  }</select></label>
+  <label>Serial number<input name="newAssetSerial" [(ngModel)]="assetForm.serial_number" maxlength="120"></label>
+  <label>Manufacturer<input name="newAssetManufacturer" [(ngModel)]="assetForm.manufacturer"></label>
+  <label>Model<input name="newAssetModel" [(ngModel)]="assetForm.model"></label>
+  <label>Acquisition date<input type="date" name="newAssetDate" [(ngModel)]="assetForm.acquisition_date"></label>
+  <label>Acquisition cost<input type="number" name="newAssetCost" [(ngModel)]="assetForm.acquisition_cost" min="0" step="0.01"></label>
+  <label>Status<input name="newAssetStatus" [(ngModel)]="assetForm.status" required></label>
+  <label>Site<select name="newAssetSite" [(ngModel)]="assetForm.site_id" (ngModelChange)="loadLocations($event)"><option value="">Not assigned</option>@for (item of activeSites; track item) {
+  <option [value]="item.id">{{ item.name }}</option>
+}</select></label>
+<label>Physical location<select name="newAssetLocation" [(ngModel)]="assetForm.location_id"><option value="">Not assigned</option>@for (item of locations; track item) {
+<option [value]="item.id">{{ item.name }}</option>
+}</select></label>
+<label>Responsible department<select name="newAssetDepartment" [(ngModel)]="assetForm.responsible_department_id"><option value="">None</option>@for (item of activeDepartments; track item) {
+<option [value]="item.id">{{ item.name }}</option>
+}</select></label>
+<label>Cost centre<select name="newAssetCostCenter" [(ngModel)]="assetForm.cost_center_id"><option value="">None</option>@for (item of activeCostCenters; track item) {
+<option [value]="item.id">{{ item.name }}</option>
+}</select></label>
+<label>Current custodian<input name="newAssetCustodian" [(ngModel)]="assetForm.custodian_name"></label>
+<label class="wide">Notes<textarea name="newAssetNotes" [(ngModel)]="assetForm.notes" rows="2"></textarea></label>
+<div class="form-actions"><button class="primary" type="submit" [disabled]="saving || !assetForm.category_id">Register asset</button><span class="muted">Asset number is generated by the configured rule.</span></div>
+</form>
+</details>
+@if (selectedAsset) {
+  <section #assetDetail class="asset-detail" tabindex="-1" aria-labelledby="asset-detail-heading">
+    <div class="section-heading">
+      <div><p class="eyebrow">Asset record</p><h2 id="asset-detail-heading">{{ selectedAsset.asset_number }}</h2></div>
+      <button type="button" class="secondary" (click)="selectedAsset = undefined">Close details</button>
     </div>
-    <div class="pagination">
-      <button type="button" class="secondary" (click)="pageBy(-1)" [disabled]="page <= 1">Previous</button>
-      <span>Page {{ page }} of {{ pageCount }}</span>
-      <button type="button" class="secondary" (click)="pageBy(1)" [disabled]="page * pageSize >= totalAssets">Next</button>
+    <form class="form-grid" (ngSubmit)="saveAsset()">
+      <label>Category<select name="editCategory" [(ngModel)]="assetEditForm.category_id">@for (item of activeCategories; track item) {
+        <option [value]="item.id">{{ item.name }}</option>
+      }</select></label>
+      <label>Status<input name="editStatus" [(ngModel)]="assetEditForm.status"></label>
+      <label>Serial number<input name="editSerial" [(ngModel)]="assetEditForm.serial_number"></label>
+      <label>Manufacturer<input name="editManufacturer" [(ngModel)]="assetEditForm.manufacturer"></label>
+      <label>Model<input name="editModel" [(ngModel)]="assetEditForm.model"></label>
+      <label>Acquisition date<input type="date" name="editAcquisitionDate" [(ngModel)]="assetEditForm.acquisition_date"></label>
+      <label>Acquisition cost<input type="number" name="editAcquisitionCost" [(ngModel)]="assetEditForm.acquisition_cost" min="0" step="0.01"></label>
+      <label>Custodian<input name="editCustodian" [(ngModel)]="assetEditForm.custodian_name"></label>
+      <label>Vendor reference<input name="editVendor" [(ngModel)]="assetEditForm.vendor_reference"></label>
+      <label>Invoice reference<input name="editInvoice" [(ngModel)]="assetEditForm.invoice_reference"></label>
+      <label>Warranty start<input type="date" name="editWarrantyStart" [(ngModel)]="assetEditForm.warranty_start"></label>
+      <label>Warranty end<input type="date" name="editWarrantyEnd" [(ngModel)]="assetEditForm.warranty_end"></label>
+      <label>Site<select name="editSite" [(ngModel)]="assetEditForm.site_id" (ngModelChange)="loadLocations($event)"><option [ngValue]="null">Not assigned</option>@for (item of activeSites; track item) {
+      <option [value]="item.id">{{ item.name }}</option>
+    }</select></label>
+    <label>Location<select name="editLocation" [(ngModel)]="assetEditForm.location_id"><option [ngValue]="null">Not assigned</option>@for (item of locations; track item) {
+    <option [value]="item.id">{{ item.name }}</option>
+  }</select></label>
+  <label>Responsible department<select name="editDepartment" [(ngModel)]="assetEditForm.responsible_department_id"><option [ngValue]="null">None</option>@for (item of activeDepartments; track item) {
+  <option [value]="item.id">{{ item.name }}</option>
+}</select></label>
+<label>Cost centre<select name="editCostCenter" [(ngModel)]="assetEditForm.cost_center_id"><option [ngValue]="null">None</option>@for (item of activeCostCenters; track item) {
+<option [value]="item.id">{{ item.name }}</option>
+}</select></label>
+<label class="wide">Notes<textarea name="editNotes" [(ngModel)]="assetEditForm.notes" rows="2"></textarea></label>
+<div class="form-actions"><button type="submit" class="primary">Save asset changes</button></div>
+</form>
+<div class="usage-section">
+  <h3>Departments using this asset</h3>
+  <p class="muted">Usage is separate from responsibility, custodian and physical location. It does not duplicate the asset.</p>
+  <form class="inline-form" (ngSubmit)="addUsage()">
+    <select name="usageDepartment" [(ngModel)]="usageForm.department_id" required><option value="">Choose department</option>@for (item of activeDepartments; track item) {
+    <option [value]="item.id">{{ item.name }}</option>
+  }</select>
+  <input name="usagePurpose" [(ngModel)]="usageForm.purpose" placeholder="Purpose (optional)">
+  <button class="primary" type="submit" [disabled]="!usageForm.department_id">Add department</button>
+</form>
+@for (usage of selectedUsages; track usage) {
+  <div class="usage-row">
+    <span><strong>{{ departmentName(usage.department_id) }}</strong> · {{ usage.purpose || 'No purpose provided' }} · started {{ usage.started_at | date:'mediumDate' }}</span>
+    @if (usage.ended_at) {
+      <span class="muted">Ended {{ usage.ended_at | date:'mediumDate' }}</span>
+    }
+    @if (!usage.ended_at) {
+      <button type="button" class="link-button danger-text" (click)="endUsage(usage)">End usage</button>
+    }
+  </div>
+}
+</div>
+<div class="history-section">
+  <h3>Change history</h3>
+  @for (item of assetHistory; track item) {
+    <div class="history-row">
+      <span>{{ item.event_type }}@if (item.field_name) {
+        <span> · {{ item.field_name }}: {{ item.old_value || '—' }} → {{ item.new_value || '—' }}</span>
+      }</span>
+      <time>{{ item.occurred_at | date:'medium' }}</time>
     </div>
+  }
+  @if (assetHistory.length === 0) {
+    <p class="empty">No change history.</p>
+  }
+</div>
+</section>
+}
+</section>
+}
 
-    <details class="register-form">
-      <summary>Register an asset</summary>
-      <form class="form-grid" (ngSubmit)="createAsset()">
-        <label>Category<select name="newAssetCategory" [(ngModel)]="assetForm.category_id" required><option value="">Choose category</option><option *ngFor="let item of activeCategories" [value]="item.id">{{ item.name }}</option></select></label>
-        <label>Serial number<input name="newAssetSerial" [(ngModel)]="assetForm.serial_number" maxlength="120"></label>
-        <label>Manufacturer<input name="newAssetManufacturer" [(ngModel)]="assetForm.manufacturer"></label>
-        <label>Model<input name="newAssetModel" [(ngModel)]="assetForm.model"></label>
-        <label>Acquisition date<input type="date" name="newAssetDate" [(ngModel)]="assetForm.acquisition_date"></label>
-        <label>Acquisition cost<input type="number" name="newAssetCost" [(ngModel)]="assetForm.acquisition_cost" min="0" step="0.01"></label>
-        <label>Status<input name="newAssetStatus" [(ngModel)]="assetForm.status" required></label>
-        <label>Site<select name="newAssetSite" [(ngModel)]="assetForm.site_id" (ngModelChange)="loadLocations($event)"><option value="">Not assigned</option><option *ngFor="let item of activeSites" [value]="item.id">{{ item.name }}</option></select></label>
-        <label>Physical location<select name="newAssetLocation" [(ngModel)]="assetForm.location_id"><option value="">Not assigned</option><option *ngFor="let item of locations" [value]="item.id">{{ item.name }}</option></select></label>
-        <label>Responsible department<select name="newAssetDepartment" [(ngModel)]="assetForm.responsible_department_id"><option value="">None</option><option *ngFor="let item of activeDepartments" [value]="item.id">{{ item.name }}</option></select></label>
-        <label>Cost centre<select name="newAssetCostCenter" [(ngModel)]="assetForm.cost_center_id"><option value="">None</option><option *ngFor="let item of activeCostCenters" [value]="item.id">{{ item.name }}</option></select></label>
-        <label>Current custodian<input name="newAssetCustodian" [(ngModel)]="assetForm.custodian_name"></label>
-        <label class="wide">Notes<textarea name="newAssetNotes" [(ngModel)]="assetForm.notes" rows="2"></textarea></label>
-        <div class="form-actions"><button class="primary" type="submit" [disabled]="saving || !assetForm.category_id">Register asset</button><span class="muted">Asset number is generated by the configured rule.</span></div>
-      </form>
-    </details>
-
-    <section #assetDetail class="asset-detail" *ngIf="selectedAsset" tabindex="-1" aria-labelledby="asset-detail-heading">
-      <div class="section-heading">
-        <div><p class="eyebrow">Asset record</p><h2 id="asset-detail-heading">{{ selectedAsset.asset_number }}</h2></div>
-        <button type="button" class="secondary" (click)="selectedAsset = undefined">Close details</button>
-      </div>
-      <form class="form-grid" (ngSubmit)="saveAsset()">
-        <label>Category<select name="editCategory" [(ngModel)]="assetEditForm.category_id"><option *ngFor="let item of activeCategories" [value]="item.id">{{ item.name }}</option></select></label>
-        <label>Status<input name="editStatus" [(ngModel)]="assetEditForm.status"></label>
-        <label>Serial number<input name="editSerial" [(ngModel)]="assetEditForm.serial_number"></label>
-        <label>Manufacturer<input name="editManufacturer" [(ngModel)]="assetEditForm.manufacturer"></label>
-        <label>Model<input name="editModel" [(ngModel)]="assetEditForm.model"></label>
-        <label>Acquisition date<input type="date" name="editAcquisitionDate" [(ngModel)]="assetEditForm.acquisition_date"></label>
-        <label>Acquisition cost<input type="number" name="editAcquisitionCost" [(ngModel)]="assetEditForm.acquisition_cost" min="0" step="0.01"></label>
-        <label>Custodian<input name="editCustodian" [(ngModel)]="assetEditForm.custodian_name"></label>
-        <label>Vendor reference<input name="editVendor" [(ngModel)]="assetEditForm.vendor_reference"></label>
-        <label>Invoice reference<input name="editInvoice" [(ngModel)]="assetEditForm.invoice_reference"></label>
-        <label>Warranty start<input type="date" name="editWarrantyStart" [(ngModel)]="assetEditForm.warranty_start"></label>
-        <label>Warranty end<input type="date" name="editWarrantyEnd" [(ngModel)]="assetEditForm.warranty_end"></label>
-        <label>Site<select name="editSite" [(ngModel)]="assetEditForm.site_id" (ngModelChange)="loadLocations($event)"><option [ngValue]="null">Not assigned</option><option *ngFor="let item of activeSites" [value]="item.id">{{ item.name }}</option></select></label>
-        <label>Location<select name="editLocation" [(ngModel)]="assetEditForm.location_id"><option [ngValue]="null">Not assigned</option><option *ngFor="let item of locations" [value]="item.id">{{ item.name }}</option></select></label>
-        <label>Responsible department<select name="editDepartment" [(ngModel)]="assetEditForm.responsible_department_id"><option [ngValue]="null">None</option><option *ngFor="let item of activeDepartments" [value]="item.id">{{ item.name }}</option></select></label>
-        <label>Cost centre<select name="editCostCenter" [(ngModel)]="assetEditForm.cost_center_id"><option [ngValue]="null">None</option><option *ngFor="let item of activeCostCenters" [value]="item.id">{{ item.name }}</option></select></label>
-        <label class="wide">Notes<textarea name="editNotes" [(ngModel)]="assetEditForm.notes" rows="2"></textarea></label>
-        <div class="form-actions"><button type="submit" class="primary">Save asset changes</button></div>
-      </form>
-      <div class="usage-section">
-        <h3>Departments using this asset</h3>
-        <p class="muted">Usage is separate from responsibility, custodian and physical location. It does not duplicate the asset.</p>
-        <form class="inline-form" (ngSubmit)="addUsage()">
-          <select name="usageDepartment" [(ngModel)]="usageForm.department_id" required><option value="">Choose department</option><option *ngFor="let item of activeDepartments" [value]="item.id">{{ item.name }}</option></select>
-          <input name="usagePurpose" [(ngModel)]="usageForm.purpose" placeholder="Purpose (optional)">
-          <button class="primary" type="submit" [disabled]="!usageForm.department_id">Add department</button>
-        </form>
-        <div class="usage-row" *ngFor="let usage of selectedUsages">
-          <span><strong>{{ departmentName(usage.department_id) }}</strong> · {{ usage.purpose || 'No purpose provided' }} · started {{ usage.started_at | date:'mediumDate' }}</span>
-          <span *ngIf="usage.ended_at" class="muted">Ended {{ usage.ended_at | date:'mediumDate' }}</span>
-          <button type="button" class="link-button danger-text" *ngIf="!usage.ended_at" (click)="endUsage(usage)">End usage</button>
-        </div>
-      </div>
-      <div class="history-section">
-        <h3>Change history</h3>
-        <div class="history-row" *ngFor="let item of assetHistory">
-          <span>{{ item.event_type }}<span *ngIf="item.field_name"> · {{ item.field_name }}: {{ item.old_value || '—' }} → {{ item.new_value || '—' }}</span></span>
-          <time>{{ item.occurred_at | date:'medium' }}</time>
-        </div>
-        <p class="empty" *ngIf="assetHistory.length === 0">No change history.</p>
-      </div>
-    </section>
-  </section>
-
-  <footer><a routerLink="/status">System status</a><span>MindZen technical foundation · organisation and asset registry</span></footer>
+<footer><a routerLink="/status">System status</a><span>MindZen technical foundation · organisation and asset registry</span></footer>
 </main>

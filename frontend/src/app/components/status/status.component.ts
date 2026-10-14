@@ -1,15 +1,15 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ChangeDetectionStrategy } from '@angular/core';
 import { finalize } from 'rxjs';
 
 import { HealthResponse, HealthService, ReadinessResponse } from '../../services/health.service';
 
 @Component({
-  selector: 'app-status',
-  standalone: true,
-  imports: [CommonModule],
-  templateUrl: './status.component.html',
-  styleUrl: './status.component.scss'
+    selector: 'app-status',
+    imports: [CommonModule],
+    templateUrl: './status.component.html',
+    changeDetection: ChangeDetectionStrategy.Eager,
+    styleUrl: './status.component.scss'
 })
 export class StatusComponent implements OnInit {
   health?: HealthResponse;

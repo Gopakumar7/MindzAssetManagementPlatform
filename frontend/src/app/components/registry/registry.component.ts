@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectorRef, Component, ElementRef, OnInit, ViewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, ElementRef, OnInit, ViewChild, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
@@ -19,10 +19,10 @@ type ViewName = 'assets' | 'departments' | 'sites' | 'categories' | 'cost-center
 type MasterKind = 'departments' | 'sites' | 'categories' | 'cost-centers';
 
 @Component({
-  selector: 'app-registry',
-  standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
-  templateUrl: './registry.component.html'
+    selector: 'app-registry',
+    imports: [CommonModule, FormsModule, RouterLink],
+    changeDetection: ChangeDetectionStrategy.Eager,
+    templateUrl: './registry.component.html'
 })
 export class RegistryComponent implements OnInit {
   @ViewChild('assetDetail') private assetDetail?: ElementRef<HTMLElement>;

@@ -4,7 +4,7 @@
 
 - Docker Desktop or Docker Engine with Docker Compose
 - Git
-- Node.js 20 LTS or later only when running the Angular development server
+- Node.js 22.22.3+ on 22.x (recommended), 24.15.0+ on 24.x, or 26.0.0+ only when running the Angular development server
 - Python 3.13+ only when running the FastAPI backend locally
 
 ## Project structure
@@ -90,7 +90,7 @@ The production Docker frontend and Angular development server both use host port
 docker compose stop frontend
 ```
 
-Then, in a terminal with Node.js installed:
+Then, in a terminal with a Node.js version supported by Angular 22 installed:
 
 ```powershell
 cd frontend
@@ -128,12 +128,13 @@ cd backend
 pytest
 ```
 
-The PostgreSQL concurrency integration test runs only when `TEST_DATABASE_URL` is set to a suitable test database. Angular production build:
+The PostgreSQL concurrency integration test runs only when `TEST_DATABASE_URL` is set to a suitable test database. The Angular application is upgraded to Angular 22. Use Node.js 22.22.3+ on 22.x (recommended), 24.15.0+ on 24.x, or 26.0.0+ for local frontend development, builds, and tests:
 
 ```powershell
 cd frontend
 npm ci
 npm run build
+npm test -- --watch=false
 ```
 
 ## Troubleshooting
