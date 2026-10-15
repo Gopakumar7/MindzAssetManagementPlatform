@@ -1,9 +1,9 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Generic, TypeVar
+from typing import Annotated, Generic, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 
 class HealthResponse(BaseModel):
@@ -24,6 +24,84 @@ class ReadinessResponse(BaseModel):
 
 class Record(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320, pattern=r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+    password: str = Field(min_length=1, max_length=128)
+
+
+class InvitationAcceptRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=128)
+    password: str = Field(min_length=12, max_length=128)
+
+
+class InvitationCreateRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320, pattern=r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+    role_code: str = Field(min_length=1, max_length=64)
+
+
+class InvitationCreateResponse(BaseModel):
+    email: str
+    company_id: UUID
+    role_code: str
+    token: str
+    expires_at: datetime
+
+
+class CurrentMembershipRead(BaseModel):
+    company_id: UUID
+    company_code: str
+    company_name: str
+    role_code: str
+    role_name: str
+    permissions: list[str]
+
+
+class CurrentUserRead(BaseModel):
+    id: UUID
+    email: str
+    system_permissions: list[str]
+    memberships: list[CurrentMembershipRead]
+
+
+class MemberRead(BaseModel):
+    id: UUID
+    email: str
+    membership_id: UUID
+    status: str
+    role_code: str
+    role_name: str
+    created_at: datetime
+
+
+class MembershipUpdateRequest(BaseModel):
+    role_code: str | None = Field(default=None, min_length=1, max_length=64)
+    status: str | None = Field(default=None, pattern=r'^revoked$')
+
+
+class RoleRead(BaseModel):
+    code: str
+    name: str
+    scope: str
+    permissions: list[str]
+
+
+class RolePermissionsUpdateRequest(BaseModel):
+    permissions: list[str]
+
+
+class AuditEventRead(Record):
+    id: UUID
+    occurred_at: datetime
+    actor_id: UUID | None
+    company_id: UUID | None
+    action: str
+    entity_type: str
+    entity_id: str | None
+    outcome: str
+    request_id: str | None
+    changes: dict | None
 
 
 class CompanyCreate(BaseModel):
@@ -253,6 +331,123 @@ class AssetRead(Record):
     updated_at: datetime
 
 
+class SupplierCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=32, pattern=r'^[A-Za-z0-9_-]+$')
+    name: str = Field(min_length=1, max_length=160)
+    email: str | None = Field(default=None, max_length=320, pattern=r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+    phone: str | None = Field(default=None, max_length=64)
+    notes: str | None = None
+
+
+class SupplierRead(Record):
+    id: UUID
+    company_id: UUID
+    code: str
+    name: str
+    email: str | None
+    phone: str | None
+    notes: str | None
+    is_active: bool
+    created_at: datetime
+
+
+class PurchaseOrderLineCreate(BaseModel):
+    category_id: UUID
+    description: str = Field(min_length=1, max_length=300)
+    quantity_ordered: int = Field(gt=0, le=10000)
+    unit_cost: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+
+
+class PurchaseOrderCreate(BaseModel):
+    supplier_id: UUID
+    order_number: str = Field(min_length=1, max_length=64)
+    ordered_date: date
+    expected_date: date | None = None
+    notes: str | None = None
+    lines: list[PurchaseOrderLineCreate] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode='after')
+    def validate_expected_date(self):
+        if self.expected_date and self.expected_date < self.ordered_date:
+            raise ValueError('expected_date must be on or after ordered_date')
+        return self
+
+
+class PurchaseOrderLineRead(Record):
+    id: UUID
+    company_id: UUID
+    purchase_order_id: UUID
+    category_id: UUID
+    description: str
+    quantity_ordered: int
+    unit_cost: Decimal
+
+
+class PurchaseOrderRead(Record):
+    id: UUID
+    company_id: UUID
+    supplier_id: UUID
+    order_number: str
+    status: str
+    ordered_date: date
+    expected_date: date | None
+    notes: str | None
+    created_at: datetime
+    lines: list[PurchaseOrderLineRead]
+
+
+class GoodsReceiptLineCreate(BaseModel):
+    purchase_order_line_id: UUID
+    quantity_received: int = Field(gt=0, le=10000)
+    quantity_rejected: int = Field(default=0, ge=0, le=10000)
+    serial_numbers: list[str | None] = Field(default_factory=list, max_length=10000)
+    discrepancy_notes: str | None = None
+
+    @model_validator(mode='after')
+    def validate_rejected_quantity(self):
+        if self.quantity_rejected > self.quantity_received:
+            raise ValueError('quantity_rejected cannot exceed quantity_received')
+        if self.serial_numbers and len(self.serial_numbers) != self.quantity_received - self.quantity_rejected:
+            raise ValueError('serial_numbers must match the accepted quantity when provided')
+        return self
+
+
+class GoodsReceiptCreate(BaseModel):
+    receipt_number: str = Field(min_length=1, max_length=64)
+    received_date: date
+    delivery_reference: str | None = Field(default=None, max_length=160)
+    notes: str | None = None
+    lines: list[GoodsReceiptLineCreate] = Field(min_length=1, max_length=100)
+
+
+class ReceivedAssetRead(BaseModel):
+    id: UUID
+    asset_number: str
+    serial_number: str | None
+    status: str
+
+
+class GoodsReceiptLineRead(BaseModel):
+    id: UUID
+    purchase_order_line_id: UUID
+    quantity_received: int
+    quantity_rejected: int
+    discrepancy_notes: str | None
+    assets: list[ReceivedAssetRead]
+
+
+class GoodsReceiptRead(Record):
+    id: UUID
+    company_id: UUID
+    purchase_order_id: UUID
+    receipt_number: str
+    received_date: date
+    delivery_reference: str | None
+    notes: str | None
+    created_at: datetime
+    lines: list[GoodsReceiptLineRead]
+
+
 class UsageCreate(BaseModel):
     department_id: UUID
     purpose: str | None = Field(default=None, max_length=300)
@@ -278,6 +473,161 @@ class HistoryRead(Record):
     old_value: str | None
     new_value: str | None
     occurred_at: datetime
+
+
+class AssignmentCreate(BaseModel):
+    recipient_id: UUID
+    effective_date: date
+    responsible_department_id: UUID | None = None
+    location_id: UUID | None = None
+    notes: str | None = Field(default=None, max_length=4000)
+    reference: str | None = Field(default=None, max_length=160)
+
+
+class HandoverCreate(BaseModel):
+    handover_date: date
+    condition: str | None = Field(default=None, max_length=80)
+    included_items: str | None = Field(default=None, max_length=4000)
+    acknowledgement: str | None = Field(default=None, max_length=1000)
+    notes: str | None = Field(default=None, max_length=4000)
+
+
+class ReturnCreate(BaseModel):
+    return_date: date
+    condition: str | None = Field(default=None, max_length=80)
+    notes: str | None = Field(default=None, max_length=4000)
+    issue_details: str | None = Field(default=None, max_length=4000)
+    next_asset_status: str = Field(pattern=r'^(in_stock|maintenance)$')
+
+
+class TransferCreate(BaseModel):
+    recipient_id: UUID
+    effective_date: date
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
+    responsible_department_id: UUID | None = None
+    location_id: UUID | None = None
+    reference: str | None = Field(default=None, max_length=160)
+    condition: str | None = Field(default=None, max_length=80)
+    included_items: str | None = Field(default=None, max_length=4000)
+    acknowledgement: str | None = Field(default=None, max_length=1000)
+    notes: str | None = Field(default=None, max_length=4000)
+
+
+class AssignmentRead(Record):
+    id: UUID
+    company_id: UUID
+    asset_id: UUID
+    recipient_id: UUID
+    recipient_email: str
+    responsible_department_id: UUID | None
+    location_id: UUID | None
+    effective_date: date
+    status: str
+    notes: str | None
+    reference: str | None
+    handover_date: date | None
+    handover_condition: str | None
+    included_items: str | None
+    acknowledgement: str | None
+    handover_notes: str | None
+    ended_at: datetime | None
+    return_date: date | None
+    return_condition: str | None
+    return_notes: str | None
+    issue_details: str | None
+    next_asset_status: str | None
+    transfer_reason: str | None
+    previous_assignment_id: UUID | None
+    created_at: datetime
+
+
+class AssignmentRecipientRead(BaseModel):
+    id: UUID
+    email: str
+
+
+class AssetServiceContractCreate(BaseModel):
+    contract_type: str = Field(pattern=r'^(warranty|amc)$')
+    supplier_id: UUID | None = None
+    provider_name: str | None = Field(default=None, max_length=160)
+    reference_number: str | None = Field(default=None, max_length=160)
+    start_date: date
+    end_date: date
+    coverage_description: str | None = Field(default=None, max_length=4000)
+    support_contact: str | None = Field(default=None, max_length=320)
+    notes: str | None = Field(default=None, max_length=4000)
+
+    @model_validator(mode='after')
+    def validate_contract_dates(self):
+        if self.end_date < self.start_date:
+            raise ValueError('end_date must be on or after start_date')
+        return self
+
+
+class AssetServiceContractRead(Record):
+    id: UUID
+    company_id: UUID
+    asset_id: UUID
+    supplier_id: UUID | None
+    contract_type: str
+    provider_name: str | None
+    reference_number: str | None
+    start_date: date
+    end_date: date
+    coverage_description: str | None
+    support_contact: str | None
+    notes: str | None
+    status: str
+    coverage_status: str
+    created_at: datetime
+
+
+class MaintenanceRequestCreate(BaseModel):
+    asset_id: UUID
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    issue_description: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000)]
+    priority: str = Field(default='normal', pattern=r'^(low|normal|high|urgent)$')
+    reported_date: date
+    assignee_id: UUID | None = None
+
+
+class MaintenanceRequestUpdate(BaseModel):
+    status: str | None = Field(default=None, pattern=r'^(open|in_progress|resolved|closed)$')
+    assignee_id: UUID | None = None
+    diagnosis: str | None = Field(default=None, max_length=8000)
+    work_performed: str | None = Field(default=None, max_length=8000)
+    resolution_notes: str | None = Field(default=None, max_length=8000)
+    completed_date: date | None = None
+    cost: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+
+    @model_validator(mode='after')
+    def validate_completion(self):
+        if self.status == 'resolved' and self.completed_date is None:
+            raise ValueError('completed_date is required when resolving a request')
+        return self
+
+
+class MaintenanceRequestRead(Record):
+    id: UUID
+    company_id: UUID
+    asset_id: UUID
+    asset_number: str
+    requester_id: UUID
+    requester_email: str
+    assignee_id: UUID | None
+    assignee_email: str | None
+    title: str
+    issue_description: str
+    priority: str
+    status: str
+    reported_date: date
+    diagnosis: str | None
+    work_performed: str | None
+    resolution_notes: str | None
+    completed_date: date | None
+    cost: Decimal | None
+    created_at: datetime
+    updated_at: datetime
 
 
 T = TypeVar('T')

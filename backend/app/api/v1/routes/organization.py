@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import AssetCategory, AssetNumberRule, Company, CostCenter, Department, Location, Site
+from app.models import AssetCategory, AssetNumberRule, Company, CompanyMembership, CostCenter, Department, Location, Role, Site
 from app.schemas import (
     CategoryCreate,
     CategoryRead,
@@ -31,8 +31,9 @@ from app.schemas import (
     SiteUpdate,
 )
 from app.services import create_company, get_company, get_scoped
+from app.security import CurrentActor, actor_has_permission, current_actor, require_permission
 
-router = APIRouter(tags=['organisation'])
+router = APIRouter(tags=['organisation'], dependencies=[Depends(current_actor)])
 
 
 def commit(db: Session) -> None:
@@ -44,11 +45,30 @@ def commit(db: Session) -> None:
 
 
 @router.get('/companies', response_model=list[CompanyRead])
-def list_companies(db: Session = Depends(get_db)):
-    return db.scalars(select(Company).order_by(Company.name)).all()
+def list_companies(
+    db: Session = Depends(get_db),
+    actor: CurrentActor = Depends(current_actor),
+):
+    if actor_has_permission(db, actor.user.id, None, 'company.read'):
+        return db.scalars(select(Company).order_by(Company.name)).all()
+    return db.scalars(
+        select(Company)
+        .join(CompanyMembership, CompanyMembership.company_id == Company.id)
+        .where(
+            CompanyMembership.user_id == actor.user.id,
+            CompanyMembership.status == 'active',
+            Company.is_active.is_(True),
+        )
+        .order_by(Company.name)
+    ).all()
 
 
-@router.post('/companies', response_model=CompanyRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    '/companies',
+    response_model=CompanyRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission('system.companies.manage'))],
+)
 def add_company(payload: CompanyCreate, db: Session = Depends(get_db)):
     try:
         return create_company(db, payload)
@@ -57,12 +77,12 @@ def add_company(payload: CompanyCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail='Company code already exists') from exc
 
 
-@router.get('/companies/{company_id}', response_model=CompanyRead)
+@router.get('/companies/{company_id}', response_model=CompanyRead, dependencies=[Depends(require_permission('company.read'))])
 def read_company(company_id: UUID, db: Session = Depends(get_db)):
     return get_company(db, company_id)
 
 
-@router.patch('/companies/{company_id}', response_model=CompanyRead)
+@router.patch('/companies/{company_id}', response_model=CompanyRead, dependencies=[Depends(require_permission('company.update'))])
 def edit_company(company_id: UUID, payload: CompanyUpdate, db: Session = Depends(get_db)):
     company = get_company(db, company_id)
     for key, value in payload.model_dump(exclude_unset=True).items():
@@ -96,22 +116,22 @@ def update_scoped(db: Session, model, company_id: UUID, item_id: UUID, payload, 
     return record
 
 
-@router.get('/companies/{company_id}/departments', response_model=list[DepartmentRead])
+@router.get('/companies/{company_id}/departments', response_model=list[DepartmentRead], dependencies=[Depends(require_permission('organization.read'))])
 def list_departments(company_id: UUID, db: Session = Depends(get_db)):
     return list_scoped(db, Department, company_id)
 
 
-@router.post('/companies/{company_id}/departments', response_model=DepartmentRead, status_code=201)
+@router.post('/companies/{company_id}/departments', response_model=DepartmentRead, status_code=201, dependencies=[Depends(require_permission('organization.manage'))])
 def add_department(company_id: UUID, payload: DepartmentCreate, db: Session = Depends(get_db)):
     return create_scoped(db, Department, company_id, payload)
 
 
-@router.patch('/companies/{company_id}/departments/{department_id}', response_model=DepartmentRead)
+@router.patch('/companies/{company_id}/departments/{department_id}', response_model=DepartmentRead, dependencies=[Depends(require_permission('organization.manage'))])
 def edit_department(company_id: UUID, department_id: UUID, payload: DepartmentUpdate, db: Session = Depends(get_db)):
     return update_scoped(db, Department, company_id, department_id, payload, 'Department')
 
 
-@router.delete('/companies/{company_id}/departments/{department_id}', response_model=DepartmentRead)
+@router.delete('/companies/{company_id}/departments/{department_id}', response_model=DepartmentRead, dependencies=[Depends(require_permission('organization.manage'))])
 def deactivate_department(company_id: UUID, department_id: UUID, db: Session = Depends(get_db)):
     department = get_scoped(db, Department, company_id, department_id, 'Department')
     department.is_active = False
@@ -120,28 +140,28 @@ def deactivate_department(company_id: UUID, department_id: UUID, db: Session = D
     return department
 
 
-@router.get('/companies/{company_id}/sites', response_model=list[SiteRead])
+@router.get('/companies/{company_id}/sites', response_model=list[SiteRead], dependencies=[Depends(require_permission('organization.read'))])
 def list_sites(company_id: UUID, db: Session = Depends(get_db)):
     return list_scoped(db, Site, company_id)
 
 
-@router.post('/companies/{company_id}/sites', response_model=SiteRead, status_code=201)
+@router.post('/companies/{company_id}/sites', response_model=SiteRead, status_code=201, dependencies=[Depends(require_permission('organization.manage'))])
 def add_site(company_id: UUID, payload: SiteCreate, db: Session = Depends(get_db)):
     return create_scoped(db, Site, company_id, payload, {'address': payload.address})
 
 
-@router.patch('/companies/{company_id}/sites/{site_id}', response_model=SiteRead)
+@router.patch('/companies/{company_id}/sites/{site_id}', response_model=SiteRead, dependencies=[Depends(require_permission('organization.manage'))])
 def edit_site(company_id: UUID, site_id: UUID, payload: SiteUpdate, db: Session = Depends(get_db)):
     return update_scoped(db, Site, company_id, site_id, payload, 'Site')
 
 
-@router.get('/companies/{company_id}/sites/{site_id}/locations', response_model=list[LocationRead])
+@router.get('/companies/{company_id}/sites/{site_id}/locations', response_model=list[LocationRead], dependencies=[Depends(require_permission('organization.read'))])
 def list_locations(company_id: UUID, site_id: UUID, db: Session = Depends(get_db)):
     get_scoped(db, Site, company_id, site_id, 'Site')
     return db.scalars(select(Location).where(Location.company_id == company_id, Location.site_id == site_id).order_by(Location.name)).all()
 
 
-@router.post('/companies/{company_id}/sites/{site_id}/locations', response_model=LocationRead, status_code=201)
+@router.post('/companies/{company_id}/sites/{site_id}/locations', response_model=LocationRead, status_code=201, dependencies=[Depends(require_permission('organization.manage'))])
 def add_location(company_id: UUID, site_id: UUID, payload: LocationCreate, db: Session = Depends(get_db)):
     get_company(db, company_id, active=True)
     get_scoped(db, Site, company_id, site_id, 'Site')
@@ -152,7 +172,7 @@ def add_location(company_id: UUID, site_id: UUID, payload: LocationCreate, db: S
     return record
 
 
-@router.patch('/companies/{company_id}/sites/{site_id}/locations/{location_id}', response_model=LocationRead)
+@router.patch('/companies/{company_id}/sites/{site_id}/locations/{location_id}', response_model=LocationRead, dependencies=[Depends(require_permission('organization.manage'))])
 def edit_location(company_id: UUID, site_id: UUID, location_id: UUID, payload: LocationUpdate, db: Session = Depends(get_db)):
     location = get_scoped(db, Location, company_id, location_id, 'Location')
     if location.site_id != site_id:
@@ -164,37 +184,37 @@ def edit_location(company_id: UUID, site_id: UUID, location_id: UUID, payload: L
     return location
 
 
-@router.get('/companies/{company_id}/cost-centers', response_model=list[CostCenterRead])
+@router.get('/companies/{company_id}/cost-centers', response_model=list[CostCenterRead], dependencies=[Depends(require_permission('organization.read'))])
 def list_cost_centers(company_id: UUID, db: Session = Depends(get_db)):
     return list_scoped(db, CostCenter, company_id)
 
 
-@router.post('/companies/{company_id}/cost-centers', response_model=CostCenterRead, status_code=201)
+@router.post('/companies/{company_id}/cost-centers', response_model=CostCenterRead, status_code=201, dependencies=[Depends(require_permission('organization.manage'))])
 def add_cost_center(company_id: UUID, payload: CostCenterCreate, db: Session = Depends(get_db)):
     return create_scoped(db, CostCenter, company_id, payload)
 
 
-@router.patch('/companies/{company_id}/cost-centers/{cost_center_id}', response_model=CostCenterRead)
+@router.patch('/companies/{company_id}/cost-centers/{cost_center_id}', response_model=CostCenterRead, dependencies=[Depends(require_permission('organization.manage'))])
 def edit_cost_center(company_id: UUID, cost_center_id: UUID, payload: CostCenterUpdate, db: Session = Depends(get_db)):
     return update_scoped(db, CostCenter, company_id, cost_center_id, payload, 'Cost centre')
 
 
-@router.get('/companies/{company_id}/categories', response_model=list[CategoryRead])
+@router.get('/companies/{company_id}/categories', response_model=list[CategoryRead], dependencies=[Depends(require_permission('organization.read'))])
 def list_categories(company_id: UUID, db: Session = Depends(get_db)):
     return list_scoped(db, AssetCategory, company_id)
 
 
-@router.post('/companies/{company_id}/categories', response_model=CategoryRead, status_code=201)
+@router.post('/companies/{company_id}/categories', response_model=CategoryRead, status_code=201, dependencies=[Depends(require_permission('organization.manage'))])
 def add_category(company_id: UUID, payload: CategoryCreate, db: Session = Depends(get_db)):
     return create_scoped(db, AssetCategory, company_id, payload, {'description': payload.description})
 
 
-@router.patch('/companies/{company_id}/categories/{category_id}', response_model=CategoryRead)
+@router.patch('/companies/{company_id}/categories/{category_id}', response_model=CategoryRead, dependencies=[Depends(require_permission('organization.manage'))])
 def edit_category(company_id: UUID, category_id: UUID, payload: CategoryUpdate, db: Session = Depends(get_db)):
     return update_scoped(db, AssetCategory, company_id, category_id, payload, 'Asset category')
 
 
-@router.get('/companies/{company_id}/numbering-rules', response_model=list[NumberRuleRead])
+@router.get('/companies/{company_id}/numbering-rules', response_model=list[NumberRuleRead], dependencies=[Depends(require_permission('organization.read'))])
 def list_number_rules(company_id: UUID, db: Session = Depends(get_db)):
     get_company(db, company_id)
     return db.scalars(
@@ -202,7 +222,7 @@ def list_number_rules(company_id: UUID, db: Session = Depends(get_db)):
     ).all()
 
 
-@router.put('/companies/{company_id}/numbering-rules', response_model=NumberRuleRead)
+@router.put('/companies/{company_id}/numbering-rules', response_model=NumberRuleRead, dependencies=[Depends(require_permission('organization.manage'))])
 def put_number_rule(
     company_id: UUID,
     payload: NumberRuleWrite,

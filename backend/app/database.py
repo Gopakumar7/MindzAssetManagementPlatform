@@ -1,10 +1,13 @@
 from collections.abc import Generator
+import logging
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -32,5 +35,6 @@ def check_database_health() -> tuple[bool, str]:
         with engine.connect() as connection:
             connection.execute(text('SELECT 1'))
         return True, 'database connection is healthy'
-    except SQLAlchemyError as exc:
-        return False, f'database unavailable: {exc}'
+    except SQLAlchemyError:
+        logger.exception('Database readiness check failed')
+        return False, 'database unavailable'

@@ -141,7 +141,14 @@ def next_asset_number(db: Session, company_id: UUID, category_id: UUID) -> str:
             return candidate
 
 
-def create_asset(db: Session, company_id: UUID, payload: AssetCreate) -> Asset:
+def create_asset(
+    db: Session,
+    company_id: UUID,
+    payload: AssetCreate,
+    *,
+    commit: bool = True,
+    goods_receipt_line_id: UUID | None = None,
+) -> Asset:
     company = get_company(db, company_id, active=True)
     validate_asset_relations(
         db, company_id, payload.category_id, payload.site_id, payload.location_id,
@@ -165,13 +172,15 @@ def create_asset(db: Session, company_id: UUID, payload: AssetCreate) -> Asset:
     asset = Asset(
         company_id=company.id,
         asset_number=number,
+        goods_receipt_line_id=goods_receipt_line_id,
         **payload.model_dump(exclude={'asset_number'}),
     )
     db.add(asset)
     db.flush()
     record_history(db, asset, 'created')
-    db.commit()
-    db.refresh(asset)
+    if commit:
+        db.commit()
+        db.refresh(asset)
     return asset
 
 

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     database_url: str = Field(default='postgresql+psycopg://mindzen:change_me@localhost:5432/mindzen', alias='DATABASE_URL')
     cors_origins: str = Field(default='http://localhost:4200,http://127.0.0.1:4200', alias='CORS_ORIGINS')
     log_level: str = Field(default='INFO', alias='LOG_LEVEL')
+    cookie_secure_setting: bool = Field(default=False, alias='COOKIE_SECURE')
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / '.env',
@@ -26,6 +27,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(',') if origin.strip()]
+
+    @property
+    def cookie_secure(self) -> bool:
+        return self.cookie_secure_setting or self.app_env.casefold() not in {'development', 'dev', 'test'}
 
 
 @lru_cache(maxsize=1)
