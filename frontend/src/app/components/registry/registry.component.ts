@@ -38,6 +38,51 @@ type ViewName = 'dashboard' | 'assets' | 'reports' | 'departments' | 'sites' | '
 type MasterKind = 'departments' | 'sites' | 'categories' | 'cost-centers';
 export type ReportType = 'asset-register' | 'asset-allocation' | 'warranty-expiry' | 'maintenance' | 'procurement';
 
+/**
+ * Serializes a single cell value for CSV export according to RFC-4180.
+ *
+ * Security mitigation (CWE-1236: Improper Neutralization of Formula Elements in a CSV File):
+ * Untrusted text values beginning with formula trigger characters ('=', '+', '-', '@'),
+ * including cases preceded by whitespace or ASCII control characters (\x00-\x1f, \x7f),
+ * are prepended with a single quote (') to neutralize formula execution in spreadsheet
+ * applications (such as Microsoft Excel, LibreOffice, or Google Sheets).
+ *
+ * NOTE: While prepending a single quote is the standard OWASP-recommended mitigation for CSV
+ * injection, it is not a universal guarantee across every spreadsheet application or version.
+ *
+ * Legitimate finite numeric values (typeof number) are preserved without prefixing.
+ * Double quotes within text are escaped by doubling (" -> "").
+ * Null, undefined, and empty string values are returned as empty quotes ("").
+ */
+export function serializeCsvCell(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '""';
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      return '""';
+    }
+    return `"${value}"`;
+  }
+
+  if (typeof value === 'boolean') {
+    return `"${value}"`;
+  }
+
+  let str = String(value);
+  if (str === '') {
+    return '""';
+  }
+
+  const trimmedLeading = str.replace(/^[\s\x00-\x1f\x7f]+/, '');
+  if (trimmedLeading.length > 0 && /^[=+@-]$/.test(trimmedLeading.charAt(0))) {
+    str = "'" + str;
+  }
+
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
 @Component({
     selector: 'app-registry',
     imports: [CommonModule, FormsModule, RouterLink],
@@ -1495,10 +1540,9 @@ export class RegistryComponent implements OnInit {
     }
   }
 
-  exportReportCsv(): void {
+  generateReportCsvContent(): string {
     let headers: string[] = [];
     let rows: (string | number | null | undefined)[][] = [];
-    const filename = `mindzen-${this.activeReport}-${this.today()}.csv`;
 
     if (this.activeReport === 'asset-register') {
       headers = ['Asset Number', 'Category', 'Manufacturer', 'Model', 'Serial Number', 'Status', 'Site', 'Department', 'Custodian', 'Acquisition Date', 'Cost', 'Warranty Start', 'Warranty End'];
@@ -1536,10 +1580,16 @@ export class RegistryComponent implements OnInit {
       ]);
     }
 
-    const csvContent = [
-      headers.map(h => `"${h.replace(/"/g, '""')}"`).join(','),
-      ...rows.map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    const UTF8_BOM = '\uFEFF';
+    return UTF8_BOM + [
+      headers.map(h => serializeCsvCell(h)).join(','),
+      ...rows.map(row => row.map(cell => serializeCsvCell(cell)).join(','))
     ].join('\r\n');
+  }
+
+  exportReportCsv(): void {
+    const filename = `mindzen-${this.activeReport}-${this.today()}.csv`;
+    const csvContent = this.generateReportCsvContent();
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');

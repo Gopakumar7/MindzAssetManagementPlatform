@@ -16,7 +16,7 @@ import {
   ProcurementSupplier,
   RegistryService
 } from '../../services/registry.service';
-import { RegistryComponent } from './registry.component';
+import { RegistryComponent, serializeCsvCell } from './registry.component';
 
 describe('RegistryComponent user access navigation', () => {
   let fixture: ComponentFixture<RegistryComponent>;
@@ -598,6 +598,99 @@ describe('RegistryComponent user access navigation', () => {
     component.selectReport('procurement');
     expect(component.activeReport).toBe('procurement');
     expect(registry.reportProcurement).toHaveBeenCalled();
+  });
+
+  it('generates CSV report content with UTF-8 BOM, sanitized formula fields, and legitimate values', () => {
+    permissions = new Set(['company.read', 'asset.read']);
+    fixture.componentInstance.activeReport = 'asset-register';
+    fixture.componentInstance.assetRegisterReport = [{
+      id: 'asset-sec-1',
+      asset_number: 'MZ-000001',
+      category_id: 'cat-1',
+      category_name: 'Laptops',
+      manufacturer: 'Apple',
+      model: '=cmd|"/C calc"!A0',
+      serial_number: '+SN-EVIL',
+      status: 'in_stock',
+      site_id: null,
+      site_name: 'München, HQ',
+      department_id: null,
+      department_name: 'IT "Dept"\nFloor 2',
+      custodian_name: '@hacker',
+      acquisition_date: '2026-01-01',
+      acquisition_cost: 1500.50,
+      warranty_start: null,
+      warranty_end: null
+    }];
+
+    const csv = fixture.componentInstance.generateReportCsvContent();
+    // 1. Starts with UTF-8 BOM
+    expect(csv.startsWith('\uFEFF')).toBeTrue();
+    // 2. Formula fields are neutralized with single quote
+    expect(csv).toContain("\"'=cmd|\"\"/C calc\"\"!A0\"");
+    expect(csv).toContain("\"'+SN-EVIL\"");
+    expect(csv).toContain("\"'@hacker\"");
+    // 3. Normal fields are preserved with quotes, commas, newlines, and Unicode
+    expect(csv).toContain('"MZ-000001"');
+    expect(csv).toContain('"München, HQ"');
+    expect(csv).toContain('"IT ""Dept""\nFloor 2"');
+    // 4. Numeric value is preserved
+    expect(csv).toContain('"1500.5"');
+  });
+});
+
+describe('serializeCsvCell security and formatting', () => {
+  it('handles empty and null values safely', () => {
+    expect(serializeCsvCell(null)).toBe('""');
+    expect(serializeCsvCell(undefined)).toBe('""');
+    expect(serializeCsvCell('')).toBe('""');
+  });
+
+  it('preserves ordinary positive, negative, zero and decimal numeric values', () => {
+    expect(serializeCsvCell(0)).toBe('"0"');
+    expect(serializeCsvCell(42)).toBe('"42"');
+    expect(serializeCsvCell(-42)).toBe('"-42"');
+    expect(serializeCsvCell(1234.56)).toBe('"1234.56"');
+    expect(serializeCsvCell(-99.95)).toBe('"-99.95"');
+    expect(serializeCsvCell(Infinity)).toBe('""');
+    expect(serializeCsvCell(NaN)).toBe('""');
+  });
+
+  it('preserves commas, double quotes and embedded newlines according to RFC-4180', () => {
+    expect(serializeCsvCell('Value with, comma')).toBe('"Value with, comma"');
+    expect(serializeCsvCell('Value with "quotes"')).toBe('"Value with ""quotes"""');
+    expect(serializeCsvCell("Line 1\nLine 2")).toBe('"Line 1\nLine 2"');
+    expect(serializeCsvCell("Line 1\r\nLine 2")).toBe('"Line 1\r\nLine 2"');
+    expect(serializeCsvCell('Mixed: "quoted", with comma and \nnewline')).toBe('"Mixed: ""quoted"", with comma and \nnewline"');
+  });
+
+  it('preserves non-ASCII Unicode characters', () => {
+    expect(serializeCsvCell('München Büromöbel')).toBe('"München Büromöbel"');
+    expect(serializeCsvCell('日本語テスト')).toBe('"日本語テスト"');
+    expect(serializeCsvCell('Emoji 💻 & symbols € ™')).toBe('"Emoji 💻 & symbols € ™"');
+  });
+
+  it('neutralizes values beginning with each formula character (=, +, -, @)', () => {
+    expect(serializeCsvCell('=cmd|"/C calc"!A0')).toBe("\"'=cmd|\"\"/C calc\"\"!A0\"");
+    expect(serializeCsvCell('+1+2')).toBe("\"'+1+2\"");
+    expect(serializeCsvCell('-2+3')).toBe("\"'-2+3\"");
+    expect(serializeCsvCell('@SUM(1,2)')).toBe("\"'@SUM(1,2)\"");
+    expect(serializeCsvCell('=1+1')).toBe("\"'=1+1\"");
+  });
+
+  it('neutralizes formula characters preceded by whitespace or control characters', () => {
+    expect(serializeCsvCell('  =cmd')).toBe("\"'  =cmd\"");
+    expect(serializeCsvCell('\t@calc')).toBe("\"'\t@calc\"");
+    expect(serializeCsvCell('\r\n+SUM(1,2)')).toBe("\"'\r\n+SUM(1,2)\"");
+    expect(serializeCsvCell('   -dangerous')).toBe("\"'   -dangerous\"");
+    expect(serializeCsvCell('\x00=payload')).toBe("\"'\x00=payload\"");
+    expect(serializeCsvCell('\x1b=calc')).toBe("\"'\x1b=calc\"");
+  });
+
+  it('does not neutralize safe text without formula characters', () => {
+    expect(serializeCsvCell('MZ-000001')).toBe('"MZ-000001"');
+    expect(serializeCsvCell('Dell Latitude 5420')).toBe('"Dell Latitude 5420"');
+    expect(serializeCsvCell('user@mindzen.invalid')).toBe('"user@mindzen.invalid"');
   });
 });
 
