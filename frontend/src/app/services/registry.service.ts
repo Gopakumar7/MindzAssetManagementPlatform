@@ -11,6 +11,31 @@ export interface Company {
   is_active: boolean;
 }
 
+export interface CompanyRole {
+  code: string;
+  name: string;
+  scope: string;
+  permissions: string[];
+}
+
+export interface CompanyMember {
+  id: string;
+  email: string;
+  membership_id: string;
+  status: string;
+  role_code: string;
+  role_name: string;
+  created_at: string;
+}
+
+export interface Invitation {
+  email: string;
+  company_id: string;
+  role_code: string;
+  token: string;
+  expires_at: string;
+}
+
 export interface MasterRecord {
   id: string;
   company_id: string;
@@ -78,6 +103,146 @@ export interface AssetHistory {
   occurred_at: string;
 }
 
+export interface AssignmentRecipient {
+  id: string;
+  email: string;
+}
+
+export interface AssetAssignment {
+  id: string;
+  company_id: string;
+  asset_id: string;
+  recipient_id: string;
+  recipient_email: string;
+  responsible_department_id: string | null;
+  location_id: string | null;
+  effective_date: string;
+  status: 'active' | 'returned' | 'transferred';
+  notes: string | null;
+  reference: string | null;
+  handover_date: string | null;
+  handover_condition: string | null;
+  included_items: string | null;
+  acknowledgement: string | null;
+  handover_notes: string | null;
+  ended_at: string | null;
+  return_date: string | null;
+  return_condition: string | null;
+  return_notes: string | null;
+  issue_details: string | null;
+  next_asset_status: string | null;
+  transfer_reason: string | null;
+  previous_assignment_id: string | null;
+  created_at: string;
+}
+
+export interface ProcurementSupplier {
+  id: string;
+  company_id: string;
+  code: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface PurchaseOrderLine {
+  id: string;
+  company_id: string;
+  purchase_order_id: string;
+  category_id: string;
+  description: string;
+  quantity_ordered: number;
+  unit_cost: string;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  company_id: string;
+  supplier_id: string;
+  order_number: string;
+  status: 'open' | 'partially_received' | 'received';
+  ordered_date: string;
+  expected_date: string | null;
+  notes: string | null;
+  created_at: string;
+  lines: PurchaseOrderLine[];
+}
+
+export interface GoodsReceiptAsset {
+  id: string;
+  asset_number: string;
+  serial_number: string | null;
+  status: string;
+}
+
+export interface GoodsReceiptLine {
+  id: string;
+  purchase_order_line_id: string;
+  quantity_received: number;
+  quantity_rejected: number;
+  discrepancy_notes: string | null;
+  assets: GoodsReceiptAsset[];
+}
+
+export interface GoodsReceipt {
+  id: string;
+  company_id: string;
+  purchase_order_id: string;
+  receipt_number: string;
+  received_date: string;
+  delivery_reference: string | null;
+  notes: string | null;
+  created_at: string;
+  lines: GoodsReceiptLine[];
+}
+
+export interface AssetServiceContract {
+  id: string;
+  company_id: string;
+  asset_id: string;
+  supplier_id: string | null;
+  contract_type: 'warranty' | 'amc';
+  provider_name: string | null;
+  reference_number: string | null;
+  start_date: string;
+  end_date: string;
+  coverage_description: string | null;
+  support_contact: string | null;
+  notes: string | null;
+  status: 'active' | 'cancelled';
+  coverage_status: 'active' | 'expiring_soon' | 'upcoming' | 'expired' | 'cancelled';
+  created_at: string;
+}
+
+export type MaintenanceStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
+export type MaintenancePriority = 'low' | 'normal' | 'high' | 'urgent';
+
+export interface MaintenanceRequest {
+  id: string;
+  company_id: string;
+  asset_id: string;
+  asset_number: string;
+  requester_id: string;
+  requester_email: string;
+  assignee_id: string | null;
+  assignee_email: string | null;
+  title: string;
+  issue_description: string;
+  priority: MaintenancePriority;
+  status: MaintenanceStatus;
+  reported_date: string;
+  diagnosis: string | null;
+  work_performed: string | null;
+  resolution_notes: string | null;
+  completed_date: string | null;
+  cost: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class RegistryService {
   private readonly base = `${environment.apiBaseUrl}`;
@@ -94,6 +259,28 @@ export class RegistryService {
 
   updateCompany(companyId: string, payload: Partial<Pick<Company, 'name' | 'is_active'>>): Observable<Company> {
     return this.http.patch<Company>(`${this.base}/companies/${companyId}`, payload);
+  }
+
+  companyRoles(companyId: string): Observable<CompanyRole[]> {
+    return this.http.get<CompanyRole[]>(`${this.base}/security/companies/${companyId}/roles`);
+  }
+
+  companyMembers(companyId: string): Observable<CompanyMember[]> {
+    return this.http.get<CompanyMember[]>(`${this.base}/security/companies/${companyId}/members`);
+  }
+
+  inviteMember(companyId: string, email: string, roleCode: string): Observable<Invitation> {
+    return this.http.post<Invitation>(`${this.base}/security/companies/${companyId}/invitations`, {
+      email,
+      role_code: roleCode
+    });
+  }
+
+  updateMembership(companyId: string, membershipId: string, status: 'revoked'): Observable<CompanyMember> {
+    return this.http.patch<CompanyMember>(
+      `${this.base}/security/companies/${companyId}/members/${membershipId}`,
+      { status }
+    );
   }
 
   listMaster(companyId: string, kind: 'departments' | 'sites' | 'categories' | 'cost-centers'): Observable<MasterRecord[]> {
@@ -208,5 +395,192 @@ export class RegistryService {
 
   history(companyId: string, assetId: string): Observable<AssetHistory[]> {
     return this.http.get<AssetHistory[]>(`${this.base}/companies/${companyId}/assets/${assetId}/history`);
+  }
+
+  assignmentRecipients(companyId: string): Observable<AssignmentRecipient[]> {
+    return this.http.get<AssignmentRecipient[]>(`${this.base}/companies/${companyId}/assets/assignment-recipients`);
+  }
+
+  assignments(companyId: string, assetId: string): Observable<AssetAssignment[]> {
+    return this.http.get<AssetAssignment[]>(`${this.base}/companies/${companyId}/assets/${assetId}/assignments`);
+  }
+
+  createAssignment(companyId: string, assetId: string, payload: {
+    recipient_id: string;
+    effective_date: string;
+    responsible_department_id: string | null;
+    location_id: string | null;
+    notes: string;
+    reference: string;
+  }): Observable<AssetAssignment> {
+    return this.http.post<AssetAssignment>(
+      `${this.base}/companies/${companyId}/assets/${assetId}/assignments`,
+      payload
+    );
+  }
+
+  recordHandover(companyId: string, assetId: string, assignmentId: string, payload: {
+    handover_date: string;
+    condition: string;
+    included_items: string;
+    acknowledgement: string;
+    notes: string;
+  }): Observable<AssetAssignment> {
+    return this.http.post<AssetAssignment>(
+      `${this.base}/companies/${companyId}/assets/${assetId}/assignments/${assignmentId}/handover`,
+      payload
+    );
+  }
+
+  returnAssignment(companyId: string, assetId: string, assignmentId: string, payload: {
+    return_date: string;
+    condition: string;
+    notes: string;
+    issue_details: string;
+    next_asset_status: 'in_stock' | 'maintenance';
+  }): Observable<AssetAssignment> {
+    return this.http.post<AssetAssignment>(
+      `${this.base}/companies/${companyId}/assets/${assetId}/assignments/${assignmentId}/return`,
+      payload
+    );
+  }
+
+  transferAssignment(companyId: string, assetId: string, assignmentId: string, payload: {
+    recipient_id: string;
+    effective_date: string;
+    reason: string;
+    responsible_department_id: string | null;
+    location_id: string | null;
+    reference: string;
+    condition: string;
+    included_items: string;
+    acknowledgement: string;
+    notes: string;
+  }): Observable<AssetAssignment> {
+    return this.http.post<AssetAssignment>(
+      `${this.base}/companies/${companyId}/assets/${assetId}/assignments/${assignmentId}/transfer`,
+      payload
+    );
+  }
+
+  suppliers(companyId: string): Observable<ProcurementSupplier[]> {
+    return this.http.get<ProcurementSupplier[]>(`${this.base}/companies/${companyId}/suppliers`);
+  }
+
+  createSupplier(companyId: string, payload: Pick<ProcurementSupplier, 'code' | 'name' | 'email' | 'phone' | 'notes'>): Observable<ProcurementSupplier> {
+    return this.http.post<ProcurementSupplier>(`${this.base}/companies/${companyId}/suppliers`, payload);
+  }
+
+  purchaseOrders(companyId: string): Observable<PurchaseOrder[]> {
+    return this.http.get<PurchaseOrder[]>(`${this.base}/companies/${companyId}/purchase-orders`);
+  }
+
+  createPurchaseOrder(companyId: string, payload: {
+    supplier_id: string;
+    order_number: string;
+    ordered_date: string;
+    expected_date: string | null;
+    notes: string;
+    lines: Array<{ category_id: string; description: string; quantity_ordered: number; unit_cost: number }>;
+  }): Observable<PurchaseOrder> {
+    return this.http.post<PurchaseOrder>(`${this.base}/companies/${companyId}/purchase-orders`, payload);
+  }
+
+  goodsReceipts(companyId: string): Observable<GoodsReceipt[]> {
+    return this.http.get<GoodsReceipt[]>(`${this.base}/companies/${companyId}/goods-receipts`);
+  }
+
+  receiveGoods(companyId: string, purchaseOrderId: string, payload: {
+    receipt_number: string;
+    received_date: string;
+    delivery_reference: string;
+    notes: string;
+    lines: Array<{
+      purchase_order_line_id: string;
+      quantity_received: number;
+      quantity_rejected: number;
+      serial_numbers: Array<string | null>;
+      discrepancy_notes: string;
+    }>;
+  }): Observable<GoodsReceipt> {
+    return this.http.post<GoodsReceipt>(
+      `${this.base}/companies/${companyId}/purchase-orders/${purchaseOrderId}/goods-receipts`,
+      payload
+    );
+  }
+
+  serviceContracts(companyId: string, assetId: string): Observable<AssetServiceContract[]> {
+    return this.http.get<AssetServiceContract[]>(
+      `${this.base}/companies/${companyId}/assets/${assetId}/service-contracts`
+    );
+  }
+
+  createServiceContract(companyId: string, assetId: string, payload: {
+    contract_type: 'warranty' | 'amc';
+    provider_name: string | null;
+    reference_number: string | null;
+    start_date: string;
+    end_date: string;
+    coverage_description: string | null;
+    support_contact: string | null;
+    notes: string | null;
+  }): Observable<AssetServiceContract> {
+    return this.http.post<AssetServiceContract>(
+      `${this.base}/companies/${companyId}/assets/${assetId}/service-contracts`,
+      payload
+    );
+  }
+
+  cancelServiceContract(companyId: string, contractId: string): Observable<AssetServiceContract> {
+    return this.http.patch<AssetServiceContract>(
+      `${this.base}/companies/${companyId}/service-contracts/${contractId}/cancel`,
+      {}
+    );
+  }
+
+  maintenanceUsers(companyId: string): Observable<AssignmentRecipient[]> {
+    return this.http.get<AssignmentRecipient[]>(`${this.base}/companies/${companyId}/maintenance-users`);
+  }
+
+  maintenanceRequests(companyId: string, filters: {
+    asset_id?: string;
+    status?: MaintenanceStatus | '';
+  } = {}): Observable<MaintenanceRequest[]> {
+    let params = new HttpParams();
+    if (filters.asset_id) params = params.set('asset_id', filters.asset_id);
+    if (filters.status) params = params.set('status', filters.status);
+    return this.http.get<MaintenanceRequest[]>(
+      `${this.base}/companies/${companyId}/maintenance-requests`,
+      { params }
+    );
+  }
+
+  createMaintenanceRequest(companyId: string, payload: {
+    asset_id: string;
+    title: string;
+    issue_description: string;
+    priority: MaintenancePriority;
+    reported_date: string;
+    assignee_id: string | null;
+  }): Observable<MaintenanceRequest> {
+    return this.http.post<MaintenanceRequest>(
+      `${this.base}/companies/${companyId}/maintenance-requests`,
+      payload
+    );
+  }
+
+  updateMaintenanceRequest(companyId: string, requestId: string, payload: {
+    status: MaintenanceStatus;
+    assignee_id: string | null;
+    diagnosis: string | null;
+    work_performed: string | null;
+    resolution_notes: string | null;
+    completed_date: string | null;
+    cost: number | null;
+  }): Observable<MaintenanceRequest> {
+    return this.http.patch<MaintenanceRequest>(
+      `${this.base}/companies/${companyId}/maintenance-requests/${requestId}`,
+      payload
+    );
   }
 }

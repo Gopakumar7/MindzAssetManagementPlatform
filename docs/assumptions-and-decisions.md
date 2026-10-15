@@ -32,10 +32,10 @@ The following decisions are explicit or strongly implied by the project brief an
 The following items are practical assumptions but not confirmed business requirements:
 
 - The initial schema uses one PostgreSQL database with company-owned records, explicit company IDs in API paths, scoped queries, and same-company composite foreign keys. A company is the data ownership boundary in the implemented slice.
-- This is not a security boundary: authentication and authorization are not implemented, and company selection is not restricted to an authenticated actor. Production tenant isolation must not be claimed until identity, authorization, and access tests are delivered.
+- Company is the implemented authorization boundary: protected API access requires an authenticated local account and a live company membership or explicit system permission. Company isolation is enforced server-side; Angular visibility/route guards do not replace API authorization.
 - Assets may include IT hardware, software entitlements, and other organisational assets, but a final list of asset classes is not yet defined.
 - The product may be used for internal corporate assets, departmental equipment, and other operational technology, but no final legal or regulatory scope has been specified.
-- A central employee or user registry may be reused by the product, but the system boundary with HR or identity systems is not yet confirmed.
+- Local application accounts are implemented for the current security phase. Whether they will be federated with a corporate identity provider or employee registry remains open.
 - Depreciation and accounting treatment will be configurable, but the final accounting framework and country-specific constraints are intentionally deferred.
 - Document storage and evidence handling will be supported, but the preferred provider and retention rules remain open.
 
@@ -49,8 +49,8 @@ These questions should be tracked as unresolved design decisions and either answ
 2. Asset class definition
    - Does the product include only IT assets, or also non-IT operational assets such as fleet, facilities, and equipment?
 
-3. Identity and access model
-   - Will the application use a full external identity provider and SSO, or a local user model with RBAC?
+3. Identity and access integration
+   - Which corporate identity provider, SSO, MFA, and employee lifecycle integration should replace or federate the implemented local account baseline?
 
 4. Reporting and data retention
    - What retention policies apply to audit records, disposal evidence, and attachments?
@@ -103,5 +103,14 @@ When a decision cannot be made responsibly from the prompt alone, the default re
 - Category-specific numbering rules override only the display prefix/separator/padding. All rules share the company default rule's atomic sequence to avoid collisions across formats; candidate identifiers already used by manually entered or prior numbers are skipped.
 - Asset department usage is represented separately from the asset's responsible department and location. Starting/ending usage does not silently change custody or location.
 - Current history has timestamps and field/value snapshots but no actor identity or reason. This remains a governance gap for future security/workflow work.
+
+## 8. Phase 2 security decisions
+
+- The initial identity model uses local email/password accounts with Argon2id hashes and opaque server-side sessions. No default credential, public registration, or client-trusted permission claim is allowed.
+- Session cookies are HttpOnly and SameSite=Lax. Unsafe requests require a session-bound CSRF token. `COOKIE_SECURE` must be enabled outside local HTTP development.
+- Company memberships and system-role assignments are distinct persistent scopes; permissions are checked from the database for each protected request.
+- Initial administrator creation is an interactive one-time CLI operation after migrations. Company invitations are single-use, hashed at rest, and shared out of band until a mail-delivery channel is selected.
+- Security and tracked business mutations are recorded in the same database transaction as the change. Audit events are immutable through ORM guards and PostgreSQL triggers.
+- Password recovery, email delivery, SSO/OIDC, MFA, and finer-grained scopes remain deliberate integration decisions; they are not represented as completed functionality.
 
 This default keeps the design flexible without pretending the unresolved matters are already solved.

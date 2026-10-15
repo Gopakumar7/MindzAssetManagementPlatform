@@ -2,11 +2,62 @@
 
 ## Current delivery
 
-**Phase 0 technical foundation: complete. Phase 1 organisation master data and basic asset registry: implemented and verified within the scope below.**
+**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, bounded procurement/receiving, and warranty/AMC/maintenance requests: implemented.** Verification status and remaining integration limitations are recorded below.
 
 Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
 
-## Containerized local application (verified 2026-10-14)
+## Warranty, AMC, and maintenance (2026-10-15)
+
+- Added company-scoped `AssetServiceContract` and `MaintenanceRequest` records in additive Alembic revision `20261017_service_management`. Existing `assets.warranty_start` / `warranty_end` fields remain intact.
+- Contracts retain warranty/AMC type, service provider/supplier, reference, dates, coverage, contact and notes. A missing supplier is inferred from a matching active procurement supplier code on the asset. Coverage is calculated on read (`upcoming`, `active`, `expiring_soon` within 30 days inclusive, `expired`, or `cancelled`); contracts can be cancelled but not deleted.
+- Maintenance requests record asset, requester, optional active company support assignee, priority, issue, diagnosis, work performed, resolution, completion date and cost. The validated path is `open` → `in_progress` → `resolved` → `closed`; resolving requires completion date and resolution notes, and closed requests are immutable.
+- Added `/api/v1/companies/{company_id}/assets/{asset_id}/service-contracts`, `/service-contracts/{contract_id}/cancel`, `/maintenance-users`, and `/maintenance-requests` read/create/update APIs. `maintenance.read` and `maintenance.manage` backend permissions are seeded and migrated to deployed roles. Asset, supplier and assignee scope is checked in the API and reinforced by database constraints; mutations and audit events share a transaction.
+- Added asset-detail contract coverage/history and a permission-gated **Warranty & Maintenance** workspace with asset/status filters, request creation/details, support assignment, lifecycle updates, work/cost fields and confirmation for significant actions.
+- Backend suite against isolated PostgreSQL: **33 passed**. Disposable and live PostgreSQL migration checks: **passed**, with no schema drift. Angular headless Chromium tests: **17 passed**. Backend and Angular production Docker images built successfully.
+- Deployed Alembic revision `20261017_service_management` to the existing Compose database without removing or resetting `postgres_data`; all three services are healthy. `/`, `/status`, `/api/v1/health`, and `/api/v1/health/ready` returned HTTP 200.
+- Completed the live browser workflow against `MINDZEN-DEMO` and existing asset `MZ-000005`: recorded AMC `DEMO-AMC-PHASE3-20261015-01` (supplier auto-linked from procurement), created request `DEMO-MNT-PHASE3-20261015-01`, and advanced it through `open` → `in_progress` → `resolved` → `closed`. The asset detail/history view shows the retained contract and request; the request retains completion date and resolution notes. Eight related audit events (contract create, request create, and three audited request updates) are persisted.
+- Live counts before migration/workflow were **1 company / 11 categories / 5 assets / 2 assignments / 39 audit events**. After the demo they are **1 / 11 / 5 / 2 / 47**, plus **1 service contract / 1 maintenance request**. Supplier, purchase-order, and goods-receipt counts remain **1 / 1 / 1**. Existing company, category, asset, assignment, procurement and audit records remain intact.
+- The existing demo company has no active company-member support user available in the support selector, so the verified request remained unassigned. Support assignment is supported when an active company member is available.
+- Deferred: preventive maintenance schedules, SLA escalation/reminders, external service integrations, and downtime analytics. This maintenance slice uses the existing company user/membership model; no employee master was added.
+
+## Procurement sprint (2026-10-16)
+
+- Implemented company-scoped supplier, purchase order, purchase-order line, goods receipt, and receipt-line records.
+- A goods receipt records received/rejected quantities and discrepancies. Accepted units create in-stock assets with receipt-line traceability, supplier and delivery references, acquisition date/cost, optional serial numbers, asset history, and audit events in one transaction.
+- Added read/manage procurement permissions, including additive grants to deployed administrator/asset-manager roles and read-only/auditor roles. PostgreSQL row locks serialize receipts per order; company-scoped composite foreign keys and unique receipt/order identifiers protect relationships and duplicate writes.
+- Added `/api/v1/companies/{company_id}/suppliers`, `/purchase-orders`, `/goods-receipts`, and purchase-order goods-receipt APIs. Added a permission-gated Procurement tab for supplier creation, a single-line order form, goods receipt entry, and order/receipt/asset history.
+- Alembic revision `20261016_procurement` was applied to a clean disposable PostgreSQL database; `alembic check` reported no model/schema drift. Complete backend PostgreSQL suite: **30 passed** (including receipt over-receipt and concurrency coverage).
+- Angular tests under Node.js 22.22.3 and headless Chromium: **15 passed**. A clean production Angular Docker build completed successfully.
+- The updated backend and Angular application were deployed to the existing Compose stack without removing or resetting `postgres_data`. `/`, `/status`, `/api/v1/health`, and `/api/v1/health/ready` returned HTTP 200; all three services were healthy and Alembic was at `20261016_procurement`.
+- Completed a live Procurement-tab workflow using the existing `MINDZEN-DEMO` company and normal application forms. Retained supplier `DEMO-SUP-SPRINT-20261016`, order `DEMO-PO-SPRINT-20261016-01`, receipt `DEMO-GRN-SPRINT-20261016-01`, and zero-cost in-stock asset `MZ-000005` (`DEMO-SPRINT-20261016-001`). The asset detail and database confirm its receipt, order, supplier, acquisition cost, and vendor reference.
+- Live data before procurement was **1 company / 11 categories / 4 assets / 2 assignments / 35 audit events**; after the demonstration it was **1 / 11 / 5 / 2 / 39**. The receipt's `goods_received` audit event is retained. No existing company, category, asset, assignment, or audit record was deleted or reset.
+- The current demo company has no active recipient available for a new assignment; the receipt-created asset is therefore verified as in stock, not assigned. The assignment lifecycle was separately demonstrated and documented above using `MZ-000004`.
+- npm reported **6 high-severity development/test dependency advisories**; dependency changes were not included in this delivery.
+- Limits: Angular order entry currently creates one line at a time, while the API/model support multiple lines. Requisitions, quotations, approvals, tax/currency accounting, attachments, replacement handling, and supplier portals remain deferred. Use a demo company and unique `DEMO-` identifiers for repeat runs; records are retained, not reset or deleted.
+
+## Demo readiness (verified 2026-10-15)
+
+- Repeated the full lifecycle in the running application using `MZ-000004`: assign, handover, transfer to another recipient and department, return, and inspect history. The asset is back to `in_stock` with no custodian. Both assignments and all four assignment audit entries remain persisted.
+- Current demo baseline is the existing `MINDZEN-DEMO` company and `MZ-000004`; company/category/asset counts remain **1 / 11 / 4**. Two test recipient memberships were revoked after the run, without deleting user, assignment, or audit history. Re-invitation and non-destructive repeat steps are in the [setup guide](./setup.md).
+- Improved the assignment panel's required-field labels and no-active-recipient guidance, and expanded previous assignment history to show persisted handover, transfer, return, acknowledgement, and issue details.
+- Backend PostgreSQL tests: **26 passed**. Angular tests on Node.js 22.22.3 and headless Chromium: **11 passed**. Backend tests cover duplicate assignment, invalid transitions, company isolation, insufficient permissions, concurrency, and transaction rollback.
+- Compose endpoints `/`, `/status`, and `/api/v1/health/ready` returned HTTP 200; backend and frontend containers were healthy. Alembic is at `20261015_assignment`; `alembic check` reported no model/schema drift.
+- The optional data-derived overview was deferred; it is not needed for the registry-led demo. npm reported **6 high severity dependency advisories** during the frontend test install; dependency upgrades were not part of this stabilization pass.
+
+## Phase 3 asset assignment lifecycle (verified 2026-10-15)
+
+- The assignment lifecycle uses active company users as recipients; no separate employee/HR master exists or was added.
+- Asset state transitions are `in_stock` → `assigned` → `in_stock` or `maintenance` on return. Assignment records remain `active` until closed as `returned` or `transferred`.
+- Handover is a single dated record on an active assignment. Transfer closes the previous assignment and creates the next, with both recipient records, the reason, destination, and transfer handover preserved.
+- Added company-scoped assignment, recipient, handover, return, transfer, and assignment-history APIs under `/api/v1/companies/{company_id}/assets/...`. Writes require `asset.assignment.manage`; active assignment uniqueness is enforced by a partial database index, and PostgreSQL mutations lock the asset row.
+- Added assignment controls and history to the existing asset detail panel, including role-gated actions, typed clients, required form validation, loading/error messaging, and confirmation for assignment, transfer, and return.
+- Alembic revision `20261015_assignment` adds `asset_assignments`, its composite company-scoped foreign keys and active-assignment index, seeds the assignment permission to system/company administrators and asset managers, and widens audit entity IDs for nested action paths.
+- Backend tests on disposable PostgreSQL: **26 passed**, including assignment concurrency, migration-chain execution, and atomic rollback when audit persistence fails. Angular unit tests under Node.js 22.22.3 and headless Chromium: **11 passed**. Production Angular Docker image: **built successfully**.
+- Compose backend was rebuilt and restarted without volume removal. Alembic is at `20261015_assignment`; health/readiness, `/`, and `/status` returned HTTP 200. Company/category/asset counts remained **1 / 11 / 4**.
+- Authenticated live browser demonstration completed on existing asset **MZ-000004**: assignment, handover, transfer to a second recipient and Information Technology, return to `in_stock`, and review of both historical assignments and lifecycle audit events. Two clearly labeled, read-only test recipients were invited and activated through the normal flow, then their company memberships were revoked after the demonstration; no assignment history or existing demo data was removed.
+- Deferred by design: employee master/HR integration, electronic signatures, workflow approvals, procurement, maintenance, physical verification, finance, disposal, reporting, and integrations.
+
+## Containerized local application (verified 2026-10-15)
 
 - Docker Compose now runs PostgreSQL, the FastAPI backend, and the Angular production build served by Nginx.
 - The frontend is available at `http://localhost:4200/` (`4200:80`); `/status` also loads on direct navigation and refresh.
@@ -25,8 +76,8 @@ Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
 - Frontend-container request to `http://backend:8000/api/v1/health/ready`: **passed**.
 - Published ports: frontend `4200:80`; backend and PostgreSQL: **none**.
 - PostgreSQL restart without removing its volume: **passed**. The existing `MINDZEN-DEMO` company, 11 categories, and the same 4 assets remained available afterward.
-- Alembic current revision: **`b7b05462a977 (head)`**; `alembic check`: **passed**, no new upgrade operations detected.
-- Backend tests: **8 passed, 1 skipped**. The PostgreSQL concurrency test is skipped unless `TEST_DATABASE_URL` is configured.
+- Alembic current revision: **`20261015_assignment (head)`**; `alembic check`: **passed**, no new upgrade operations detected.
+- Backend tests on disposable PostgreSQL: **26 passed**, including the PostgreSQL concurrency test.
 - Local Angular production build after a clean `npm ci`: **passed**.
 - `npm install --package-lock-only` was required to correct a pre-existing mismatch between `package.json` and `package-lock.json`. npm reported 64 dependency audit findings (7 low, 16 moderate, 39 high, 2 critical); dependency upgrades were not part of this containerization task.
 
@@ -48,13 +99,26 @@ Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
 - The remaining findings are development/test tooling only. They trace to `braces@3.0.3` (GHSA-vfj7-8cjw-p6xm), used by `chokidar@3.6.0` and `karma@6.4.4`, and propagate through Karma's Angular build/test peer and Jasmine adapters. No patched `braces` 3.x release is available; npm's suggested fixes downgrade Karma and its adapters across major versions and do not satisfy the Angular 22 builder's Karma peer requirements. Those changes were not applied. Angular documents migration of existing Karma projects to Vitest as experimental, so the existing supported Karma test runner was retained rather than changing test semantics as part of this security upgrade.
 - npm reports an upstream deprecation warning for Angular's animations package, which is still pulled in through `@angular/platform-browser`; the application does not import or use its legacy animation APIs.
 
+## Phase 2 authentication, authorization, and audit foundation (verified 2026-10-14)
+
+- Added local user accounts with Argon2id password hashes, opaque eight-hour server-side sessions, HttpOnly session cookies, per-session CSRF protection, login throttling, and a one-time interactive system-administrator bootstrap. No default credentials or public registration path are provided.
+- Added persistent system/company roles and permissions, company memberships, invitation acceptance, immediate membership/session revocation checks, and per-company authorization on the existing organization and asset APIs. Angular now has login, invitation acceptance, sign-out, current-user state, a route guard, a CSRF interceptor, and permission-aware registry/member controls. Authorized administrators manage invitations and memberships from the clearly labelled **Users & Access** workspace section after selecting a company. `/status` and operational health endpoints remain public.
+- Added an append-only audit table and PostgreSQL update/delete trigger. Business-change audit records are written in the same transaction as the associated database mutation; authentication and authorization outcomes are recorded explicitly.
+- Added Alembic revisions `20261014_security` and `20261014_audit_truncate`, after the existing `b7b05462a977` revision. The full chain successfully migrated a separate disposable PostgreSQL 16 database to head; database checks confirmed audit update, delete, and truncate operations are rejected. No existing migrations were modified.
+- Local backend suite after the invitation workflow fix: **18 passed, 1 skipped**. PostgreSQL-backed suite on a dedicated disposable database previously passed **17 tests** (including the existing concurrency integration test and security cases).
+- Angular production Docker image rebuilt successfully with the auth/RBAC UI. The host has Node.js 20.17.0, below Angular 22's minimum, so direct host `npm run build` is not a valid verification command; the supported Node.js 22.22.3 Docker build passed.
+- Angular unit suite after the invitation workflow fix: **7 passed** using Node.js 22.22.3 and headless Chromium.
+- Rebuilt and restarted the Compose backend/frontend without deleting or recreating the PostgreSQL volume. The live database advanced from `b7b05462a977` to `20261014_audit_truncate`; counts remained at **1 company, 11 categories, and 4 assets**. PostgreSQL, backend, and frontend all report healthy.
+- Live checks confirmed `/`, `/login`, `/invite`, `/status`, and `/api/v1/health/ready` return HTTP 200 through Nginx. Unauthenticated company and membership API requests return HTTP 401 as intended. The operator has provisioned the first system administrator; no password or other credentials are recorded in this status document. The current database retains 1 company, 11 categories, and 4 assets.
+- Local-account limitations: invitation tokens must be shared securely out of band; there is no email delivery, password reset, account recovery, SSO/OIDC, MFA, or HTTPS ingress configuration.
+
 ## Phase 1 implementation
 
 ### Backend
 
 - SQLAlchemy models and Alembic migration `b7b05462a977` add companies, departments, sites, locations, cost centres, categories, numbering rules, assets, department usages, and asset history.
 - Versioned API routes provide company/master-data CRUD, numbering-rule configuration, asset create/update/list/read, paging/search/filtering, usage start/end/list, and asset history.
-- Company-owned relationships are scoped and constrained to their company. Company path IDs are not an authorization boundary because authentication and authorization are not implemented.
+- Company-owned relationships are scoped and constrained to their company. Protected API access requires a valid server-side session, an active company membership or system permission, and the action-specific permission.
 - Company creation seeds six initial IT categories and a default asset-number format.
 - Category rules override identifier formatting. A company-wide atomic sequence is shared across formats; already-used identifiers are skipped. Manual identifiers are serialized with the allocator and duplicates return a conflict.
 
@@ -62,15 +126,17 @@ Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
 
 - Angular registry UI is available at `/`; the technical health view remains at `/status`.
 - Typed registry API client and management flows cover company selection/creation, master-data records, asset registration and listing, department usage, and history.
-- The UI clearly warns that authentication/company authorization is not implemented.
+- Login, invitation acceptance, logout, permission-aware navigation, and company member invitation/revocation are integrated with the protected backend APIs. Invitation tokens are returned only by creation, never by company member list responses; revoking a pending membership also revokes its outstanding token.
 
 ### Important files
 
 - Backend foundation: `backend/app/models.py`, `backend/app/schemas.py`, `backend/app/services.py`
 - API routes: `backend/app/api/v1/routes/organization.py`, `backend/app/api/v1/routes/assets.py`
 - Migration: `backend/alembic/versions/b7b05462a977_organisation_and_asset_registry.py`
+- Security: `backend/app/security.py`, `backend/app/authentication.py`, `backend/app/audit.py`, `backend/app/api/v1/routes/auth.py`, `backend/app/api/v1/routes/security_admin.py`
+- Security migration/tests: `backend/alembic/versions/20261014_security_foundation.py`, `backend/tests/test_security.py`
 - Tests: `backend/tests/test_organization_assets.py`, `backend/tests/test_postgres_concurrency.py`
-- Frontend: `frontend/src/app/components/registry/`, `frontend/src/app/services/registry.service.ts`
+- Frontend: `frontend/src/app/auth/`, `frontend/src/app/components/auth/`, `frontend/src/app/components/registry/`, `frontend/src/app/services/auth.service.ts`
 - Frontend container: `frontend/Dockerfile`, `frontend/.dockerignore`, `frontend/nginx.conf`
 - Compose stack: `docker-compose.yml`
 - Setup: `docs/setup.md`
@@ -82,7 +148,9 @@ All routes are under `/api/v1`.
 - Health: `GET /api/v1/health`; readiness: `GET /api/v1/health/ready`
 - Organisation: `/api/v1/companies` and `/api/v1/companies/{company_id}/{departments|sites|cost-centers|categories|numbering-rules}`
 - Assets: `/api/v1/companies/{company_id}/assets`, with asset `usages` and `history` subresources
-- Migration head: `b7b05462a977`; clean-database migration chain was applied successfully; `alembic check` reports no new upgrade operations
+- Authentication: `/api/v1/auth/{login,me,logout,invitations/accept}`
+- Security administration: `/api/v1/security/companies/{company_id}/...`, `/api/v1/security/system-administrators/...`, `/api/v1/security/users/...`, `/api/v1/security/roles`, and `/api/v1/security/audit`
+- Current deployed migration head: `20261014_audit_truncate`, following the existing `b7b05462a977` migration
 
 ## Verification results
 
@@ -99,12 +167,12 @@ The latest checks for the numbering changes and existing registry:
 
 ## Scope limitations and known issues
 
-- Authentication, authorization, and actor identity/audit attribution are not implemented. Company scoping is not production-grade tenant isolation.
-- Employee/custodian and vendor masters, formal assignment/transfer workflows, custom fields, procurement, maintenance, physical verification, finance, disposal, dashboards, and reports are not implemented.
+- The Phase 2 local identity/RBAC and audit foundation is implemented, but it is not an external identity-provider integration or a complete enterprise security deployment. Configure HTTPS, secrets, recovery channels, monitoring, retention, and operational controls before production.
+- Separate employee/custodian and vendor masters, custom fields, procurement, maintenance, physical verification, finance, disposal, dashboards, and reports are not implemented.
 - The standard pytest run without `TEST_DATABASE_URL` skips the PostgreSQL-only concurrency test; set that variable to execute it against PostgreSQL.
 - The Angular development server and production frontend container both require host port `4200`; stop one before starting the other. The development proxy expects a locally running backend on port `8000`.
-- The Compose stack is a local deployment baseline, not production security hardening. HTTPS/domain ingress, secret management, authentication, authorization, and production tenant isolation remain deployment tasks.
+- The Compose stack remains a local deployment baseline. HTTPS/domain ingress, production secret management, SSO/account recovery, audit retention, monitoring, and additional operational hardening remain deployment tasks.
 
 ## Recommended next task
 
-Confirm the Phase 1 scope and security boundary, then implement the authentication and authorization design (company access enforcement and actor attribution) before production use. Do not infer or claim that the present company path scoping provides security isolation.
+Provision the first administrator using the interactive bootstrap command, then continue with the next approved business capability. Phase 2 changes remain uncommitted and unpushed unless explicitly requested.

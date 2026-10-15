@@ -6,16 +6,29 @@ import { forkJoin } from 'rxjs';
 
 import {
   Asset,
+  AssetAssignment,
   AssetHistory,
   AssetPage,
+  AssignmentRecipient,
+  CompanyMember,
+  CompanyRole,
   Company,
   DepartmentUsage,
+  AssetServiceContract,
+  GoodsReceipt,
+  Invitation,
   MasterRecord,
+  MaintenancePriority,
+  MaintenanceRequest,
+  MaintenanceStatus,
   NumberRule,
+  ProcurementSupplier,
+  PurchaseOrder,
   RegistryService
 } from '../../services/registry.service';
+import { AuthService } from '../../services/auth.service';
 
-type ViewName = 'assets' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company';
+type ViewName = 'assets' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company' | 'users-access' | 'procurement' | 'maintenance';
 type MasterKind = 'departments' | 'sites' | 'categories' | 'cost-centers';
 
 @Component({
@@ -44,12 +57,87 @@ export class RegistryComponent implements OnInit {
   costCenters: MasterRecord[] = [];
   numberRules: NumberRule[] = [];
   assets: Asset[] = [];
+  members: CompanyMember[] = [];
+  companyRoles: CompanyRole[] = [];
+  invitation?: Invitation;
+  inviteEmail = '';
+  inviteRoleCode = '';
   totalAssets = 0;
   page = 1;
   readonly pageSize = 15;
   selectedAsset?: Asset;
   selectedUsages: DepartmentUsage[] = [];
   assetHistory: AssetHistory[] = [];
+  assignmentHistory: AssetAssignment[] = [];
+  assignmentRecipients: AssignmentRecipient[] = [];
+  assignmentRecipientsLoading = false;
+  assignmentSiteId = '';
+  transferSiteId = '';
+  assignmentLocations: MasterRecord[] = [];
+  transferLocations: MasterRecord[] = [];
+  suppliers: ProcurementSupplier[] = [];
+  purchaseOrders: PurchaseOrder[] = [];
+  goodsReceipts: GoodsReceipt[] = [];
+  procurementLoading = false;
+  serviceContracts: AssetServiceContract[] = [];
+  contractsLoading = false;
+  maintenanceRequests: MaintenanceRequest[] = [];
+  maintenanceAssets: Asset[] = [];
+  maintenanceUsers: AssignmentRecipient[] = [];
+  maintenanceLoading = false;
+  selectedMaintenanceRequest?: MaintenanceRequest;
+  maintenanceFilters: { asset_id: string; status: MaintenanceStatus | '' } = { asset_id: '', status: '' };
+  maintenanceCreateForm = {
+    asset_id: '',
+    title: '',
+    issue_description: '',
+    priority: 'normal' as MaintenancePriority,
+    reported_date: this.today(),
+    assignee_id: ''
+  };
+  maintenanceUpdateForm = {
+    status: 'open' as MaintenanceStatus,
+    assignee_id: '',
+    diagnosis: '',
+    work_performed: '',
+    resolution_notes: '',
+    completed_date: '',
+    cost: null as number | null
+  };
+  contractForm = {
+    contract_type: 'warranty' as 'warranty' | 'amc',
+    provider_name: '',
+    reference_number: '',
+    start_date: this.today(),
+    end_date: this.today(),
+    coverage_description: '',
+    support_contact: '',
+    notes: ''
+  };
+  supplierForm = { code: '', name: '', email: '', phone: '', notes: '' };
+  purchaseOrderForm = {
+    supplier_id: '',
+    order_number: '',
+    ordered_date: this.today(),
+    expected_date: '',
+    notes: '',
+    category_id: '',
+    description: '',
+    quantity_ordered: 1,
+    unit_cost: 0
+  };
+  goodsReceiptForm = {
+    purchase_order_id: '',
+    purchase_order_line_id: '',
+    receipt_number: '',
+    received_date: this.today(),
+    delivery_reference: '',
+    notes: '',
+    quantity_received: 1,
+    quantity_rejected: 0,
+    serial_numbers: '',
+    discrepancy_notes: ''
+  };
 
   filters = { search: '', category_id: '', status: '', site_id: '', location_id: '', department_id: '' };
   companyForm = { code: '', name: '', number_prefix: 'AST', is_active: true };
@@ -73,10 +161,45 @@ export class RegistryComponent implements OnInit {
   };
   assetEditForm: Partial<Asset> = {};
   usageForm = { department_id: '', purpose: '' };
+  assignmentForm = {
+    recipient_id: '',
+    effective_date: this.today(),
+    responsible_department_id: '',
+    location_id: '',
+    notes: '',
+    reference: ''
+  };
+  handoverForm = {
+    handover_date: this.today(),
+    condition: '',
+    included_items: '',
+    acknowledgement: '',
+    notes: ''
+  };
+  returnForm = {
+    return_date: this.today(),
+    condition: '',
+    notes: '',
+    issue_details: '',
+    next_asset_status: 'in_stock' as 'in_stock' | 'maintenance'
+  };
+  transferForm = {
+    recipient_id: '',
+    effective_date: this.today(),
+    reason: '',
+    responsible_department_id: '',
+    location_id: '',
+    reference: '',
+    condition: '',
+    included_items: '',
+    acknowledgement: '',
+    notes: ''
+  };
 
   constructor(
     private readonly registry: RegistryService,
-    private readonly changeDetector: ChangeDetectorRef
+    private readonly changeDetector: ChangeDetectorRef,
+    readonly auth: AuthService
   ) {}
 
   ngOnInit(): void {
@@ -91,6 +214,23 @@ export class RegistryComponent implements OnInit {
       },
       error: (error) => this.fail(error)
     });
+  }
+
+  viewMaintenanceForSelectedAsset(): void {
+    if (!this.selectedAsset) return;
+    this.maintenanceFilters = { asset_id: this.selectedAsset.id, status: '' };
+    this.selectedMaintenanceRequest = undefined;
+    this.setView('maintenance');
+  }
+
+  openMaintenanceAsset(request: MaintenanceRequest): void {
+    const asset = this.maintenanceAssets.find((item) => item.id === request.asset_id);
+    if (!asset) {
+      this.errorMessage = 'The related asset is not in the current asset selection.';
+      return;
+    }
+    this.activeView = 'assets';
+    this.openAsset(asset);
   }
 
   get activeDepartments(): MasterRecord[] {
@@ -109,11 +249,46 @@ export class RegistryComponent implements OnInit {
     return this.costCenters.filter((item) => item.is_active);
   }
 
+  get currentAssignment(): AssetAssignment | undefined {
+    return this.assignmentHistory.find((assignment) => assignment.status === 'active');
+  }
+
+  get canAssignSelectedAsset(): boolean {
+    return this.selectedAsset?.status === 'in_stock' && !this.currentAssignment;
+  }
+
   get pageCount(): number {
     return Math.max(1, Math.ceil(this.totalAssets / this.pageSize));
   }
 
+  can(permission: string): boolean {
+    return this.auth.permissions(this.companyId).has(permission);
+  }
+
+  get assignableCompanyRoles(): CompanyRole[] {
+    const permissions = this.auth.permissions(this.companyId);
+    return this.companyRoles.filter((role) => role.permissions.every((permission) => permissions.has(permission)));
+  }
+
   selectCompany(id: string): void {
+    if (this.companyId !== id) {
+      this.invitation = undefined;
+      this.successMessage = '';
+      this.errorMessage = '';
+      this.selectedAsset = undefined;
+      this.assignmentHistory = [];
+      this.assignmentRecipients = [];
+      this.suppliers = [];
+      this.purchaseOrders = [];
+      this.goodsReceipts = [];
+      this.procurementLoading = false;
+      this.serviceContracts = [];
+      this.maintenanceRequests = [];
+      this.maintenanceAssets = [];
+      this.maintenanceUsers = [];
+      this.selectedMaintenanceRequest = undefined;
+      this.maintenanceLoading = false;
+    }
     this.companyId = id;
     this.company = this.companies.find((item) => item.id === id);
     this.creatingCompany = this.companies.length === 0;
@@ -122,6 +297,10 @@ export class RegistryComponent implements OnInit {
       this.companyForm.is_active = this.company.is_active;
     }
     if (!id) {
+      return;
+    }
+    if (this.company && !this.company.is_active && this.can('system.companies.manage')) {
+      this.loading = false;
       return;
     }
     this.loading = true;
@@ -140,6 +319,7 @@ export class RegistryComponent implements OnInit {
         this.costCenters = result.costCenters;
         this.numberRules = result.rules;
         this.loading = false;
+        this.loadCompanyMembers();
         if (!this.ruleForm.category_id && result.rules.length) {
           const defaultRule = result.rules.find((rule) => rule.category_id === null) ?? result.rules[0];
           this.ruleForm = {
@@ -150,9 +330,66 @@ export class RegistryComponent implements OnInit {
           };
         }
         this.loadAssets();
+        if (this.activeView === 'procurement') {
+          this.loadProcurement();
+        } else if (this.activeView === 'maintenance') {
+          this.loadMaintenance();
+        }
         if (this.selectedSiteId) {
           this.loadLocations(this.selectedSiteId);
         }
+      },
+      error: (error) => this.fail(error)
+    });
+  }
+
+  loadCompanyMembers(): void {
+    this.members = [];
+    this.companyRoles = [];
+    if (!this.companyId || !this.can('company.members.manage')) {
+      return;
+    }
+    forkJoin({
+      members: this.registry.companyMembers(this.companyId),
+      roles: this.registry.companyRoles(this.companyId)
+    }).subscribe({
+      next: ({ members, roles }) => {
+        this.members = members;
+        this.companyRoles = roles;
+        if (!this.inviteRoleCode) {
+          this.inviteRoleCode = this.assignableCompanyRoles[0]?.code ?? '';
+        }
+      },
+      error: (error) => this.fail(error)
+    });
+  }
+
+  inviteCompanyMember(): void {
+    if (!this.companyId || !this.inviteEmail.trim() || !this.inviteRoleCode) {
+      return;
+    }
+    this.registry.inviteMember(this.companyId, this.inviteEmail.trim(), this.inviteRoleCode).subscribe({
+      next: (invitation) => {
+        this.invitation = invitation;
+        this.inviteEmail = '';
+        this.successMessage = `Invitation created for ${invitation.email}. Share the one-time token securely.`;
+        this.loadCompanyMembers();
+      },
+      error: (error) => this.fail(error)
+    });
+  }
+
+  revokeCompanyMember(member: CompanyMember): void {
+    if (!this.companyId || member.id === this.auth.currentUser()?.id || member.status === 'revoked') {
+      return;
+    }
+    if (!window.confirm(`Revoke ${member.email}'s company membership?`)) {
+      return;
+    }
+    this.registry.updateMembership(this.companyId, member.membership_id, 'revoked').subscribe({
+      next: () => {
+        this.successMessage = `Membership for ${member.email} was revoked.`;
+        this.loadCompanyMembers();
       },
       error: (error) => this.fail(error)
     });
@@ -166,7 +403,379 @@ export class RegistryComponent implements OnInit {
     this.masterForm = { code: '', name: '', description: '', address: '', details: '', is_active: true };
     if (view === 'assets') {
       this.loadAssets();
+    } else if (view === 'procurement') {
+      this.loadProcurement();
+    } else if (view === 'maintenance') {
+      this.loadMaintenance();
     }
+  }
+
+  get selectedPurchaseOrder(): PurchaseOrder | undefined {
+    return this.purchaseOrders.find((order) => order.id === this.goodsReceiptForm.purchase_order_id);
+  }
+
+  get selectedPurchaseOrderLine() {
+    return this.selectedPurchaseOrder?.lines.find((line) => line.id === this.goodsReceiptForm.purchase_order_line_id);
+  }
+
+  remainingToReceive(lineId: string): number {
+    const orderedLine = this.selectedPurchaseOrder?.lines.find((line) => line.id === lineId);
+    if (!orderedLine) return 0;
+    return this.remainingInOrder(orderedLine.purchase_order_id, orderedLine.id, orderedLine.quantity_ordered);
+  }
+
+  private remainingInOrder(orderId: string, lineId: string, orderedQuantity: number): number {
+    const received = this.goodsReceipts
+      .filter((receipt) => receipt.purchase_order_id === orderId)
+      .flatMap((receipt) => receipt.lines)
+      .filter((line) => line.purchase_order_line_id === lineId)
+      .reduce((total, line) => total + line.quantity_received, 0);
+    return Math.max(0, orderedQuantity - received);
+  }
+
+  loadProcurement(): void {
+    if (!this.companyId || !this.can('procurement.read')) return;
+    const requestedCompanyId = this.companyId;
+    this.procurementLoading = true;
+    forkJoin({
+      suppliers: this.registry.suppliers(requestedCompanyId),
+      orders: this.registry.purchaseOrders(requestedCompanyId),
+      receipts: this.registry.goodsReceipts(requestedCompanyId)
+    }).subscribe({
+      next: (result) => {
+        if (requestedCompanyId !== this.companyId) return;
+        this.suppliers = result.suppliers;
+        this.purchaseOrders = result.orders;
+        this.goodsReceipts = result.receipts;
+        this.procurementLoading = false;
+      },
+      error: (error) => {
+        if (requestedCompanyId !== this.companyId) return;
+        this.procurementLoading = false;
+        this.fail(error);
+      }
+    });
+  }
+
+      loadMaintenance(): void {
+        if (!this.companyId || !this.can('maintenance.read')) return;
+        const requestedCompanyId = this.companyId;
+        this.maintenanceLoading = true;
+        forkJoin({
+          requests: this.registry.maintenanceRequests(requestedCompanyId, this.maintenanceFilters),
+          users: this.registry.maintenanceUsers(requestedCompanyId),
+          assets: this.registry.listAssets(requestedCompanyId, { page: 1, page_size: 100 })
+        }).subscribe({
+          next: ({ requests, users, assets }) => {
+            if (requestedCompanyId !== this.companyId) return;
+            this.maintenanceRequests = requests;
+            this.maintenanceUsers = users;
+            this.maintenanceAssets = assets.items;
+            this.maintenanceLoading = false;
+            if (this.selectedMaintenanceRequest) {
+              this.selectedMaintenanceRequest = requests.find(
+                (request) => request.id === this.selectedMaintenanceRequest?.id
+              );
+              if (this.selectedMaintenanceRequest) this.selectMaintenanceRequest(this.selectedMaintenanceRequest);
+            }
+          },
+          error: (error) => {
+            if (requestedCompanyId !== this.companyId) return;
+            this.maintenanceLoading = false;
+            this.fail(error);
+          }
+        });
+      }
+
+      applyMaintenanceFilters(): void {
+        this.selectedMaintenanceRequest = undefined;
+        this.loadMaintenance();
+      }
+
+      selectMaintenanceRequest(request: MaintenanceRequest): void {
+        this.selectedMaintenanceRequest = request;
+        this.maintenanceUpdateForm = {
+          status: request.status,
+          assignee_id: request.assignee_id ?? '',
+          diagnosis: request.diagnosis ?? '',
+          work_performed: request.work_performed ?? '',
+          resolution_notes: request.resolution_notes ?? '',
+          completed_date: request.completed_date ?? '',
+          cost: request.cost === null ? null : Number(request.cost)
+        };
+      }
+
+      createMaintenanceRequest(): void {
+        if (!this.companyId || this.saving || !this.can('maintenance.manage')) return;
+        this.saving = true;
+        this.registry.createMaintenanceRequest(this.companyId, {
+          ...this.maintenanceCreateForm,
+          title: this.maintenanceCreateForm.title.trim(),
+          issue_description: this.maintenanceCreateForm.issue_description.trim(),
+          assignee_id: this.maintenanceCreateForm.assignee_id || null
+        }).subscribe({
+          next: (request) => {
+            this.saving = false;
+            this.maintenanceCreateForm = {
+              asset_id: '',
+              title: '',
+              issue_description: '',
+              priority: 'normal',
+              reported_date: this.today(),
+              assignee_id: ''
+            };
+            this.successMessage = `Maintenance request created for ${request.asset_number}.`;
+            this.errorMessage = '';
+            this.loadMaintenance();
+          },
+          error: (error) => this.fail(error)
+        });
+      }
+
+      saveMaintenanceRequest(): void {
+        const request = this.selectedMaintenanceRequest;
+        if (!request || this.saving || !this.can('maintenance.manage')) return;
+        if (this.maintenanceUpdateForm.status !== request.status &&
+            !window.confirm(`Change request ${request.id.slice(0, 8)} from ${request.status} to ${this.maintenanceUpdateForm.status}?`)) {
+          return;
+        }
+        this.saving = true;
+        this.registry.updateMaintenanceRequest(this.companyId, request.id, {
+          ...this.maintenanceUpdateForm,
+          assignee_id: this.maintenanceUpdateForm.assignee_id || null,
+          diagnosis: this.maintenanceUpdateForm.diagnosis || null,
+          work_performed: this.maintenanceUpdateForm.work_performed || null,
+          resolution_notes: this.maintenanceUpdateForm.resolution_notes || null,
+          completed_date: this.maintenanceUpdateForm.completed_date || null,
+          cost: this.maintenanceUpdateForm.cost === null ? null : Number(this.maintenanceUpdateForm.cost)
+        }).subscribe({
+          next: (updated) => {
+            this.saving = false;
+            this.successMessage = `Maintenance request for ${updated.asset_number} updated.`;
+            this.errorMessage = '';
+            this.loadMaintenance();
+          },
+          error: (error) => this.fail(error)
+        });
+      }
+
+      allowedMaintenanceStatuses(request: MaintenanceRequest): MaintenanceStatus[] {
+        switch (request.status) {
+          case 'open': return ['open', 'in_progress'];
+          case 'in_progress': return ['in_progress', 'resolved'];
+          case 'resolved': return ['resolved', 'closed'];
+          case 'closed': return ['closed'];
+        }
+      }
+
+      loadServiceContracts(): void {
+        const asset = this.selectedAsset;
+        if (!asset || !this.companyId || !this.can('maintenance.read')) {
+          this.serviceContracts = [];
+          return;
+        }
+        const requestedCompanyId = this.companyId;
+        const requestedAssetId = asset.id;
+        this.contractsLoading = true;
+        this.registry.serviceContracts(requestedCompanyId, requestedAssetId).subscribe({
+          next: (contracts) => {
+            if (requestedCompanyId !== this.companyId || requestedAssetId !== this.selectedAsset?.id) return;
+            this.serviceContracts = contracts;
+            this.contractsLoading = false;
+          },
+          error: (error) => {
+            if (requestedCompanyId !== this.companyId || requestedAssetId !== this.selectedAsset?.id) return;
+            this.contractsLoading = false;
+            this.fail(error);
+          }
+        });
+      }
+
+      createServiceContract(): void {
+        const asset = this.selectedAsset;
+        if (!asset || this.saving || !this.can('maintenance.manage')) return;
+        this.saving = true;
+        this.registry.createServiceContract(this.companyId, asset.id, {
+          ...this.contractForm,
+          provider_name: this.contractForm.provider_name.trim() || null,
+          reference_number: this.contractForm.reference_number.trim() || null,
+          coverage_description: this.contractForm.coverage_description.trim() || null,
+          support_contact: this.contractForm.support_contact.trim() || null,
+          notes: this.contractForm.notes.trim() || null
+        }).subscribe({
+          next: (contract) => {
+            this.saving = false;
+            this.contractForm = {
+              contract_type: 'warranty',
+              provider_name: '',
+              reference_number: '',
+              start_date: this.today(),
+              end_date: this.today(),
+              coverage_description: '',
+              support_contact: '',
+              notes: ''
+            };
+            this.successMessage = `${contract.contract_type === 'amc' ? 'AMC' : 'Warranty'} recorded for ${asset.asset_number}.`;
+            this.errorMessage = '';
+            this.loadServiceContracts();
+          },
+          error: (error) => this.fail(error)
+        });
+      }
+
+      cancelServiceContract(contract: AssetServiceContract): void {
+        if (!this.can('maintenance.manage') || contract.status === 'cancelled' ||
+            !window.confirm(`Cancel ${contract.contract_type} ${contract.reference_number || 'contract'}?`)) return;
+        this.saving = true;
+        this.registry.cancelServiceContract(this.companyId, contract.id).subscribe({
+          next: () => {
+            this.saving = false;
+            this.successMessage = 'Service contract cancelled; its record is retained.';
+            this.loadServiceContracts();
+          },
+          error: (error) => this.fail(error)
+        });
+      }
+
+  createSupplier(): void {
+    if (!this.companyId || this.saving || !this.can('procurement.manage')) return;
+    this.saving = true;
+    this.registry.createSupplier(this.companyId, {
+      ...this.supplierForm,
+      email: this.supplierForm.email || null,
+      phone: this.supplierForm.phone || null,
+      notes: this.supplierForm.notes || null
+    }).subscribe({
+      next: (supplier) => {
+        this.suppliers = [...this.suppliers, supplier].sort((a, b) => a.name.localeCompare(b.name));
+        this.supplierForm = { code: '', name: '', email: '', phone: '', notes: '' };
+        this.saving = false;
+        this.successMessage = `Supplier ${supplier.name} created.`;
+        this.errorMessage = '';
+      },
+      error: (error) => this.fail(error)
+    });
+  }
+
+  createPurchaseOrder(): void {
+    if (!this.companyId || this.saving || !this.can('procurement.manage')) return;
+    this.saving = true;
+    this.registry.createPurchaseOrder(this.companyId, {
+      supplier_id: this.purchaseOrderForm.supplier_id,
+      order_number: this.purchaseOrderForm.order_number.trim(),
+      ordered_date: this.purchaseOrderForm.ordered_date,
+      expected_date: this.purchaseOrderForm.expected_date || null,
+      notes: this.purchaseOrderForm.notes,
+      lines: [{
+        category_id: this.purchaseOrderForm.category_id,
+        description: this.purchaseOrderForm.description.trim(),
+        quantity_ordered: Number(this.purchaseOrderForm.quantity_ordered),
+        unit_cost: Number(this.purchaseOrderForm.unit_cost)
+      }]
+    }).subscribe({
+      next: (order) => {
+        this.purchaseOrders = [order, ...this.purchaseOrders];
+        this.purchaseOrderForm = {
+          supplier_id: '',
+          order_number: '',
+          ordered_date: this.today(),
+          expected_date: '',
+          notes: '',
+          category_id: '',
+          description: '',
+          quantity_ordered: 1,
+          unit_cost: 0
+        };
+        this.saving = false;
+        this.successMessage = `Purchase order ${order.order_number} created.`;
+        this.errorMessage = '';
+      },
+      error: (error) => this.fail(error)
+    });
+  }
+
+  createGoodsReceipt(): void {
+    const line = this.selectedPurchaseOrderLine;
+    const quantity = Number(this.goodsReceiptForm.quantity_received);
+    const rejected = Number(this.goodsReceiptForm.quantity_rejected);
+    if (!this.companyId || !this.selectedPurchaseOrder || !line || this.saving || !this.can('procurement.manage')) return;
+    if (quantity > this.remainingToReceive(line.id) || rejected > quantity) {
+      this.errorMessage = 'Received quantity must not exceed the remaining ordered quantity, and rejected quantity must not exceed received quantity.';
+      return;
+    }
+    if (!window.confirm(`Receive ${quantity - rejected} accepted item(s) and register them as assets?`)) return;
+    const serials = this.goodsReceiptForm.serial_numbers
+      .split(',')
+      .map((serial) => serial.trim())
+      .filter(Boolean);
+    this.saving = true;
+    this.registry.receiveGoods(this.companyId, this.selectedPurchaseOrder.id, {
+      receipt_number: this.goodsReceiptForm.receipt_number.trim(),
+      received_date: this.goodsReceiptForm.received_date,
+      delivery_reference: this.goodsReceiptForm.delivery_reference,
+      notes: this.goodsReceiptForm.notes,
+      lines: [{
+        purchase_order_line_id: line.id,
+        quantity_received: quantity,
+        quantity_rejected: rejected,
+        serial_numbers: serials,
+        discrepancy_notes: this.goodsReceiptForm.discrepancy_notes
+      }]
+    }).subscribe({
+      next: (receipt) => {
+        this.goodsReceipts = [receipt, ...this.goodsReceipts];
+        const index = this.purchaseOrders.findIndex((order) => order.id === receipt.purchase_order_id);
+        if (index >= 0) {
+          this.purchaseOrders[index] = {
+            ...this.purchaseOrders[index],
+            status: this.purchaseOrders[index].lines.every((orderLine) =>
+              this.remainingInOrder(
+                this.purchaseOrders[index].id,
+                orderLine.id,
+                orderLine.quantity_ordered
+              ) === 0
+            ) ? 'received' : 'partially_received'
+          };
+        }
+        this.goodsReceiptForm = {
+          ...this.goodsReceiptForm,
+          receipt_number: '',
+          received_date: this.today(),
+          delivery_reference: '',
+          notes: '',
+          quantity_received: 1,
+          quantity_rejected: 0,
+          serial_numbers: '',
+          discrepancy_notes: ''
+        };
+        this.saving = false;
+        this.successMessage = `Receipt ${receipt.receipt_number} recorded; ${receipt.lines.flatMap((item) => item.assets).length} asset(s) registered.`;
+        this.errorMessage = '';
+      },
+      error: (error) => this.fail(error)
+    });
+  }
+
+  selectReceiptOrder(orderId: string): void {
+    this.goodsReceiptForm.purchase_order_id = orderId;
+    const order = this.purchaseOrders.find((item) => item.id === orderId);
+    const firstLine = order?.lines.find((line) =>
+      this.remainingInOrder(orderId, line.id, line.quantity_ordered) > 0
+    );
+    this.goodsReceiptForm.purchase_order_line_id = firstLine?.id ?? '';
+    this.goodsReceiptForm.quantity_received = firstLine ? Math.max(1, this.remainingToReceive(firstLine.id)) : 1;
+  }
+
+  supplierName(supplierId: string): string {
+    return this.suppliers.find((supplier) => supplier.id === supplierId)?.name ?? 'Unknown supplier';
+  }
+
+  orderNumber(orderId: string): string {
+    return this.purchaseOrders.find((order) => order.id === orderId)?.order_number ?? orderId;
+  }
+
+  receiptAssets(receipt: GoodsReceipt) {
+    return receipt.lines.flatMap((line) => line.assets);
   }
 
   loadAssets(): void {
@@ -468,6 +1077,30 @@ export class RegistryComponent implements OnInit {
     this.selectedAsset = asset;
     this.assetEditForm = { ...asset };
     this.usageForm = { department_id: '', purpose: '' };
+    this.assignmentSiteId = asset.site_id ?? '';
+    this.transferSiteId = asset.site_id ?? '';
+    this.assignmentForm = {
+      recipient_id: '',
+      effective_date: this.today(),
+      responsible_department_id: asset.responsible_department_id ?? '',
+      location_id: asset.location_id ?? '',
+      notes: '',
+      reference: ''
+    };
+    this.handoverForm = {
+      handover_date: this.today(),
+      condition: '',
+      included_items: '',
+      acknowledgement: '',
+      notes: ''
+    };
+    this.returnForm = {
+      return_date: this.today(),
+      condition: '',
+      notes: '',
+      issue_details: '',
+      next_asset_status: 'in_stock'
+    };
     this.changeDetector.detectChanges();
     const detailsPanel = this.assetDetail?.nativeElement;
     detailsPanel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -477,7 +1110,15 @@ export class RegistryComponent implements OnInit {
     } else {
       this.locations = [];
     }
+    this.loadAssignmentLocations(this.assignmentSiteId, 'assignment');
+    this.loadAssignmentLocations(this.transferSiteId, 'transfer');
+    if (this.can('asset.assignment.manage')) {
+      this.loadAssignmentRecipients();
+    } else {
+      this.assignmentRecipients = [];
+    }
     this.refreshAssetDetails();
+    this.loadServiceContracts();
   }
 
   refreshAssetDetails(): void {
@@ -485,16 +1126,135 @@ export class RegistryComponent implements OnInit {
     forkJoin({
       asset: this.registry.getAsset(this.companyId, this.selectedAsset.id),
       usages: this.registry.usages(this.companyId, this.selectedAsset.id, true),
-      history: this.registry.history(this.companyId, this.selectedAsset.id)
+      history: this.registry.history(this.companyId, this.selectedAsset.id),
+      assignments: this.registry.assignments(this.companyId, this.selectedAsset.id)
     }).subscribe({
       next: (result) => {
         this.selectedAsset = result.asset;
         this.assetEditForm = { ...result.asset };
         this.selectedUsages = result.usages;
         this.assetHistory = result.history;
+        this.assignmentHistory = result.assignments;
+        const current = this.currentAssignment;
+        if (current) {
+          this.transferForm = {
+            recipient_id: '',
+            effective_date: this.today(),
+            reason: '',
+            responsible_department_id: current.responsible_department_id ?? '',
+            location_id: current.location_id ?? '',
+            reference: '',
+            condition: '',
+            included_items: '',
+            acknowledgement: '',
+            notes: ''
+          };
+        }
       },
       error: (error) => this.fail(error)
     });
+  }
+
+  loadAssignmentRecipients(): void {
+    if (!this.companyId || !this.can('asset.assignment.manage')) return;
+    this.assignmentRecipientsLoading = true;
+    this.registry.assignmentRecipients(this.companyId).subscribe({
+      next: (recipients) => {
+        this.assignmentRecipients = recipients;
+        this.assignmentRecipientsLoading = false;
+      },
+      error: (error) => {
+        this.assignmentRecipientsLoading = false;
+        this.fail(error);
+      }
+    });
+  }
+
+  loadAssignmentLocations(siteId: string, target: 'assignment' | 'transfer'): void {
+    if (!siteId || !this.companyId) {
+      if (target === 'assignment') this.assignmentLocations = [];
+      else this.transferLocations = [];
+      return;
+    }
+    this.registry.listLocations(this.companyId, siteId).subscribe({
+      next: (locations) => {
+        if (target === 'assignment') this.assignmentLocations = locations.filter((item) => item.is_active);
+        else this.transferLocations = locations.filter((item) => item.is_active);
+      },
+      error: (error) => this.fail(error)
+    });
+  }
+
+  assignAsset(): void {
+    if (!this.selectedAsset || !this.canAssignSelectedAsset || !this.assignmentForm.recipient_id) return;
+    if (!window.confirm(`Assign ${this.selectedAsset.asset_number} to the selected recipient?`)) return;
+    this.saving = true;
+    this.registry.createAssignment(this.companyId, this.selectedAsset.id, {
+      ...this.assignmentForm,
+      responsible_department_id: this.assignmentForm.responsible_department_id || null,
+      location_id: this.assignmentForm.location_id || null
+    }).subscribe({
+      next: () => this.lifecycleUpdated('Asset assigned.'),
+      error: (error) => this.fail(error)
+    });
+  }
+
+  recordHandover(): void {
+    const assignment = this.currentAssignment;
+    if (!this.selectedAsset || !assignment) return;
+    this.saving = true;
+    this.registry.recordHandover(
+      this.companyId,
+      this.selectedAsset.id,
+      assignment.id,
+      this.handoverForm
+    ).subscribe({
+      next: () => this.lifecycleUpdated('Handover recorded.'),
+      error: (error) => this.fail(error)
+    });
+  }
+
+  returnAsset(): void {
+    const assignment = this.currentAssignment;
+    if (!this.selectedAsset || !assignment) return;
+    if (!window.confirm(`Record the return of ${this.selectedAsset.asset_number}?`)) return;
+    this.saving = true;
+    this.registry.returnAssignment(
+      this.companyId,
+      this.selectedAsset.id,
+      assignment.id,
+      this.returnForm
+    ).subscribe({
+      next: () => this.lifecycleUpdated('Asset return recorded.'),
+      error: (error) => this.fail(error)
+    });
+  }
+
+  transferAsset(): void {
+    const assignment = this.currentAssignment;
+    if (!this.selectedAsset || !assignment || !this.transferForm.recipient_id) return;
+    if (!window.confirm(`Transfer ${this.selectedAsset.asset_number} to the selected recipient?`)) return;
+    this.saving = true;
+    this.registry.transferAssignment(
+      this.companyId,
+      this.selectedAsset.id,
+      assignment.id,
+      {
+        ...this.transferForm,
+        responsible_department_id: this.transferForm.responsible_department_id || null,
+        location_id: this.transferForm.location_id || null
+      }
+    ).subscribe({
+      next: () => this.lifecycleUpdated('Asset transferred; previous custody is retained in history.'),
+      error: (error) => this.fail(error)
+    });
+  }
+
+  private lifecycleUpdated(message: string): void {
+    this.saving = false;
+    this.successMessage = message;
+    this.loadAssets();
+    this.refreshAssetDetails();
   }
 
   saveAsset(): void {
@@ -557,6 +1317,12 @@ export class RegistryComponent implements OnInit {
 
   departmentName(departmentId: string): string {
     return this.departments.find((item) => item.id === departmentId)?.name ?? 'Unknown department';
+  }
+
+  private today(): string {
+    const now = new Date();
+    const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+    return localDate.toISOString().slice(0, 10);
   }
 
   private fail(error: { error?: { detail?: string | { message?: string } }; message?: string }): void {

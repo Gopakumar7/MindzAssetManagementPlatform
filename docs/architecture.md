@@ -16,7 +16,7 @@ This keeps deployment simple while preserving boundaries that can be maintained 
 
 The application should be structured as a single deployable service with clear domain modules, not as a collection of tightly coupled route handlers. Each module owns its business logic, validation, persistence, and domain service layer. API routes remain thin orchestration layers that validate input and delegate to services.
 
-Implemented backend domains currently include shared health/foundation code, organisation master data, and a basic asset registry. These are modules inside one FastAPI application, not separate services. Company ownership is represented in the schema and checked by company-scoped API routes and composite foreign keys. Authentication and actor authorization are not implemented; therefore these checks are application-level data scoping, not a secure tenant boundary.
+Implemented backend domains currently include shared health/foundation code, organisation master data, a basic asset registry, local identity, company-scoped RBAC, and audit capture. These are modules inside one FastAPI application, not separate services. Company ownership is represented in the schema and checked by company-scoped API routes, database constraints, and request-time membership/permission checks.
 
 ## 3. Angular-to-FastAPI communication
 
@@ -32,7 +32,7 @@ Recommended interaction model:
 - Backend exposes `/api/v1/...` resource endpoints with consistent naming and pagination
 - Requests and responses use typed Pydantic models
 - UI state handles loading, validation, and server error states in a standard way
-- Authentication is handled through token-based sessions or an identity provider integration behind the API boundary
+- The current browser session uses a random opaque token in an HttpOnly cookie, with only its digest persisted server-side; Angular uses the same-origin API path and a session-bound CSRF token for unsafe requests
 
 Recommended conventions:
 
@@ -154,11 +154,9 @@ Asset numbers are unique within a company. Category-specific rules select a disp
 
 ### Authentication
 
-Recommended baseline for the initial product:
+The implemented baseline uses local accounts, Argon2id password hashes, server-side opaque sessions, HttpOnly/SameSite cookies, per-session CSRF tokens, persistent login throttling, and an interactive one-time system-administrator bootstrap. There are no default credentials or public self-registration. Company invitations return a one-time token for controlled out-of-band sharing because email delivery is not configured.
 
-- Use a secure, standards-based authentication method such as OAuth2/OIDC or a JWT-based token strategy behind the FastAPI API boundary
-- Keep the identity integration configurable so an implementation can use enterprise identity providers without code changes to the application core
-- Do not hard-code a single auth vendor into module logic
+Future enterprise deployments may integrate SSO/OIDC behind the API boundary. Password reset, account recovery, MFA, identity lifecycle integration, and email delivery remain explicit integration tasks; they must not be simulated by public registration or insecure token links.
 
 ### Authorization
 
@@ -169,13 +167,15 @@ Use role-based access control (RBAC) combined with permission checks on domain a
 - Asset categories or ownership scopes
 - Approval roles and workflow responsibilities
 
-A practical initial strategy is a permission matrix and role assignments, not a fully dynamic policy engine. Role membership and permission evaluation should be driven from persisted configuration tables and evaluated in domain services.
+A practical initial strategy is a permission matrix and role assignments, not a fully dynamic policy engine. Persistent system/company role mappings are evaluated on each API request, and company membership is resolved from the database rather than trusted from client input. Angular route guards and permission-based visibility are usability controls only; FastAPI remains authoritative.
 
 ### Auditability
 
 Business critical actions must be traceable.
 
-Audit requirements for initial implementation should cover:
+The implementation records security and tracked business mutations in a PostgreSQL-backed append-only `audit_events` table. Audit insertion is in the same transaction as business changes, and database triggers reject event updates and deletes. Authentication and authorization outcomes are written explicitly. Sensitive authentication secrets are excluded from audit snapshots.
+
+Additional lifecycle-specific audit requirements should cover:
 
 - creation and change history for asset, procurement, and approval records
 - who performed an action and when

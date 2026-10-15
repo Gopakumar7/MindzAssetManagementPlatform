@@ -86,6 +86,9 @@ Phase 0 must be complete and stable.
 
 ## Phase 2 — Procurement and asset acquisition flow
 
+### Status (2026-10-16)
+A bounded supplier → purchase order → goods receipt slice is implemented and under PostgreSQL/API/UI verification. It creates accepted assets and receipt-line traceability atomically, supports partial and rejected quantities, and enforces company scope. Requisitions, quotations, approvals, tax/currency accounting, and document handling are not implemented; they remain planned and require policy decisions.
+
 ### Objective
 Support the requisition-to-receipt traceability chain required for accountability and lifecycle tracking.
 
@@ -121,6 +124,9 @@ Phase 1 must be complete.
 - Asset acquisition metadata is strong enough to support later deployment and finance processing
 
 ## Phase 3 — Security, configurable policy, and workflow foundation
+
+### Status (2026-10-14)
+The local identity/session, company-scoped RBAC, membership invitation, and append-only audit foundation was delivered ahead of this phase's workflow scope. Remaining work includes configurable policies, approval workflows, reason/comment history for approvals, notification infrastructure, and external identity integration decisions.
 
 ### Objective
 Introduce the governance layer that makes the platform configurable across organisations without code changes.
