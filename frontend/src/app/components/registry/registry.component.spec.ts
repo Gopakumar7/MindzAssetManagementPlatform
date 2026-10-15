@@ -73,7 +73,13 @@ describe('RegistryComponent user access navigation', () => {
       'maintenanceUsers',
       'maintenanceRequests',
       'createMaintenanceRequest',
-      'updateMaintenanceRequest'
+      'updateMaintenanceRequest',
+      'dashboard',
+      'reportAssetRegister',
+      'reportAssetAllocation',
+      'reportWarrantyExpiry',
+      'reportMaintenance',
+      'reportProcurement'
     ]);
     registry.companies.and.returnValue(of([company]));
     registry.listMaster.and.returnValue(of([]));
@@ -93,6 +99,24 @@ describe('RegistryComponent user access navigation', () => {
     registry.serviceContracts.and.returnValue(of([]));
     registry.maintenanceUsers.and.returnValue(of([]));
     registry.maintenanceRequests.and.returnValue(of([]));
+    registry.dashboard.and.returnValue(of({
+      total_assets: 0,
+      assets_by_status: {},
+      assets_by_category: [],
+      assets_by_site: [],
+      assets_by_department: [],
+      expiring_contracts_count: 0,
+      expiring_contracts: [],
+      maintenance_summary: { open: 0, in_progress: 0, resolved: 0, closed: 0, total_open_and_in_progress: 0 },
+      procurement_summary: { total_purchase_orders: 0, orders_by_status: {}, total_goods_receipts: 0, total_items_received: 0, total_items_rejected: 0 },
+      recent_activity: []
+    }));
+    registry.reportAssetRegister.and.returnValue(of([]));
+    registry.reportAssetAllocation.and.returnValue(of([]));
+    registry.reportWarrantyExpiry.and.returnValue(of([]));
+    registry.reportMaintenance.and.returnValue(of([]));
+    registry.reportProcurement.and.returnValue(of([]));
+
 
     TestBed.configureTestingModule({
       imports: [RegistryComponent],
@@ -423,7 +447,160 @@ describe('RegistryComponent user access navigation', () => {
     expect(component.successMessage).toContain('Maintenance request created');
     expect(component.maintenanceRequests).toEqual([created]);
   });
+
+  it('loads and displays executive dashboard metrics', () => {
+    permissions = new Set(['company.read', 'asset.read']);
+    registry.dashboard.and.returnValue(of({
+      total_assets: 10,
+      assets_by_status: { in_stock: 6, assigned: 4 },
+      assets_by_category: [{ category_id: 'cat-1', category_name: 'Laptops', count: 10 }],
+      assets_by_site: [{ site_id: 'site-1', site_name: 'HQ', count: 10 }],
+      assets_by_department: [{ department_id: 'dept-1', department_name: 'IT', count: 10 }],
+      expiring_contracts_count: 2,
+      expiring_contracts: [{
+        id: 'c-1',
+        contract_type: 'warranty',
+        reference_number: 'WAR-01',
+        provider_name: 'Dell Care',
+        asset_id: 'asset-1',
+        asset_number: 'AST-000001',
+        end_date: '2026-11-10',
+        days_remaining: 26
+      }],
+      maintenance_summary: { open: 1, in_progress: 1, resolved: 0, closed: 0, total_open_and_in_progress: 2 },
+      procurement_summary: { total_purchase_orders: 3, orders_by_status: { open: 3 }, total_goods_receipts: 2, total_items_received: 5, total_items_rejected: 0 },
+      recent_activity: [{
+        id: 'act-1',
+        action: 'asset.created',
+        entity_type: 'Asset',
+        entity_id: 'asset-1',
+        actor_id: 'user-1',
+        actor_email: 'admin@example.invalid',
+        outcome: 'success',
+        occurred_at: '2026-10-15T10:00:00Z'
+      }]
+    }));
+
+    const component = fixture.componentInstance;
+    component.setView('dashboard');
+    fixture.detectChanges();
+
+    expect(registry.dashboard).toHaveBeenCalledWith(company.id);
+    expect(component.dashboardData?.total_assets).toBe(10);
+    expect(fixture.nativeElement.textContent).toContain('Total Assets');
+    expect(fixture.nativeElement.textContent).toContain('10');
+    expect(fixture.nativeElement.textContent).toContain('Contracts Expiring (30d)');
+    expect(fixture.nativeElement.textContent).toContain('Open Maintenance');
+  });
+
+  it('displays genuine zeroes when dashboard returns genuine zero metrics', () => {
+    permissions = new Set(['company.read', 'asset.read']);
+    registry.dashboard.and.returnValue(of({
+      total_assets: 0,
+      assets_by_status: {},
+      assets_by_category: [],
+      assets_by_site: [],
+      assets_by_department: [],
+      expiring_contracts_count: 0,
+      expiring_contracts: [],
+      maintenance_summary: { open: 0, in_progress: 0, resolved: 0, closed: 0, total_open_and_in_progress: 0 },
+      procurement_summary: { total_purchase_orders: 0, orders_by_status: {}, total_goods_receipts: 0, total_items_received: 0, total_items_rejected: 0 },
+      recent_activity: []
+    }));
+
+    const component = fixture.componentInstance;
+    component.setView('dashboard');
+    fixture.detectChanges();
+
+    expect(component.dashboardData?.total_assets).toBe(0);
+    expect(component.dashboardError).toBe('');
+    expect(fixture.nativeElement.textContent).toContain('0');
+  });
+
+  it('handles dashboard error and allows retry', () => {
+    permissions = new Set(['company.read', 'asset.read']);
+    registry.dashboard.and.returnValue(throwError(() => ({ error: { detail: 'API timeout' } })));
+
+    const component = fixture.componentInstance;
+    component.setView('dashboard');
+    fixture.detectChanges();
+
+    expect(component.dashboardError).toBe('API timeout');
+    expect(fixture.nativeElement.textContent).toContain('API timeout');
+
+    // Test retry
+    registry.dashboard.and.returnValue(of({
+      total_assets: 1,
+      assets_by_status: { in_stock: 1 },
+      assets_by_category: [],
+      assets_by_site: [],
+      assets_by_department: [],
+      expiring_contracts_count: 0,
+      expiring_contracts: [],
+      maintenance_summary: { open: 0, in_progress: 0, resolved: 0, closed: 0, total_open_and_in_progress: 0 },
+      procurement_summary: { total_purchase_orders: 0, orders_by_status: {}, total_goods_receipts: 0, total_items_received: 0, total_items_rejected: 0 },
+      recent_activity: []
+    }));
+    component.loadDashboard();
+    expect(component.dashboardError).toBe('');
+    expect(component.dashboardData?.total_assets).toBe(1);
+  });
+
+  it('loads operational reports and switches report tabs', () => {
+    permissions = new Set(['company.read', 'asset.read', 'maintenance.read', 'procurement.read']);
+    registry.reportAssetRegister.and.returnValue(of([{
+      id: 'asset-1',
+      asset_number: 'AST-000001',
+      category_id: 'cat-1',
+      category_name: 'Laptops',
+      manufacturer: 'Apple',
+      model: 'MacBook Pro',
+      serial_number: 'SN-001',
+      status: 'in_stock',
+      site_id: null,
+      site_name: null,
+      department_id: null,
+      department_name: null,
+      custodian_name: null,
+      acquisition_date: '2026-01-01',
+      acquisition_cost: 2000,
+      warranty_start: null,
+      warranty_end: null
+    }]));
+    registry.reportAssetAllocation.and.returnValue(of([]));
+    registry.reportWarrantyExpiry.and.returnValue(of([]));
+    registry.reportMaintenance.and.returnValue(of([]));
+    registry.reportProcurement.and.returnValue(of([]));
+
+    const component = fixture.componentInstance;
+    component.setView('reports');
+    fixture.detectChanges();
+
+    expect(component.activeReport).toBe('asset-register');
+    expect(registry.reportAssetRegister).toHaveBeenCalled();
+
+    // Switch to allocation report
+    component.selectReport('asset-allocation');
+    expect(component.activeReport).toBe('asset-allocation');
+    expect(registry.reportAssetAllocation).toHaveBeenCalled();
+
+    // Switch to warranty expiry
+    component.selectReport('warranty-expiry');
+    expect(component.activeReport).toBe('warranty-expiry');
+    expect(registry.reportWarrantyExpiry).toHaveBeenCalled();
+
+    // Switch to maintenance
+    component.selectReport('maintenance');
+    expect(component.activeReport).toBe('maintenance');
+    expect(registry.reportMaintenance).toHaveBeenCalled();
+
+    // Switch to procurement
+    component.selectReport('procurement');
+    expect(component.activeReport).toBe('procurement');
+    expect(registry.reportProcurement).toHaveBeenCalled();
+  });
 });
+
 
 const testAsset: Asset = {
   id: 'asset-1',

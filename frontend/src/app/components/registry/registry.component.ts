@@ -6,30 +6,37 @@ import { forkJoin } from 'rxjs';
 
 import {
   Asset,
+  AssetAllocationReportItem,
   AssetAssignment,
   AssetHistory,
   AssetPage,
+  AssetRegisterReportItem,
   AssignmentRecipient,
   CompanyMember,
   CompanyRole,
   Company,
+  DashboardData,
   DepartmentUsage,
   AssetServiceContract,
   GoodsReceipt,
   Invitation,
   MasterRecord,
   MaintenancePriority,
+  MaintenanceReportItem,
   MaintenanceRequest,
   MaintenanceStatus,
   NumberRule,
+  ProcurementReportItem,
   ProcurementSupplier,
   PurchaseOrder,
-  RegistryService
+  RegistryService,
+  WarrantyExpiryReportItem
 } from '../../services/registry.service';
 import { AuthService } from '../../services/auth.service';
 
-type ViewName = 'assets' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company' | 'users-access' | 'procurement' | 'maintenance';
+type ViewName = 'dashboard' | 'assets' | 'reports' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company' | 'users-access' | 'procurement' | 'maintenance';
 type MasterKind = 'departments' | 'sites' | 'categories' | 'cost-centers';
+export type ReportType = 'asset-register' | 'asset-allocation' | 'warranty-expiry' | 'maintenance' | 'procurement';
 
 @Component({
     selector: 'app-registry',
@@ -44,11 +51,34 @@ export class RegistryComponent implements OnInit {
   companyId = '';
   company?: Company;
   creatingCompany = false;
-  activeView: ViewName = 'assets';
+  activeView: ViewName = 'dashboard';
   loading = false;
   saving = false;
   errorMessage = '';
   successMessage = '';
+
+  dashboardData?: DashboardData;
+  dashboardLoading = false;
+  dashboardError = '';
+
+  activeReport: ReportType = 'asset-register';
+  reportsLoading = false;
+  reportsError = '';
+  reportSearch = '';
+  reportStatusFilter = '';
+  reportCategoryFilter = '';
+  reportSiteFilter = '';
+  reportDepartmentFilter = '';
+  reportSupplierFilter = '';
+  reportCoverageStatusFilter = '';
+  reportPriorityFilter = '';
+
+  assetRegisterReport: AssetRegisterReportItem[] = [];
+  assetAllocationReport: AssetAllocationReportItem[] = [];
+  warrantyExpiryReport: WarrantyExpiryReportItem[] = [];
+  maintenanceReport: MaintenanceReportItem[] = [];
+  procurementReport: ProcurementReportItem[] = [];
+
 
   departments: MasterRecord[] = [];
   sites: MasterRecord[] = [];
@@ -288,6 +318,16 @@ export class RegistryComponent implements OnInit {
       this.maintenanceUsers = [];
       this.selectedMaintenanceRequest = undefined;
       this.maintenanceLoading = false;
+      this.dashboardData = undefined;
+      this.dashboardLoading = false;
+      this.dashboardError = '';
+      this.reportsLoading = false;
+      this.reportsError = '';
+      this.assetRegisterReport = [];
+      this.assetAllocationReport = [];
+      this.warrantyExpiryReport = [];
+      this.maintenanceReport = [];
+      this.procurementReport = [];
     }
     this.companyId = id;
     this.company = this.companies.find((item) => item.id === id);
@@ -330,7 +370,11 @@ export class RegistryComponent implements OnInit {
           };
         }
         this.loadAssets();
-        if (this.activeView === 'procurement') {
+        if (this.activeView === 'dashboard') {
+          this.loadDashboard();
+        } else if (this.activeView === 'reports') {
+          this.loadActiveReport();
+        } else if (this.activeView === 'procurement') {
           this.loadProcurement();
         } else if (this.activeView === 'maintenance') {
           this.loadMaintenance();
@@ -342,6 +386,7 @@ export class RegistryComponent implements OnInit {
       error: (error) => this.fail(error)
     });
   }
+
 
   loadCompanyMembers(): void {
     this.members = [];
@@ -401,7 +446,11 @@ export class RegistryComponent implements OnInit {
     this.successMessage = '';
     this.editingMasterId = '';
     this.masterForm = { code: '', name: '', description: '', address: '', details: '', is_active: true };
-    if (view === 'assets') {
+    if (view === 'dashboard') {
+      this.loadDashboard();
+    } else if (view === 'reports') {
+      this.loadActiveReport();
+    } else if (view === 'assets') {
       this.loadAssets();
     } else if (view === 'procurement') {
       this.loadProcurement();
@@ -409,6 +458,7 @@ export class RegistryComponent implements OnInit {
       this.loadMaintenance();
     }
   }
+
 
   get selectedPurchaseOrder(): PurchaseOrder | undefined {
     return this.purchaseOrders.find((order) => order.id === this.goodsReceiptForm.purchase_order_id);
@@ -1074,6 +1124,7 @@ export class RegistryComponent implements OnInit {
   }
 
   openAsset(asset: Asset): void {
+    this.activeView = 'assets';
     this.selectedAsset = asset;
     this.assetEditForm = { ...asset };
     this.usageForm = { department_id: '', purpose: '' };
@@ -1319,7 +1370,221 @@ export class RegistryComponent implements OnInit {
     return this.departments.find((item) => item.id === departmentId)?.name ?? 'Unknown department';
   }
 
+  loadDashboard(): void {
+    if (!this.companyId) return;
+    this.dashboardLoading = true;
+    this.dashboardError = '';
+    this.registry.dashboard(this.companyId).subscribe({
+      next: (data) => {
+        this.dashboardData = data;
+        this.dashboardLoading = false;
+        this.changeDetector.markForCheck();
+      },
+      error: (err) => {
+        this.dashboardLoading = false;
+        this.dashboardError = err?.error?.detail || 'Failed to load dashboard metrics.';
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  selectReport(type: ReportType): void {
+    this.activeReport = type;
+    this.reportSearch = '';
+    this.reportStatusFilter = '';
+    this.reportCategoryFilter = '';
+    this.reportSiteFilter = '';
+    this.reportDepartmentFilter = '';
+    this.reportSupplierFilter = '';
+    this.reportCoverageStatusFilter = '';
+    this.reportPriorityFilter = '';
+    this.loadActiveReport();
+  }
+
+  loadActiveReport(): void {
+    if (!this.companyId) return;
+    this.reportsLoading = true;
+    this.reportsError = '';
+    if (this.activeReport === 'asset-register') {
+      this.registry.reportAssetRegister(this.companyId, {
+        status: this.reportStatusFilter || undefined,
+        category_id: this.reportCategoryFilter || undefined,
+        site_id: this.reportSiteFilter || undefined,
+        department_id: this.reportDepartmentFilter || undefined,
+        search: this.reportSearch.trim() || undefined,
+      }).subscribe({
+        next: (items) => {
+          this.assetRegisterReport = items;
+          this.reportsLoading = false;
+          this.changeDetector.markForCheck();
+        },
+        error: (err) => {
+          this.reportsLoading = false;
+          this.reportsError = err?.error?.detail || 'Failed to load asset register report.';
+          this.changeDetector.markForCheck();
+        }
+      });
+    } else if (this.activeReport === 'asset-allocation') {
+      this.registry.reportAssetAllocation(this.companyId, {
+        department_id: this.reportDepartmentFilter || undefined,
+        site_id: this.reportSiteFilter || undefined,
+        search: this.reportSearch.trim() || undefined,
+      }).subscribe({
+        next: (items) => {
+          this.assetAllocationReport = items;
+          this.reportsLoading = false;
+          this.changeDetector.markForCheck();
+        },
+        error: (err) => {
+          this.reportsLoading = false;
+          this.reportsError = err?.error?.detail || 'Failed to load asset allocation report.';
+          this.changeDetector.markForCheck();
+        }
+      });
+    } else if (this.activeReport === 'warranty-expiry') {
+      this.registry.reportWarrantyExpiry(this.companyId, {
+        contract_type: this.reportStatusFilter || undefined,
+        coverage_status: this.reportCoverageStatusFilter || undefined,
+        search: this.reportSearch.trim() || undefined,
+      }).subscribe({
+        next: (items) => {
+          this.warrantyExpiryReport = items;
+          this.reportsLoading = false;
+          this.changeDetector.markForCheck();
+        },
+        error: (err) => {
+          this.reportsLoading = false;
+          this.reportsError = err?.error?.detail || 'Failed to load warranty and AMC expiry report.';
+          this.changeDetector.markForCheck();
+        }
+      });
+    } else if (this.activeReport === 'maintenance') {
+      this.registry.reportMaintenance(this.companyId, {
+        status: this.reportStatusFilter || undefined,
+        priority: this.reportPriorityFilter || undefined,
+        search: this.reportSearch.trim() || undefined,
+      }).subscribe({
+        next: (items) => {
+          this.maintenanceReport = items;
+          this.reportsLoading = false;
+          this.changeDetector.markForCheck();
+        },
+        error: (err) => {
+          this.reportsLoading = false;
+          this.reportsError = err?.error?.detail || 'Failed to load maintenance report.';
+          this.changeDetector.markForCheck();
+        }
+      });
+    } else if (this.activeReport === 'procurement') {
+      this.registry.reportProcurement(this.companyId, {
+        status: this.reportStatusFilter || undefined,
+        supplier_id: this.reportSupplierFilter || undefined,
+        search: this.reportSearch.trim() || undefined,
+      }).subscribe({
+        next: (items) => {
+          this.procurementReport = items;
+          this.reportsLoading = false;
+          this.changeDetector.markForCheck();
+        },
+        error: (err) => {
+          this.reportsLoading = false;
+          this.reportsError = err?.error?.detail || 'Failed to load procurement report.';
+          this.changeDetector.markForCheck();
+        }
+      });
+    }
+  }
+
+  exportReportCsv(): void {
+    let headers: string[] = [];
+    let rows: (string | number | null | undefined)[][] = [];
+    const filename = `mindzen-${this.activeReport}-${this.today()}.csv`;
+
+    if (this.activeReport === 'asset-register') {
+      headers = ['Asset Number', 'Category', 'Manufacturer', 'Model', 'Serial Number', 'Status', 'Site', 'Department', 'Custodian', 'Acquisition Date', 'Cost', 'Warranty Start', 'Warranty End'];
+      rows = this.assetRegisterReport.map(item => [
+        item.asset_number, item.category_name, item.manufacturer ?? '', item.model ?? '', item.serial_number ?? '',
+        item.status, item.site_name ?? '', item.department_name ?? '', item.custodian_name ?? '',
+        item.acquisition_date ?? '', item.acquisition_cost ?? '', item.warranty_start ?? '', item.warranty_end ?? ''
+      ]);
+    } else if (this.activeReport === 'asset-allocation') {
+      headers = ['Asset Number', 'Model', 'Category', 'Recipient / Custodian', 'Department', 'Site', 'Location', 'Effective Date', 'Status', 'Reference'];
+      rows = this.assetAllocationReport.map(item => [
+        item.asset_number, item.model ?? '', item.category_name, item.recipient_email ?? '',
+        item.department_name ?? '', item.site_name ?? '', item.location_name ?? '',
+        item.effective_date ?? '', item.status, item.reference ?? ''
+      ]);
+    } else if (this.activeReport === 'warranty-expiry') {
+      headers = ['Contract Type', 'Reference', 'Provider / Supplier', 'Asset Number', 'Asset Model', 'Start Date', 'End Date', 'Days Remaining', 'Coverage Status', 'Support Contact'];
+      rows = this.warrantyExpiryReport.map(item => [
+        item.contract_type.toUpperCase(), item.reference_number ?? '', item.supplier_name ?? item.provider_name ?? '',
+        item.asset_number, item.asset_model ?? '', item.start_date, item.end_date,
+        item.days_remaining, item.coverage_status, item.support_contact ?? ''
+      ]);
+    } else if (this.activeReport === 'maintenance') {
+      headers = ['Title', 'Asset Number', 'Priority', 'Status', 'Requester', 'Assignee', 'Reported Date', 'Completed Date', 'Cost', 'Resolution Notes'];
+      rows = this.maintenanceReport.map(item => [
+        item.title, item.asset_number, item.priority, item.status, item.requester_email,
+        item.assignee_email ?? '', item.reported_date, item.completed_date ?? '', item.cost ?? '', item.resolution_notes ?? ''
+      ]);
+    } else if (this.activeReport === 'procurement') {
+      headers = ['PO Number', 'Supplier', 'Ordered Date', 'Status', 'Total Ordered', 'Total Received', 'Total Outstanding', 'GRN Numbers'];
+      rows = this.procurementReport.map(item => [
+        item.order_number, item.supplier_name, item.ordered_date, item.order_status,
+        item.total_ordered_quantity, item.total_received_quantity, item.total_outstanding_quantity,
+        item.receipt_numbers.join('; ')
+      ]);
+    }
+
+    const csvContent = [
+      headers.map(h => `"${h.replace(/"/g, '""')}"`).join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    ].join('\r\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  objectKeys(obj: Record<string, any> | undefined | null): string[] {
+    return Object.keys(obj || {});
+  }
+
+  statusEntries(obj: Record<string, number> | undefined | null): { status: string; count: number }[] {
+    return Object.entries(obj || {}).map(([status, count]) => ({ status, count }));
+  }
+
+  formatStatus(status: string | undefined | null): string {
+    return (status || '').replace(/_/g, ' ');
+  }
+
+  isReportEmpty(): boolean {
+    if (this.activeReport === 'asset-register') return this.assetRegisterReport.length === 0;
+    if (this.activeReport === 'asset-allocation') return this.assetAllocationReport.length === 0;
+    if (this.activeReport === 'warranty-expiry') return this.warrantyExpiryReport.length === 0;
+    if (this.activeReport === 'maintenance') return this.maintenanceReport.length === 0;
+    if (this.activeReport === 'procurement') return this.procurementReport.length === 0;
+    return true;
+  }
+
+  resetReportFilters(): void {
+    this.reportSearch = '';
+    this.reportStatusFilter = '';
+    this.reportCategoryFilter = '';
+    this.reportSiteFilter = '';
+    this.reportDepartmentFilter = '';
+    this.reportSupplierFilter = '';
+    this.reportCoverageStatusFilter = '';
+    this.reportPriorityFilter = '';
+    this.loadActiveReport();
+  }
+
   private today(): string {
+
     const now = new Date();
     const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
     return localDate.toISOString().slice(0, 10);

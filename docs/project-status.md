@@ -2,9 +2,47 @@
 
 ## Current delivery
 
-**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, bounded procurement/receiving, and warranty/AMC/maintenance requests: implemented.** Verification status and remaining integration limitations are recorded below.
+**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, bounded procurement/receiving, warranty/AMC/maintenance requests, and Phase 5 executive dashboard and operational reports: implemented.** Verification status and remaining integration limitations are recorded below.
 
 Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
+
+## Executive dashboard and operational reports (2026-10-15)
+
+- Implemented a responsive Executive Dashboard and prioritized operational reports using real, authenticated APIs, strict company-scoped access control, explicit loading/empty/error states, genuine zeroes without fallback falsification, and client-side CSV exports.
+- Executive Dashboard metrics:
+  - Total registered assets, count by status (in-stock, assigned, maintenance, disposed), count by category, and distribution by site and department.
+  - Active warranty and AMC service contracts expiring within 30 days inclusive (`today <= end_date <= today + 30 days`). Expired or cancelled contracts are strictly excluded.
+  - Open and in-progress maintenance request breakdown.
+  - Procurement purchase order status summary (draft, ordered, partially_received, received, cancelled) and goods receipt volume (total receipts, items received, items rejected).
+  - Recent company activity timeline derived directly from `AuditLog` entries.
+- Five prioritized operational reports:
+  1. Asset register: asset number, name, category, status, site, department, custodian, acquisition date/cost, and active warranty/AMC coverage details. Supports search and filters by status, category, site, and department.
+  2. Asset allocation: currently assigned assets with custodian, department, site, location, and assignment date. Supports legacy assigned assets and Phase 3 assignment records.
+  3. Warranty and AMC expiry: contract type, asset reference, provider/supplier, start date, end date, computed coverage status, and days remaining.
+  4. Maintenance requests: request reference, asset number, priority, status, requester, support assignee, reported date, completion date, cost, and resolution diagnosis/notes.
+  5. Procurement and receiving: supplier, PO number, status, ordered quantity, received quantity, rejected quantity, outstanding quantity, and linked goods receipt notes.
+- Backend API endpoints added under `/api/v1/companies/{company_id}`:
+  - `GET /dashboard` (permission: `asset.read`)
+  - `GET /reports/asset-register` (permission: `asset.read`)
+  - `GET /reports/asset-allocation` (permission: `asset.read`)
+  - `GET /reports/warranty-expiry` (permission: `maintenance.read`)
+  - `GET /reports/maintenance` (permission: `maintenance.read`)
+  - `GET /reports/procurement` (permission: `procurement.read`)
+- Backend test suite:
+  - `backend/tests/test_reports.py` added with 14 comprehensive tests.
+  - Standard backend suite (SQLite): **39 passed, 3 skipped** (PostgreSQL-specific concurrency and table trigger tests skipped as expected).
+  - PostgreSQL test suite (`mindzen_test`): **42 passed, 0 skipped, 0 failed** in 18.23s.
+  - Verification includes genuine zero handling for empty companies, exact 30-day date boundary logic (testing 0d, 15d, exact 30d boundary, 31d exclusion, past-expired exclusion, cancelled exclusion), cross-company tenant isolation, role authorization checks (`asset.read`, `maintenance.read`, `procurement.read`), and report filtering.
+- Frontend test suite & production build:
+  - Added unit test coverage for dashboard metrics, operational reports loading/switching/filtering, CSV export generation, and error recovery in `frontend/src/app/components/registry/registry.component.spec.ts`.
+  - Headless Chromium containerized Karma test suite: **21 passed, 0 failed**.
+  - Production Angular bundle build: **passed cleanly** under Node.js 22.22.3 within initial bundle budgets (`538.72 kB` initial total, `125.50 kB` estimated transfer).
+- Deployment and demo data preservation:
+  - Rebuilt and restarted `mindzen-backend` and `mindzen-frontend` containers in Docker Compose.
+  - Verified `alembic check`: **passed** with zero schema drift against deployed PostgreSQL.
+  - Health checks `/`, `/status`, `/api/v1/health`, and `/api/v1/health/ready` returned HTTP 200.
+  - Preserved PostgreSQL volume `postgres_data` and all existing demo data: 1 company (`MINDZEN-DEMO`), 11 categories, 5 assets (`MZ-000001` through `MZ-000005`), assignment history, supplier, purchase order, goods receipt, service contract, maintenance request, and audit logs.
+  - Live API verification confirmed correct live metrics: 5 total assets (4 in-stock, 1 assigned), 0 expiring contracts within 30 days (genuine zero), 0 open maintenance requests (1 closed), 1 PO (received), 1 GRN (1 received), and 10 recent audit entries.
 
 ## Warranty, AMC, and maintenance (2026-10-15)
 
@@ -147,32 +185,33 @@ All routes are under `/api/v1`.
 
 - Health: `GET /api/v1/health`; readiness: `GET /api/v1/health/ready`
 - Organisation: `/api/v1/companies` and `/api/v1/companies/{company_id}/{departments|sites|cost-centers|categories|numbering-rules}`
-- Assets: `/api/v1/companies/{company_id}/assets`, with asset `usages` and `history` subresources
+- Assets: `/api/v1/companies/{company_id}/assets`, with asset `usages`, `history`, `assignments`, and `service-contracts`
 - Authentication: `/api/v1/auth/{login,me,logout,invitations/accept}`
 - Security administration: `/api/v1/security/companies/{company_id}/...`, `/api/v1/security/system-administrators/...`, `/api/v1/security/users/...`, `/api/v1/security/roles`, and `/api/v1/security/audit`
-- Current deployed migration head: `20261014_audit_truncate`, following the existing `b7b05462a977` migration
+- Procurement: `/api/v1/companies/{company_id}/suppliers`, `/purchase-orders`, `/goods-receipts`
+- Maintenance: `/api/v1/companies/{company_id}/maintenance-users`, `/maintenance-requests`, `/service-contracts/{contract_id}/cancel`
+- Dashboard & Reports: `/api/v1/companies/{company_id}/dashboard`, `/reports/asset-register`, `/reports/asset-allocation`, `/reports/warranty-expiry`, `/reports/maintenance`, `/reports/procurement`
+- Current deployed migration head: `20261017_service_management (head)`
 
 ## Verification results
 
-The latest checks for the numbering changes and existing registry:
+The latest checks for Phase 5 Executive Dashboard and Operational Reports:
 
-- PostgreSQL-enabled pytest: **9 passed**, with one upstream Starlette/AnyIO deprecation warning.
-- `alembic check`: **passed** — no new upgrade operations detected.
-- Angular `npm run build`: **passed**.
-- PostgreSQL migration chain on a clean temporary database: **passed** (temporary database was dropped after verification).
-- PostgreSQL concurrent asset-number allocation test: **passed** as part of the 9-test run.
-- API and browser smoke flows: company/master creation, asset registration, department usage and history succeeded. The exact browser-created verification company `UIQA10131809` and its dependent records were removed.
-- The default counter is stored in PostgreSQL, and manual/generated identifiers are checked against existing company asset numbers.
-- Current Dockerized-stack verification is recorded above; the database was restarted without deleting its volume or records.
+- PostgreSQL-enabled pytest (`mindzen_test`): **42 passed, 0 skipped, 0 failed** in 18.23s.
+- Standard backend suite (SQLite): **39 passed, 3 skipped** (PostgreSQL-specific concurrency and table triggers skipped as expected).
+- `alembic check`: **passed** — zero schema drift detected.
+- Angular headless Chromium test suite: **21 passed, 0 failed**.
+- Angular production build: **passed** within performance budgets (`538.72 kB` bundle).
+- Docker Compose stack: **PostgreSQL healthy, backend healthy, frontend healthy**.
+- Database volume `postgres_data` preserved with all existing demo entities intact.
 
 ## Scope limitations and known issues
 
-- The Phase 2 local identity/RBAC and audit foundation is implemented, but it is not an external identity-provider integration or a complete enterprise security deployment. Configure HTTPS, secrets, recovery channels, monitoring, retention, and operational controls before production.
-- Separate employee/custodian and vendor masters, custom fields, procurement, maintenance, physical verification, finance, disposal, dashboards, and reports are not implemented.
-- The standard pytest run without `TEST_DATABASE_URL` skips the PostgreSQL-only concurrency test; set that variable to execute it against PostgreSQL.
-- The Angular development server and production frontend container both require host port `4200`; stop one before starting the other. The development proxy expects a locally running backend on port `8000`.
-- The Compose stack remains a local deployment baseline. HTTPS/domain ingress, production secret management, SSO/account recovery, audit retention, monitoring, and additional operational hardening remain deployment tasks.
+- Executive dashboard and operational reports use transactional database queries with company tenant isolation. Very large enterprise datasets may eventually benefit from pre-aggregated read models or database indexes on `(company_id, status)` / `(company_id, end_date)`.
+- Client-side CSV export generates clean RFC-4180 compliant CSV files directly in the browser; server-side streaming export is deferred.
+- Separate employee/custodian and vendor masters, custom fields, physical verification, and financial depreciation remain out of scope for Phase 5.
+- Compose stack remains a local deployment baseline. HTTPS ingress, production secret management, SSO/OIDC, and external notifications remain deployment tasks.
 
 ## Recommended next task
 
-Provision the first administrator using the interactive bootstrap command, then continue with the next approved business capability. Phase 2 changes remain uncommitted and unpushed unless explicitly requested.
+Proceed with the next planned roadmap milestone according to stakeholder priorities. Keep local commits on the feature branch without pushing to the remote repository.

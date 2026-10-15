@@ -243,8 +243,178 @@ export interface MaintenanceRequest {
   updated_at: string;
 }
 
+export interface CategoryMetric {
+  category_id: string;
+  category_name: string;
+  count: number;
+}
+
+export interface SiteMetric {
+  site_id: string | null;
+  site_name: string;
+  count: number;
+}
+
+export interface DepartmentMetric {
+  department_id: string | null;
+  department_name: string;
+  count: number;
+}
+
+export interface ExpiringContractMetric {
+  id: string;
+  contract_type: string;
+  reference_number: string | null;
+  provider_name: string | null;
+  asset_id: string;
+  asset_number: string;
+  end_date: string;
+  days_remaining: number;
+}
+
+export interface MaintenanceSummaryMetric {
+  open: number;
+  in_progress: number;
+  resolved: number;
+  closed: number;
+  total_open_and_in_progress: number;
+}
+
+export interface ProcurementSummaryMetric {
+  total_purchase_orders: number;
+  orders_by_status: Record<string, number>;
+  total_goods_receipts: number;
+  total_items_received: number;
+  total_items_rejected: number;
+}
+
+export interface RecentActivityMetric {
+  id: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  actor_id: string | null;
+  actor_email: string | null;
+  outcome: string;
+  occurred_at: string;
+}
+
+export interface DashboardData {
+  total_assets: number;
+  assets_by_status: Record<string, number>;
+  assets_by_category: CategoryMetric[];
+  assets_by_site: SiteMetric[];
+  assets_by_department: DepartmentMetric[];
+  expiring_contracts_count: number;
+  expiring_contracts: ExpiringContractMetric[];
+  maintenance_summary: MaintenanceSummaryMetric;
+  procurement_summary: ProcurementSummaryMetric;
+  recent_activity: RecentActivityMetric[];
+}
+
+export interface AssetRegisterReportItem {
+  id: string;
+  asset_number: string;
+  category_id: string;
+  category_name: string;
+  manufacturer: string | null;
+  model: string | null;
+  serial_number: string | null;
+  status: string;
+  site_id: string | null;
+  site_name: string | null;
+  department_id: string | null;
+  department_name: string | null;
+  custodian_name: string | null;
+  acquisition_date: string | null;
+  acquisition_cost: number | string | null;
+  warranty_start: string | null;
+  warranty_end: string | null;
+}
+
+export interface AssetAllocationReportItem {
+  assignment_id: string | null;
+  asset_id: string;
+  asset_number: string;
+  model: string | null;
+  category_name: string;
+  recipient_id: string | null;
+  recipient_email: string | null;
+  department_id: string | null;
+  department_name: string | null;
+  site_id: string | null;
+  site_name: string | null;
+  location_id: string | null;
+  location_name: string | null;
+  effective_date: string | null;
+  status: string;
+  reference: string | null;
+}
+
+export interface WarrantyExpiryReportItem {
+  id: string;
+  contract_type: string;
+  reference_number: string | null;
+  provider_name: string | null;
+  supplier_name: string | null;
+  asset_id: string;
+  asset_number: string;
+  asset_model: string | null;
+  start_date: string;
+  end_date: string;
+  days_remaining: number;
+  status: string;
+  coverage_status: string;
+  support_contact: string | null;
+}
+
+export interface MaintenanceReportItem {
+  id: string;
+  title: string;
+  asset_id: string;
+  asset_number: string;
+  priority: string;
+  status: string;
+  requester_email: string;
+  assignee_email: string | null;
+  reported_date: string;
+  completed_date: string | null;
+  cost: number | string | null;
+  diagnosis: string | null;
+  work_performed: string | null;
+  resolution_notes: string | null;
+}
+
+export interface ProcurementReportLineItem {
+  line_id: string;
+  category_id: string;
+  category_name: string;
+  description: string;
+  quantity_ordered: number;
+  quantity_received: number;
+  quantity_rejected: number;
+  quantity_outstanding: number;
+  unit_cost: number | string;
+}
+
+export interface ProcurementReportItem {
+  order_id: string;
+  order_number: string;
+  supplier_id: string;
+  supplier_name: string;
+  ordered_date: string;
+  expected_date: string | null;
+  order_status: string;
+  total_ordered_quantity: number;
+  total_received_quantity: number;
+  total_outstanding_quantity: number;
+  lines: ProcurementReportLineItem[];
+  receipt_numbers: string[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class RegistryService {
+
   private readonly base = `${environment.apiBaseUrl}`;
 
   constructor(private readonly http: HttpClient) {}
@@ -583,4 +753,77 @@ export class RegistryService {
       payload
     );
   }
+
+  dashboard(companyId: string): Observable<DashboardData> {
+    return this.http.get<DashboardData>(`${this.base}/companies/${companyId}/dashboard`);
+  }
+
+  reportAssetRegister(companyId: string, filters: {
+    status?: string;
+    category_id?: string;
+    site_id?: string;
+    department_id?: string;
+    search?: string;
+  } = {}): Observable<AssetRegisterReportItem[]> {
+    let params = new HttpParams();
+    if (filters.status) params = params.set('status', filters.status);
+    if (filters.category_id) params = params.set('category_id', filters.category_id);
+    if (filters.site_id) params = params.set('site_id', filters.site_id);
+    if (filters.department_id) params = params.set('department_id', filters.department_id);
+    if (filters.search) params = params.set('search', filters.search);
+    return this.http.get<AssetRegisterReportItem[]>(`${this.base}/companies/${companyId}/reports/asset-register`, { params });
+  }
+
+  reportAssetAllocation(companyId: string, filters: {
+    recipient_id?: string;
+    department_id?: string;
+    site_id?: string;
+    search?: string;
+  } = {}): Observable<AssetAllocationReportItem[]> {
+    let params = new HttpParams();
+    if (filters.recipient_id) params = params.set('recipient_id', filters.recipient_id);
+    if (filters.department_id) params = params.set('department_id', filters.department_id);
+    if (filters.site_id) params = params.set('site_id', filters.site_id);
+    if (filters.search) params = params.set('search', filters.search);
+    return this.http.get<AssetAllocationReportItem[]>(`${this.base}/companies/${companyId}/reports/asset-allocation`, { params });
+  }
+
+  reportWarrantyExpiry(companyId: string, filters: {
+    contract_type?: string;
+    coverage_status?: string;
+    search?: string;
+  } = {}): Observable<WarrantyExpiryReportItem[]> {
+    let params = new HttpParams();
+    if (filters.contract_type) params = params.set('contract_type', filters.contract_type);
+    if (filters.coverage_status) params = params.set('coverage_status', filters.coverage_status);
+    if (filters.search) params = params.set('search', filters.search);
+    return this.http.get<WarrantyExpiryReportItem[]>(`${this.base}/companies/${companyId}/reports/warranty-expiry`, { params });
+  }
+
+  reportMaintenance(companyId: string, filters: {
+    status?: string;
+    priority?: string;
+    asset_id?: string;
+    search?: string;
+  } = {}): Observable<MaintenanceReportItem[]> {
+    let params = new HttpParams();
+    if (filters.status) params = params.set('status', filters.status);
+    if (filters.priority) params = params.set('priority', filters.priority);
+    if (filters.asset_id) params = params.set('asset_id', filters.asset_id);
+    if (filters.search) params = params.set('search', filters.search);
+    return this.http.get<MaintenanceReportItem[]>(`${this.base}/companies/${companyId}/reports/maintenance`, { params });
+  }
+
+  reportProcurement(companyId: string, filters: {
+    status?: string;
+    supplier_id?: string;
+    search?: string;
+  } = {}): Observable<ProcurementReportItem[]> {
+    let params = new HttpParams();
+    if (filters.status) params = params.set('status', filters.status);
+    if (filters.supplier_id) params = params.set('supplier_id', filters.supplier_id);
+    if (filters.search) params = params.set('search', filters.search);
+    return this.http.get<ProcurementReportItem[]>(`${this.base}/companies/${companyId}/reports/procurement`, { params });
+  }
 }
+

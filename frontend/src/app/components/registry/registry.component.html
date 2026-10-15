@@ -29,7 +29,11 @@
 
   <nav class="tabs" aria-label="Workspace sections">
     @if (can('asset.read')) {
+      <button type="button" [class.active]="activeView === 'dashboard'" (click)="setView('dashboard')" [disabled]="!companyId">Dashboard</button>
       <button type="button" [class.active]="activeView === 'assets'" (click)="setView('assets')" [disabled]="!companyId">Assets</button>
+    }
+    @if (can('asset.read') || can('maintenance.read') || can('procurement.read')) {
+      <button type="button" [class.active]="activeView === 'reports'" (click)="setView('reports')" [disabled]="!companyId">Reports</button>
     }
     @if (companyId && can('company.members.manage')) {
       <button type="button" [class.active]="activeView === 'users-access'" (click)="setView('users-access')">Users & Access</button>
@@ -51,7 +55,574 @@
     }
   </nav>
 
+  @if (activeView === 'dashboard') {
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Executive Overview</p>
+          <h2>{{ company?.name || 'Company' }} Dashboard</h2>
+        </div>
+        <button type="button" class="secondary" (click)="loadDashboard()" [disabled]="dashboardLoading">
+          {{ dashboardLoading ? 'Refreshing…' : 'Refresh metrics' }}
+        </button>
+      </div>
+
+      @if (dashboardLoading && !dashboardData) {
+        <div class="loading">Loading dashboard metrics…</div>
+      }
+
+      @if (dashboardError) {
+        <div class="notice error" role="alert">
+          {{ dashboardError }}
+          <button type="button" class="secondary" style="margin-left: 1rem;" (click)="loadDashboard()">Retry</button>
+        </div>
+      }
+
+      @if (dashboardData) {
+        <div class="kpi-grid">
+          <div class="kpi-card highlight-info">
+            <span class="kpi-label">Total Assets</span>
+            <span class="kpi-value">{{ dashboardData.total_assets }}</span>
+            <span class="kpi-meta">{{ dashboardData.assets_by_status['in_stock'] ?? 0 }} in stock · {{ dashboardData.assets_by_status['assigned'] ?? 0 }} assigned</span>
+          </div>
+
+          <div class="kpi-card" [class.highlight-warning]="dashboardData.expiring_contracts_count > 0">
+            <span class="kpi-label">Contracts Expiring (30d)</span>
+            <span class="kpi-value">{{ dashboardData.expiring_contracts_count }}</span>
+            <span class="kpi-meta">Active Warranty & AMC</span>
+          </div>
+
+          <div class="kpi-card" [class.highlight-urgent]="dashboardData.maintenance_summary.total_open_and_in_progress > 0">
+            <span class="kpi-label">Open Maintenance</span>
+            <span class="kpi-value">{{ dashboardData.maintenance_summary.total_open_and_in_progress }}</span>
+            <span class="kpi-meta">{{ dashboardData.maintenance_summary.open }} open · {{ dashboardData.maintenance_summary.in_progress }} in progress</span>
+          </div>
+
+          <div class="kpi-card">
+            <span class="kpi-label">Procurement Orders</span>
+            <span class="kpi-value">{{ dashboardData.procurement_summary.total_purchase_orders }}</span>
+            <span class="kpi-meta">{{ dashboardData.procurement_summary.total_goods_receipts }} goods receipts · {{ dashboardData.procurement_summary.total_items_received }} items received</span>
+          </div>
+        </div>
+
+        <div class="dashboard-sections">
+          <div class="dashboard-card">
+            <h3>Assets by Status</h3>
+            @if (objectKeys(dashboardData.assets_by_status).length === 0) {
+              <p class="empty">No registered assets.</p>
+            } @else {
+              @for (entry of statusEntries(dashboardData.assets_by_status); track entry.status) {
+                <div class="metric-row">
+                  <span class="metric-label">
+                    <span class="status-badge" [ngClass]="'status-' + entry.status">{{ formatStatus(entry.status) }}</span>
+                  </span>
+                  <span class="metric-count">{{ entry.count }}</span>
+                </div>
+              }
+            }
+          </div>
+
+          <div class="dashboard-card">
+            <h3>Assets by Category</h3>
+            @if (dashboardData.assets_by_category.length === 0) {
+              <p class="empty">No category data.</p>
+            } @else {
+              @for (cat of dashboardData.assets_by_category; track cat.category_id) {
+                <div class="metric-row">
+                  <span class="metric-label">{{ cat.category_name }}</span>
+                  <span class="metric-count">{{ cat.count }}</span>
+                </div>
+              }
+            }
+          </div>
+
+          <div class="dashboard-card">
+            <h3>Site & Department Distribution</h3>
+            <p class="eyebrow" style="margin-top: 0.5rem;">Sites</p>
+            @if (dashboardData.assets_by_site.length === 0) {
+              <p class="empty">No site data.</p>
+            } @else {
+              @for (s of dashboardData.assets_by_site; track s.site_name) {
+                <div class="metric-row">
+                  <span class="metric-label">{{ s.site_name }}</span>
+                  <span class="metric-count">{{ s.count }}</span>
+                </div>
+              }
+            }
+            <p class="eyebrow" style="margin-top: 1rem;">Departments</p>
+            @if (dashboardData.assets_by_department.length === 0) {
+              <p class="empty">No department data.</p>
+            } @else {
+              @for (d of dashboardData.assets_by_department; track d.department_name) {
+                <div class="metric-row">
+                  <span class="metric-label">{{ d.department_name }}</span>
+                  <span class="metric-count">{{ d.count }}</span>
+                </div>
+              }
+            }
+          </div>
+
+          <div class="dashboard-card">
+            <h3>Upcoming Expirations (Next 30 Days)</h3>
+            @if (dashboardData.expiring_contracts.length === 0) {
+              <p class="empty">No warranty or AMC contracts expiring within 30 days.</p>
+            } @else {
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Type</th>
+                      <th>Ref / Provider</th>
+                      <th>Asset</th>
+                      <th>Expiry</th>
+                      <th>Days Left</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (c of dashboardData.expiring_contracts; track c.id) {
+                      <tr>
+                        <td><span class="status-badge status-expiring_soon">{{ c.contract_type | uppercase }}</span></td>
+                        <td>{{ c.reference_number || c.provider_name || '—' }}</td>
+                        <td>{{ c.asset_number }}</td>
+                        <td>{{ c.end_date }}</td>
+                        <td><strong>{{ c.days_remaining }}d</strong></td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+
+          <div class="dashboard-card" style="grid-column: 1 / -1;">
+            <h3>Recent Audit Activity</h3>
+            @if (dashboardData.recent_activity.length === 0) {
+              <p class="empty">No recent activity recorded.</p>
+            } @else {
+              @for (act of dashboardData.recent_activity; track act.id) {
+                <div class="recent-activity-item">
+                  <time class="activity-time">{{ act.occurred_at | date:'medium' }}</time>
+                  <div class="activity-body">
+                    <strong>{{ act.action }}</strong> on {{ act.entity_type }}
+                    @if (act.entity_id) { <code>{{ act.entity_id }}</code> }
+                    <span class="status-badge" [class.status-active]="act.outcome === 'success'" [class.status-cancelled]="act.outcome !== 'success'">
+                      {{ act.outcome }}
+                    </span>
+                  </div>
+                  @if (act.actor_email) {
+                    <span class="activity-actor">{{ act.actor_email }}</span>
+                  }
+                </div>
+              }
+            }
+          </div>
+        </div>
+      }
+    </section>
+  }
+
+  @if (activeView === 'reports') {
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Reports & Analytics</p>
+          <h2>Operational Reports</h2>
+        </div>
+        <div class="actions">
+          <button type="button" class="secondary" (click)="loadActiveReport()" [disabled]="reportsLoading">
+            {{ reportsLoading ? 'Loading…' : 'Refresh' }}
+          </button>
+          <button type="button" class="primary" (click)="exportReportCsv()" [disabled]="reportsLoading || isReportEmpty()">
+            Export CSV
+          </button>
+        </div>
+      </div>
+
+      <nav class="report-tabs" aria-label="Operational report types">
+        @if (can('asset.read')) {
+          <button type="button" [class.active]="activeReport === 'asset-register'" (click)="selectReport('asset-register')">
+            1. Asset Register
+          </button>
+          <button type="button" [class.active]="activeReport === 'asset-allocation'" (click)="selectReport('asset-allocation')">
+            2. Asset Allocation
+          </button>
+        }
+        @if (can('maintenance.read')) {
+          <button type="button" [class.active]="activeReport === 'warranty-expiry'" (click)="selectReport('warranty-expiry')">
+            3. Warranty & AMC Expiry
+          </button>
+          <button type="button" [class.active]="activeReport === 'maintenance'" (click)="selectReport('maintenance')">
+            4. Maintenance Requests
+          </button>
+        }
+        @if (can('procurement.read')) {
+          <button type="button" [class.active]="activeReport === 'procurement'" (click)="selectReport('procurement')">
+            5. Procurement & Receiving
+          </button>
+        }
+      </nav>
+
+      <div class="report-filter-bar">
+        <label class="search-label">
+          Search
+          <input type="text" [(ngModel)]="reportSearch" (keyup.enter)="loadActiveReport()" placeholder="Search in report…">
+        </label>
+
+        @if (activeReport === 'asset-register') {
+          <label>
+            Status
+            <select [(ngModel)]="reportStatusFilter" (change)="loadActiveReport()">
+              <option value="">All Statuses</option>
+              <option value="in_stock">In Stock</option>
+              <option value="assigned">Assigned</option>
+              <option value="maintenance">Maintenance</option>
+              <option value="retired">Retired</option>
+              <option value="disposed">Disposed</option>
+            </select>
+          </label>
+          <label>
+            Category
+            <select [(ngModel)]="reportCategoryFilter" (change)="loadActiveReport()">
+              <option value="">All Categories</option>
+              @for (c of categories; track c.id) {
+                <option [value]="c.id">{{ c.name }}</option>
+              }
+            </select>
+          </label>
+          <label>
+            Site
+            <select [(ngModel)]="reportSiteFilter" (change)="loadActiveReport()">
+              <option value="">All Sites</option>
+              @for (s of sites; track s.id) {
+                <option [value]="s.id">{{ s.name }}</option>
+              }
+            </select>
+          </label>
+          <label>
+            Department
+            <select [(ngModel)]="reportDepartmentFilter" (change)="loadActiveReport()">
+              <option value="">All Departments</option>
+              @for (d of departments; track d.id) {
+                <option [value]="d.id">{{ d.name }}</option>
+              }
+            </select>
+          </label>
+        }
+
+        @if (activeReport === 'asset-allocation') {
+          <label>
+            Site
+            <select [(ngModel)]="reportSiteFilter" (change)="loadActiveReport()">
+              <option value="">All Sites</option>
+              @for (s of sites; track s.id) {
+                <option [value]="s.id">{{ s.name }}</option>
+              }
+            </select>
+          </label>
+          <label>
+            Department
+            <select [(ngModel)]="reportDepartmentFilter" (change)="loadActiveReport()">
+              <option value="">All Departments</option>
+              @for (d of departments; track d.id) {
+                <option [value]="d.id">{{ d.name }}</option>
+              }
+            </select>
+          </label>
+        }
+
+        @if (activeReport === 'warranty-expiry') {
+          <label>
+            Contract Type
+            <select [(ngModel)]="reportStatusFilter" (change)="loadActiveReport()">
+              <option value="">All Types</option>
+              <option value="warranty">Warranty</option>
+              <option value="amc">AMC</option>
+            </select>
+          </label>
+          <label>
+            Coverage Status
+            <select [(ngModel)]="reportCoverageStatusFilter" (change)="loadActiveReport()">
+              <option value="">All Coverage</option>
+              <option value="active">Active</option>
+              <option value="expiring_soon">Expiring Soon (30d)</option>
+              <option value="upcoming">Upcoming</option>
+              <option value="expired">Expired</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+        }
+
+        @if (activeReport === 'maintenance') {
+          <label>
+            Status
+            <select [(ngModel)]="reportStatusFilter" (change)="loadActiveReport()">
+              <option value="">All Statuses</option>
+              <option value="open">Open</option>
+              <option value="in_progress">In Progress</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
+            </select>
+          </label>
+          <label>
+            Priority
+            <select [(ngModel)]="reportPriorityFilter" (change)="loadActiveReport()">
+              <option value="">All Priorities</option>
+              <option value="urgent">Urgent</option>
+              <option value="high">High</option>
+              <option value="normal">Normal</option>
+              <option value="low">Low</option>
+            </select>
+          </label>
+        }
+
+        @if (activeReport === 'procurement') {
+          <label>
+            Order Status
+            <select [(ngModel)]="reportStatusFilter" (change)="loadActiveReport()">
+              <option value="">All Statuses</option>
+              <option value="open">Open</option>
+              <option value="partially_received">Partially Received</option>
+              <option value="received">Received</option>
+            </select>
+          </label>
+        }
+
+        <div class="filter-actions">
+          <button type="button" class="primary" (click)="loadActiveReport()" [disabled]="reportsLoading">Apply</button>
+          <button type="button" class="secondary" (click)="resetReportFilters()" [disabled]="reportsLoading">Reset</button>
+        </div>
+      </div>
+
+      @if (reportsLoading) {
+        <div class="loading">Loading report data…</div>
+      }
+
+      @if (reportsError) {
+        <div class="notice error" role="alert">
+          {{ reportsError }}
+          <button type="button" class="secondary" style="margin-left: 1rem;" (click)="loadActiveReport()">Retry</button>
+        </div>
+      }
+
+      @if (!reportsLoading && !reportsError) {
+        @if (activeReport === 'asset-register') {
+          @if (assetRegisterReport.length === 0) {
+            <p class="empty">No assets match the selected criteria.</p>
+          } @else {
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Asset #</th>
+                    <th>Category</th>
+                    <th>Model / Mfr</th>
+                    <th>Serial #</th>
+                    <th>Status</th>
+                    <th>Site / Dept</th>
+                    <th>Custodian</th>
+                    <th>Acquisition</th>
+                    <th>Warranty End</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of assetRegisterReport; track item.id) {
+                    <tr>
+                      <td><strong>{{ item.asset_number }}</strong></td>
+                      <td>{{ item.category_name }}</td>
+                      <td>{{ item.model || '—' }} @if (item.manufacturer) { <small class="muted">({{ item.manufacturer }})</small> }</td>
+                      <td>{{ item.serial_number || '—' }}</td>
+                      <td><span class="status-badge" [ngClass]="'status-' + item.status">{{ formatStatus(item.status) }}</span></td>
+                      <td>{{ item.site_name || '—' }} @if (item.department_name) { / {{ item.department_name }} }</td>
+                      <td>{{ item.custodian_name || '—' }}</td>
+                      <td>{{ item.acquisition_date || '—' }} @if (item.acquisition_cost) { <small class="muted">({{ item.acquisition_cost }})</small> }</td>
+                      <td>{{ item.warranty_end || '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <p class="muted" style="margin-top: 0.5rem;">Showing {{ assetRegisterReport.length }} asset(s).</p>
+          }
+        }
+
+        @if (activeReport === 'asset-allocation') {
+          @if (assetAllocationReport.length === 0) {
+            <p class="empty">No assigned assets match the selected criteria.</p>
+          } @else {
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Asset #</th>
+                    <th>Model / Category</th>
+                    <th>Custodian / Recipient</th>
+                    <th>Department</th>
+                    <th>Site / Location</th>
+                    <th>Effective Date</th>
+                    <th>Reference</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of assetAllocationReport; track item.asset_id) {
+                    <tr>
+                      <td><strong>{{ item.asset_number }}</strong></td>
+                      <td>{{ item.model || '—' }} <small class="muted">({{ item.category_name }})</small></td>
+                      <td><strong>{{ item.recipient_email || '—' }}</strong></td>
+                      <td>{{ item.department_name || '—' }}</td>
+                      <td>{{ item.site_name || '—' }} @if (item.location_name) { / {{ item.location_name }} }</td>
+                      <td>{{ item.effective_date || '—' }}</td>
+                      <td>{{ item.reference || '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <p class="muted" style="margin-top: 0.5rem;">Showing {{ assetAllocationReport.length }} assigned asset(s).</p>
+          }
+        }
+
+        @if (activeReport === 'warranty-expiry') {
+          @if (warrantyExpiryReport.length === 0) {
+            <p class="empty">No service contracts match the selected criteria.</p>
+          } @else {
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Reference</th>
+                    <th>Provider / Supplier</th>
+                    <th>Asset #</th>
+                    <th>Start Date</th>
+                    <th>End Date</th>
+                    <th>Days Remaining</th>
+                    <th>Coverage Status</th>
+                    <th>Contact</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of warrantyExpiryReport; track item.id) {
+                    <tr>
+                      <td><span class="status-badge" [ngClass]="'status-' + item.contract_type">{{ item.contract_type | uppercase }}</span></td>
+                      <td><strong>{{ item.reference_number || '—' }}</strong></td>
+                      <td>{{ item.supplier_name || item.provider_name || '—' }}</td>
+                      <td>{{ item.asset_number }} @if (item.asset_model) { <small class="muted">({{ item.asset_model }})</small> }</td>
+                      <td>{{ item.start_date }}</td>
+                      <td>{{ item.end_date }}</td>
+                      <td><strong>{{ item.days_remaining }}d</strong></td>
+                      <td><span class="status-badge" [ngClass]="'status-' + item.coverage_status">{{ formatStatus(item.coverage_status) }}</span></td>
+                      <td>{{ item.support_contact || '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <p class="muted" style="margin-top: 0.5rem;">Showing {{ warrantyExpiryReport.length }} contract(s).</p>
+          }
+        }
+
+        @if (activeReport === 'maintenance') {
+          @if (maintenanceReport.length === 0) {
+            <p class="empty">No maintenance requests match the selected criteria.</p>
+          } @else {
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Asset #</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Requester</th>
+                    <th>Assignee</th>
+                    <th>Reported Date</th>
+                    <th>Completed Date</th>
+                    <th>Cost</th>
+                    <th>Resolution</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of maintenanceReport; track item.id) {
+                    <tr>
+                      <td><strong>{{ item.title }}</strong></td>
+                      <td>{{ item.asset_number }}</td>
+                      <td><span class="status-badge" [ngClass]="'status-' + item.priority">{{ item.priority }}</span></td>
+                      <td><span class="status-badge" [ngClass]="'status-' + item.status">{{ formatStatus(item.status) }}</span></td>
+                      <td>{{ item.requester_email }}</td>
+                      <td>{{ item.assignee_email || '—' }}</td>
+                      <td>{{ item.reported_date }}</td>
+                      <td>{{ item.completed_date || '—' }}</td>
+                      <td>{{ item.cost ? ('$' + item.cost) : '—' }}</td>
+                      <td>{{ item.resolution_notes || item.work_performed || '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <p class="muted" style="margin-top: 0.5rem;">Showing {{ maintenanceReport.length }} request(s).</p>
+          }
+        }
+
+        @if (activeReport === 'procurement') {
+          @if (procurementReport.length === 0) {
+            <p class="empty">No purchase orders match the selected criteria.</p>
+          } @else {
+            @for (order of procurementReport; track order.order_id) {
+              <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; background: #fff;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+                  <div>
+                    <strong style="font-size: 1.05rem;">PO {{ order.order_number }}</strong> · {{ order.supplier_name }}
+                    <span class="status-badge" [ngClass]="'status-' + order.order_status" style="margin-left: 0.5rem;">{{ formatStatus(order.order_status) }}</span>
+                  </div>
+                  <div class="muted">
+                    Ordered: {{ order.ordered_date }} @if (order.expected_date) { · Expected: {{ order.expected_date }} }
+                  </div>
+                </div>
+
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Category</th>
+                        <th>Description</th>
+                        <th>Ordered</th>
+                        <th>Received</th>
+                        <th>Rejected</th>
+                        <th>Outstanding</th>
+                        <th>Unit Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (line of order.lines; track line.line_id) {
+                        <tr>
+                          <td>{{ line.category_name }}</td>
+                          <td>{{ line.description }}</td>
+                          <td>{{ line.quantity_ordered }}</td>
+                          <td><strong>{{ line.quantity_received }}</strong></td>
+                          <td>{{ line.quantity_rejected }}</td>
+                          <td><strong [class.danger-text]="line.quantity_outstanding > 0">{{ line.quantity_outstanding }}</strong></td>
+                          <td>${{ line.unit_cost }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style="margin-top: 0.6rem; display: flex; justify-content: space-between; font-size: 0.82rem;" class="muted">
+                  <span>GRN Numbers: {{ order.receipt_numbers.length > 0 ? order.receipt_numbers.join(', ') : 'None' }}</span>
+                  <span>Totals: {{ order.total_ordered_quantity }} ordered · {{ order.total_received_quantity }} received · {{ order.total_outstanding_quantity }} outstanding</span>
+                </div>
+              </div>
+            }
+            <p class="muted" style="margin-top: 0.5rem;">Showing {{ procurementReport.length }} purchase order(s).</p>
+          }
+        }
+      }
+    </section>
+  }
+
   @if (activeView === 'company') {
+
     <section class="panel">
       <div class="section-heading">
         <div>

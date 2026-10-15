@@ -638,3 +638,173 @@ class Page(BaseModel, Generic[T]):
     total: int
     page: int
     page_size: int
+
+
+class CategoryMetric(BaseModel):
+    category_id: UUID
+    category_name: str
+    count: int
+
+
+class SiteMetric(BaseModel):
+    site_id: UUID | None
+    site_name: str
+    count: int
+
+
+class DepartmentMetric(BaseModel):
+    department_id: UUID | None
+    department_name: str
+    count: int
+
+
+class ExpiringContractMetric(BaseModel):
+    id: UUID
+    contract_type: str
+    reference_number: str | None
+    provider_name: str | None
+    asset_id: UUID
+    asset_number: str
+    end_date: date
+    days_remaining: int
+
+
+class MaintenanceSummaryMetric(BaseModel):
+    open: int
+    in_progress: int
+    resolved: int
+    closed: int
+    total_open_and_in_progress: int
+
+
+class ProcurementSummaryMetric(BaseModel):
+    total_purchase_orders: int
+    orders_by_status: dict[str, int]
+    total_goods_receipts: int
+    total_items_received: int
+    total_items_rejected: int
+
+
+class RecentActivityMetric(BaseModel):
+    id: UUID
+    action: str
+    entity_type: str
+    entity_id: str | None
+    actor_id: UUID | None
+    actor_email: str | None = None
+    outcome: str
+    occurred_at: datetime
+
+
+class DashboardResponse(BaseModel):
+    total_assets: int
+    assets_by_status: dict[str, int]
+    assets_by_category: list[CategoryMetric]
+    assets_by_site: list[SiteMetric]
+    assets_by_department: list[DepartmentMetric]
+    expiring_contracts_count: int
+    expiring_contracts: list[ExpiringContractMetric]
+    maintenance_summary: MaintenanceSummaryMetric
+    procurement_summary: ProcurementSummaryMetric
+    recent_activity: list[RecentActivityMetric]
+
+
+class AssetRegisterReportItem(BaseModel):
+    id: UUID
+    asset_number: str
+    category_id: UUID
+    category_name: str
+    manufacturer: str | None
+    model: str | None
+    serial_number: str | None
+    status: str
+    site_id: UUID | None
+    site_name: str | None
+    department_id: UUID | None
+    department_name: str | None
+    custodian_name: str | None
+    acquisition_date: date | None
+    acquisition_cost: Decimal | None
+    warranty_start: date | None
+    warranty_end: date | None
+
+
+class AssetAllocationReportItem(BaseModel):
+    assignment_id: UUID | None
+    asset_id: UUID
+    asset_number: str
+    model: str | None
+    category_name: str
+    recipient_id: UUID | None
+    recipient_email: str | None
+    department_id: UUID | None
+    department_name: str | None
+    site_id: UUID | None
+    site_name: str | None
+    location_id: UUID | None
+    location_name: str | None
+    effective_date: date | None
+    status: str
+    reference: str | None
+
+
+class WarrantyExpiryReportItem(BaseModel):
+    id: UUID
+    contract_type: str
+    reference_number: str | None
+    provider_name: str | None
+    supplier_name: str | None
+    asset_id: UUID
+    asset_number: str
+    asset_model: str | None
+    start_date: date
+    end_date: date
+    days_remaining: int
+    status: str
+    coverage_status: str
+    support_contact: str | None
+
+
+class MaintenanceReportItem(BaseModel):
+    id: UUID
+    title: str
+    asset_id: UUID
+    asset_number: str
+    priority: str
+    status: str
+    requester_email: str
+    assignee_email: str | None
+    reported_date: date
+    completed_date: date | None
+    cost: Decimal | None
+    diagnosis: str | None
+    work_performed: str | None
+    resolution_notes: str | None
+
+
+class ProcurementReportLineItem(BaseModel):
+    line_id: UUID
+    category_id: UUID
+    category_name: str
+    description: str
+    quantity_ordered: int
+    quantity_received: int
+    quantity_rejected: int
+    quantity_outstanding: int
+    unit_cost: Decimal
+
+
+class ProcurementReportItem(BaseModel):
+    order_id: UUID
+    order_number: str
+    supplier_id: UUID
+    supplier_name: str
+    ordered_date: date
+    expected_date: date | None
+    order_status: str
+    total_ordered_quantity: int
+    total_received_quantity: int
+    total_outstanding_quantity: int
+    lines: list[ProcurementReportLineItem]
+    receipt_numbers: list[str]
+

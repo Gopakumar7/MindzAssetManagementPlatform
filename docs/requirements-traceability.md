@@ -216,3 +216,15 @@ These items should be treated as open questions until clarified, not as assumpti
 | Permissions / audit | `maintenance.read` and `maintenance.manage`; system administrators, company administrators, asset managers, and IT support can manage; auditors/read-only can read. Contracts and requests create same-transaction audit events | PostgreSQL tests verify read-only denial and service audit events |
 | Angular workflow | Permission-gated Warranty & Maintenance tab, asset-level contracts and maintenance-history link, request filters/details, work/resolution entry, loading/empty/error feedback and confirmation on status/contract cancellation | Angular unit tests and production build (run for current delivery; results recorded in project status) |
 | Deferred maintenance scope | Preventive schedules, SLA escalation/reminders, external providers, and downtime analytics are not included | Explicitly deferred for the October 17 demo |
+
+## 16. Executive dashboard and operational reports (Phase 5)
+
+| Requirement | Implemented behavior | Verification |
+| --- | --- | --- |
+| Executive Dashboard | Responsive overview with KPI summary cards (total assets, in-stock/assigned, 30-day contract expirations, open/in-progress maintenance, PO/GRN volume), status breakdown, category distribution, site/department allocation, upcoming expirations list, and recent audit activity timeline | Backend PostgreSQL test suite (`test_reports.py`), empty company genuine-zero checks, and live UI verification |
+| Asset register report | Filterable inventory table with asset number, name, category, status, site, department, custodian, acquisition date/cost, and active warranty/AMC coverage details | SQLite/PostgreSQL tests for search, status/category/site/dept filters; Angular unit test |
+| Asset allocation report | Tracks all currently assigned assets (`status = 'assigned'`) with custodian, responsible department, site, location, and assignment date; supports Phase 3 assignments and legacy assigned assets | Backend test verifies assigned asset retrieval; Angular unit test |
+| Warranty & AMC expiry report | Comprehensive contract list with contract type, asset reference, provider, start/end dates, days remaining, and computed coverage status | Backend date-boundary tests (exact 30d boundary, 31d exclusion, expired/cancelled exclusion); Angular unit test |
+| Maintenance request report | Service requests with reference, asset number, priority, status, requester, assignee, reported date, completion date, repair cost, and diagnosis/resolution notes | Backend filter and aggregation tests; Angular unit test |
+| Procurement & receiving report | Purchase order tracking with supplier, order number, status, ordered/received/rejected/outstanding quantities, and linked goods receipt notes | Backend tests verify line calculations and GRN references; Angular unit test |
+| CSV export & client interactions | Client-side RFC-4180 CSV export for all operational reports, loading/empty/error states, retry controls, and tenant isolation | 21 Angular unit tests passed in headless Chromium; live container verification |
