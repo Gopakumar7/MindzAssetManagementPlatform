@@ -489,8 +489,138 @@ describe('RegistryComponent user access navigation', () => {
     expect(component.dashboardData?.total_assets).toBe(10);
     expect(fixture.nativeElement.textContent).toContain('Total Assets');
     expect(fixture.nativeElement.textContent).toContain('10');
+    expect(fixture.nativeElement.textContent).toContain('In Stock');
+    expect(fixture.nativeElement.textContent).toContain('Assigned');
     expect(fixture.nativeElement.textContent).toContain('Contracts Expiring (30d)');
     expect(fixture.nativeElement.textContent).toContain('Open Maintenance');
+  });
+
+  it('calculates percentages and donut slices correctly and prevents division by zero', () => {
+    const component = fixture.componentInstance;
+
+    // Normal calculation
+    expect(component.calculatePercentage(6, 10)).toBe(60);
+    expect(component.calculatePercentage(4, 10)).toBe(40);
+    expect(component.calculatePercentage(0, 10)).toBe(0);
+
+    // Division by zero and edge cases
+    expect(component.calculatePercentage(5, 0)).toBe(0);
+    expect(component.calculatePercentage(5, undefined)).toBe(0);
+    expect(component.calculatePercentage(5, null)).toBe(0);
+    expect(component.calculatePercentage(5, -10)).toBe(0);
+    expect(component.calculatePercentage(-5, 10)).toBe(0);
+    expect(component.calculatePercentage(15, 10)).toBe(100);
+
+    // Donut slices with data
+    component.dashboardData = {
+      total_assets: 10,
+      assets_by_status: { in_stock: 6, assigned: 4 },
+      assets_by_category: [],
+      assets_by_site: [],
+      assets_by_department: [],
+      expiring_contracts_count: 0,
+      expiring_contracts: [],
+      maintenance_summary: { open: 0, in_progress: 0, resolved: 0, closed: 0, total_open_and_in_progress: 0 },
+      procurement_summary: { total_purchase_orders: 0, orders_by_status: {}, total_goods_receipts: 0, total_items_received: 0, total_items_rejected: 0 },
+      recent_activity: []
+    };
+
+    const slices = component.getStatusSlices();
+    expect(slices.length).toBe(2);
+    expect(slices[0].status).toBe('in_stock');
+    expect(slices[0].percentage).toBe(60);
+    expect(slices[1].status).toBe('assigned');
+    expect(slices[1].percentage).toBe(40);
+
+    const gradient = component.getStatusDonutGradient();
+    expect(gradient).toContain('conic-gradient');
+    expect(gradient).toContain('60%');
+
+    // Donut slices with zero total assets
+    component.dashboardData.total_assets = 0;
+    component.dashboardData.assets_by_status = {};
+    expect(component.getStatusDonutGradient()).toBe('conic-gradient(#e2e8f0 0% 100%)');
+  });
+
+  it('classifies expiry badges and formats labels correctly', () => {
+    const component = fixture.componentInstance;
+
+    // Overdue/expired
+    expect(component.getExpiryBadgeClass(-5)).toBe('status-expired');
+    expect(component.getExpiryLabel(-5)).toBe('5d overdue');
+
+    // Expires today
+    expect(component.getExpiryBadgeClass(0)).toBe('status-urgent');
+    expect(component.getExpiryLabel(0)).toBe('Expires today');
+
+    // Urgent (1-7 days)
+    expect(component.getExpiryBadgeClass(1)).toBe('status-urgent');
+    expect(component.getExpiryLabel(1)).toBe('1d left (Urgent)');
+    expect(component.getExpiryBadgeClass(7)).toBe('status-urgent');
+    expect(component.getExpiryLabel(7)).toBe('7d left (Urgent)');
+
+    // Warning (8-30 days)
+    expect(component.getExpiryBadgeClass(8)).toBe('status-expiring_soon');
+    expect(component.getExpiryLabel(8)).toBe('8d left');
+    expect(component.getExpiryBadgeClass(30)).toBe('status-expiring_soon');
+    expect(component.getExpiryLabel(30)).toBe('30d left');
+  });
+
+  it('formats audit actions cleanly into readable labels', () => {
+    const component = fixture.componentInstance;
+
+    expect(component.formatAuditAction('asset.create')).toBe('Asset Create');
+    expect(component.formatAuditAction('asset.assignment.create')).toBe('Asset Assignment Create');
+    expect(component.formatAuditAction('maintenance_request.resolve')).toBe('Maintenance Request Resolve');
+    expect(component.formatAuditAction('goods_receipt.create')).toBe('Goods Receipt Create');
+    expect(component.formatAuditAction(null)).toBe('Activity');
+    expect(component.formatAuditAction('')).toBe('Activity');
+  });
+
+  it('navigates to assets, reports, maintenance and procurement with correct filters and permissions', () => {
+    permissions = new Set(['company.read', 'asset.read', 'maintenance.read', 'procurement.read']);
+    const component = fixture.componentInstance;
+    component.activeView = 'dashboard';
+
+    // Navigate to assets with status
+    component.navigateToAssets('in_stock');
+    expect(component.activeView).toBe('assets');
+    expect(component.filters.status).toBe('in_stock');
+    expect(component.page).toBe(1);
+
+    // Filter by category
+    component.activeView = 'dashboard';
+    component.filterByCategory('cat-99');
+    expect(component.activeView).toBe('assets');
+    expect(component.filters.category_id).toBe('cat-99');
+
+    // Filter by department
+    component.activeView = 'dashboard';
+    component.filterByDepartment('dept-42');
+    expect(component.activeView).toBe('assets');
+    expect(component.filters.department_id).toBe('dept-42');
+
+    // Navigate to contracts
+    component.activeView = 'dashboard';
+    component.navigateToContracts();
+    expect(component.activeView).toBe('reports');
+    expect(component.activeReport).toBe('warranty-expiry');
+
+    // Navigate to maintenance
+    component.activeView = 'dashboard';
+    component.navigateToMaintenance();
+    expect(component.activeView).toBe('maintenance');
+
+    // Navigate to procurement
+    component.activeView = 'dashboard';
+    component.navigateToProcurement();
+    expect(component.activeView).toBe('procurement');
+
+    // Missing permissions guard
+    permissions = new Set(['company.read']);
+    component.activeView = 'dashboard';
+    component.navigateToAssets('in_stock');
+    expect(component.activeView).toBe('dashboard'); // Did not navigate
   });
 
   it('displays genuine zeroes when dashboard returns genuine zero metrics', () => {

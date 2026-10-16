@@ -56,15 +56,27 @@
   </nav>
 
   @if (activeView === 'dashboard') {
-    <section class="panel">
-      <div class="section-heading">
+    <section class="panel dashboard-panel">
+      <div class="section-heading dashboard-header">
         <div>
           <p class="eyebrow">Executive Overview</p>
           <h2>{{ company?.name || 'Company' }} Dashboard</h2>
+          <p class="dashboard-subtitle">Overview of your IT assets, service contracts and lifecycle activities</p>
         </div>
-        <button type="button" class="secondary" (click)="loadDashboard()" [disabled]="dashboardLoading">
-          {{ dashboardLoading ? 'Refreshing…' : 'Refresh metrics' }}
-        </button>
+        <div class="dashboard-header-right">
+          <time class="dashboard-date" [attr.datetime]="todayDateIso">
+            <svg class="header-icon" viewBox="0 0 20 20" fill="currentColor" width="16" height="16" aria-hidden="true">
+              <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd" />
+            </svg>
+            {{ todayDate | date:'fullDate' }}
+          </time>
+          <button type="button" class="secondary refresh-btn" (click)="loadDashboard()" [disabled]="dashboardLoading">
+            <svg class="refresh-icon" [class.spinning]="dashboardLoading" viewBox="0 0 20 20" fill="currentColor" width="14" height="14" aria-hidden="true">
+              <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+            </svg>
+            {{ dashboardLoading ? 'Refreshing…' : 'Refresh' }}
+          </button>
+        </div>
       </div>
 
       @if (dashboardLoading && !dashboardData) {
@@ -79,93 +91,238 @@
       }
 
       @if (dashboardData) {
+        <!-- 5 Key KPI Cards Deck -->
         <div class="kpi-grid">
-          <div class="kpi-card highlight-info">
-            <span class="kpi-label">Total Assets</span>
+          <!-- 1. Total Assets -->
+          <div class="kpi-card card-blue" [class.clickable]="can('asset.read')" (click)="navigateToAssets()" tabindex="0" role="button" (keydown.enter)="navigateToAssets()">
+            <div class="kpi-card-header">
+              <div class="kpi-icon-wrapper icon-blue" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                  <line x1="8" y1="21" x2="16" y2="21"></line>
+                  <line x1="12" y1="17" x2="12" y2="21"></line>
+                </svg>
+              </div>
+              @if (can('asset.read')) {
+                <span class="kpi-nav-hint" aria-hidden="true">&rarr;</span>
+              }
+            </div>
             <span class="kpi-value">{{ dashboardData.total_assets }}</span>
-            <span class="kpi-meta">{{ dashboardData.assets_by_status['in_stock'] ?? 0 }} in stock · {{ dashboardData.assets_by_status['assigned'] ?? 0 }} assigned</span>
+            <span class="kpi-label">Total Assets</span>
+            <span class="kpi-meta">All registered inventory</span>
           </div>
 
-          <div class="kpi-card" [class.highlight-warning]="dashboardData.expiring_contracts_count > 0">
-            <span class="kpi-label">Contracts Expiring (30d)</span>
+          <!-- 2. In Stock -->
+          <div class="kpi-card card-green" [class.clickable]="can('asset.read')" (click)="navigateToAssets('in_stock')" tabindex="0" role="button" (keydown.enter)="navigateToAssets('in_stock')">
+            <div class="kpi-card-header">
+              <div class="kpi-icon-wrapper icon-green" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                  <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+              </div>
+              @if (can('asset.read')) {
+                <span class="kpi-nav-hint" aria-hidden="true">&rarr;</span>
+              }
+            </div>
+            <span class="kpi-value">{{ dashboardData.assets_by_status['in_stock'] ?? 0 }}</span>
+            <span class="kpi-label">In Stock</span>
+            <span class="kpi-meta">{{ calculatePercentage(dashboardData.assets_by_status['in_stock'] ?? 0, dashboardData.total_assets) }}% of inventory</span>
+          </div>
+
+          <!-- 3. Assigned -->
+          <div class="kpi-card card-purple" [class.clickable]="can('asset.read')" (click)="navigateToAssets('assigned')" tabindex="0" role="button" (keydown.enter)="navigateToAssets('assigned')">
+            <div class="kpi-card-header">
+              <div class="kpi-icon-wrapper icon-purple" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+              </div>
+              @if (can('asset.read')) {
+                <span class="kpi-nav-hint" aria-hidden="true">&rarr;</span>
+              }
+            </div>
+            <span class="kpi-value">{{ dashboardData.assets_by_status['assigned'] ?? 0 }}</span>
+            <span class="kpi-label">Assigned</span>
+            <span class="kpi-meta">{{ calculatePercentage(dashboardData.assets_by_status['assigned'] ?? 0, dashboardData.total_assets) }}% allocated</span>
+          </div>
+
+          <!-- 4. Contracts Expiring (30d) -->
+          <div class="kpi-card card-amber" [class.highlight-warning]="dashboardData.expiring_contracts_count > 0" [class.clickable]="can('maintenance.read')" (click)="navigateToContracts()" tabindex="0" role="button" (keydown.enter)="navigateToContracts()">
+            <div class="kpi-card-header">
+              <div class="kpi-icon-wrapper icon-amber" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                </svg>
+              </div>
+              @if (can('maintenance.read')) {
+                <span class="kpi-nav-hint" aria-hidden="true">&rarr;</span>
+              }
+            </div>
             <span class="kpi-value">{{ dashboardData.expiring_contracts_count }}</span>
+            <span class="kpi-label">Contracts Expiring (30d)</span>
             <span class="kpi-meta">Active Warranty & AMC</span>
           </div>
 
-          <div class="kpi-card" [class.highlight-urgent]="dashboardData.maintenance_summary.total_open_and_in_progress > 0">
-            <span class="kpi-label">Open Maintenance</span>
+          <!-- 5. Open Maintenance -->
+          <div class="kpi-card card-red" [class.highlight-urgent]="dashboardData.maintenance_summary.total_open_and_in_progress > 0" [class.clickable]="can('maintenance.read')" (click)="navigateToMaintenance()" tabindex="0" role="button" (keydown.enter)="navigateToMaintenance()">
+            <div class="kpi-card-header">
+              <div class="kpi-icon-wrapper icon-red" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+                </svg>
+              </div>
+              @if (can('maintenance.read')) {
+                <span class="kpi-nav-hint" aria-hidden="true">&rarr;</span>
+              }
+            </div>
             <span class="kpi-value">{{ dashboardData.maintenance_summary.total_open_and_in_progress }}</span>
+            <span class="kpi-label">Open Maintenance</span>
             <span class="kpi-meta">{{ dashboardData.maintenance_summary.open }} open · {{ dashboardData.maintenance_summary.in_progress }} in progress</span>
-          </div>
-
-          <div class="kpi-card">
-            <span class="kpi-label">Procurement Orders</span>
-            <span class="kpi-value">{{ dashboardData.procurement_summary.total_purchase_orders }}</span>
-            <span class="kpi-meta">{{ dashboardData.procurement_summary.total_goods_receipts }} goods receipts · {{ dashboardData.procurement_summary.total_items_received }} items received</span>
           </div>
         </div>
 
         <div class="dashboard-sections">
-          <div class="dashboard-card">
-            <h3>Assets by Status</h3>
-            @if (objectKeys(dashboardData.assets_by_status).length === 0) {
-              <p class="empty">No registered assets.</p>
-            } @else {
-              @for (entry of statusEntries(dashboardData.assets_by_status); track entry.status) {
-                <div class="metric-row">
-                  <span class="metric-label">
-                    <span class="status-badge" [ngClass]="'status-' + entry.status">{{ formatStatus(entry.status) }}</span>
-                  </span>
-                  <span class="metric-count">{{ entry.count }}</span>
-                </div>
+          <!-- Asset Status Distribution with Donut -->
+          <div class="dashboard-card status-distribution-card">
+            <div class="card-title-row">
+              <h3>Asset Status Distribution</h3>
+              @if (can('asset.read')) {
+                <button type="button" class="section-link" (click)="navigateToAssets()">View All &rarr;</button>
               }
+            </div>
+
+            @if (dashboardData.total_assets === 0) {
+              <div class="empty-chart-state">
+                <div class="donut-chart-container empty-donut">
+                  <div class="donut-hole">
+                    <span class="donut-total">0</span>
+                    <span class="donut-label">Assets</span>
+                  </div>
+                </div>
+                <p class="empty">No registered assets.</p>
+              </div>
+            } @else {
+              <div class="donut-and-legend">
+                <div class="donut-chart-container" [style.background]="getStatusDonutGradient()" role="img" aria-label="Asset status distribution chart">
+                  <div class="donut-hole">
+                    <span class="donut-total">{{ dashboardData.total_assets }}</span>
+                    <span class="donut-label">Total Assets</span>
+                  </div>
+                </div>
+
+                <div class="donut-legend">
+                  @for (slice of getStatusSlices(); track slice.status) {
+                    <div class="legend-item" [class.clickable]="can('asset.read')" (click)="navigateToAssets(slice.status)" tabindex="0" role="button" (keydown.enter)="navigateToAssets(slice.status)">
+                      <span class="legend-color-dot" [style.background-color]="slice.color" aria-hidden="true"></span>
+                      <span class="legend-label">{{ slice.label }}</span>
+                      <span class="legend-count"><strong>{{ slice.count }}</strong></span>
+                      <span class="legend-pct">({{ slice.percentage }}%)</span>
+                    </div>
+                  }
+                </div>
+              </div>
             }
           </div>
 
+          <!-- Assets by Category with Proportion Bars -->
           <div class="dashboard-card">
-            <h3>Assets by Category</h3>
+            <div class="card-title-row">
+              <h3>Assets by Category</h3>
+              @if (can('asset.read')) {
+                <button type="button" class="section-link" (click)="navigateToAssets()">View All &rarr;</button>
+              }
+            </div>
+
             @if (dashboardData.assets_by_category.length === 0) {
               <p class="empty">No category data.</p>
             } @else {
-              @for (cat of dashboardData.assets_by_category; track cat.category_id) {
-                <div class="metric-row">
-                  <span class="metric-label">{{ cat.category_name }}</span>
-                  <span class="metric-count">{{ cat.count }}</span>
-                </div>
-              }
+              <div class="distribution-list">
+                @for (cat of dashboardData.assets_by_category; track cat.category_id) {
+                  <div class="distribution-item" [class.clickable]="can('asset.read')" (click)="filterByCategory(cat.category_id)" tabindex="0" role="button" (keydown.enter)="filterByCategory(cat.category_id)">
+                    <div class="distribution-info">
+                      <span class="distribution-label">{{ cat.category_name }}</span>
+                      <span class="distribution-meta">
+                        <strong>{{ cat.count }}</strong>
+                        <span class="distribution-pct">({{ calculatePercentage(cat.count, dashboardData.total_assets) }}%)</span>
+                      </span>
+                    </div>
+                    <div class="proportion-track" aria-hidden="true">
+                      <div class="proportion-bar bar-category" [style.width.%]="calculatePercentage(cat.count, dashboardData.total_assets)"></div>
+                    </div>
+                  </div>
+                }
+              </div>
             }
           </div>
 
+          <!-- Site & Department Distribution with Proportion Bars -->
           <div class="dashboard-card">
-            <h3>Site & Department Distribution</h3>
-            <p class="eyebrow" style="margin-top: 0.5rem;">Sites</p>
-            @if (dashboardData.assets_by_site.length === 0) {
-              <p class="empty">No site data.</p>
-            } @else {
-              @for (s of dashboardData.assets_by_site; track s.site_name) {
-                <div class="metric-row">
-                  <span class="metric-label">{{ s.site_name }}</span>
-                  <span class="metric-count">{{ s.count }}</span>
-                </div>
-              }
-            }
-            <p class="eyebrow" style="margin-top: 1rem;">Departments</p>
+            <div class="card-title-row">
+              <h3>Department & Site Breakdown</h3>
+            </div>
+
+            <p class="eyebrow" style="margin-top: 0.25rem; margin-bottom: 0.5rem;">Departments</p>
             @if (dashboardData.assets_by_department.length === 0) {
               <p class="empty">No department data.</p>
             } @else {
-              @for (d of dashboardData.assets_by_department; track d.department_name) {
-                <div class="metric-row">
-                  <span class="metric-label">{{ d.department_name }}</span>
-                  <span class="metric-count">{{ d.count }}</span>
-                </div>
-              }
+              <div class="distribution-list">
+                @for (d of dashboardData.assets_by_department; track d.department_name) {
+                  <div class="distribution-item" [class.clickable]="can('asset.read') && !!d.department_id" (click)="d.department_id ? filterByDepartment(d.department_id) : null" tabindex="0" role="button" (keydown.enter)="d.department_id ? filterByDepartment(d.department_id) : null">
+                    <div class="distribution-info">
+                      <span class="distribution-label">{{ d.department_name }}</span>
+                      <span class="distribution-meta">
+                        <strong>{{ d.count }}</strong>
+                        <span class="distribution-pct">({{ calculatePercentage(d.count, dashboardData.total_assets) }}%)</span>
+                      </span>
+                    </div>
+                    <div class="proportion-track" aria-hidden="true">
+                      <div class="proportion-bar bar-department" [style.width.%]="calculatePercentage(d.count, dashboardData.total_assets)"></div>
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+
+            <p class="eyebrow" style="margin-top: 1.25rem; margin-bottom: 0.5rem;">Sites</p>
+            @if (dashboardData.assets_by_site.length === 0) {
+              <p class="empty">No site data.</p>
+            } @else {
+              <div class="distribution-list">
+                @for (s of dashboardData.assets_by_site; track s.site_name) {
+                  <div class="distribution-item">
+                    <div class="distribution-info">
+                      <span class="distribution-label">{{ s.site_name }}</span>
+                      <span class="distribution-meta">
+                        <strong>{{ s.count }}</strong>
+                        <span class="distribution-pct">({{ calculatePercentage(s.count, dashboardData.total_assets) }}%)</span>
+                      </span>
+                    </div>
+                    <div class="proportion-track" aria-hidden="true">
+                      <div class="proportion-bar bar-site" [style.width.%]="calculatePercentage(s.count, dashboardData.total_assets)"></div>
+                    </div>
+                  </div>
+                }
+              </div>
             }
           </div>
 
-          <div class="dashboard-card">
-            <h3>Upcoming Expirations (Next 30 Days)</h3>
+          <!-- Upcoming Expirations (Next 30 Days) with Urgency Badges -->
+          <div class="dashboard-card expiring-contracts-card">
+            <div class="card-title-row">
+              <h3>Warranty & AMC Expirations (Next 30 Days)</h3>
+              @if (can('maintenance.read')) {
+                <button type="button" class="section-link" (click)="navigateToContracts()">View All &rarr;</button>
+              }
+            </div>
+
             @if (dashboardData.expiring_contracts.length === 0) {
-              <p class="empty">No warranty or AMC contracts expiring within 30 days.</p>
+              <div class="empty-notice">
+                <span class="check-icon" aria-hidden="true">&check;</span>
+                <p>No warranty or AMC service contracts expiring within the next 30 days.</p>
+              </div>
             } @else {
               <div class="table-wrap">
                 <table>
@@ -181,11 +338,15 @@
                   <tbody>
                     @for (c of dashboardData.expiring_contracts; track c.id) {
                       <tr>
-                        <td><span class="status-badge status-expiring_soon">{{ c.contract_type | uppercase }}</span></td>
+                        <td><span class="status-badge" [class.status-active]="c.contract_type === 'warranty'" [class.status-assigned]="c.contract_type === 'amc'">{{ c.contract_type | uppercase }}</span></td>
                         <td>{{ c.reference_number || c.provider_name || '—' }}</td>
-                        <td>{{ c.asset_number }}</td>
+                        <td><strong>{{ c.asset_number }}</strong></td>
                         <td>{{ c.end_date }}</td>
-                        <td><strong>{{ c.days_remaining }}d</strong></td>
+                        <td>
+                          <span class="status-badge" [ngClass]="getExpiryBadgeClass(c.days_remaining)">
+                            {{ getExpiryLabel(c.days_remaining) }}
+                          </span>
+                        </td>
                       </tr>
                     }
                   </tbody>
@@ -194,26 +355,43 @@
             }
           </div>
 
-          <div class="dashboard-card" style="grid-column: 1 / -1;">
-            <h3>Recent Audit Activity</h3>
+          <!-- Recent Activity Timeline -->
+          <div class="dashboard-card full-width-card">
+            <div class="card-title-row">
+              <h3>Recent Activity Timeline</h3>
+            </div>
+
             @if (dashboardData.recent_activity.length === 0) {
               <p class="empty">No recent activity recorded.</p>
             } @else {
-              @for (act of dashboardData.recent_activity; track act.id) {
-                <div class="recent-activity-item">
-                  <time class="activity-time">{{ act.occurred_at | date:'medium' }}</time>
-                  <div class="activity-body">
-                    <strong>{{ act.action }}</strong> on {{ act.entity_type }}
-                    @if (act.entity_id) { <code>{{ act.entity_id }}</code> }
-                    <span class="status-badge" [class.status-active]="act.outcome === 'success'" [class.status-cancelled]="act.outcome !== 'success'">
-                      {{ act.outcome }}
-                    </span>
+              <div class="activity-timeline">
+                @for (act of dashboardData.recent_activity; track act.id) {
+                  <div class="activity-timeline-item">
+                    <div class="activity-bullet" [class.bullet-success]="act.outcome === 'success'" [class.bullet-failure]="act.outcome !== 'success'" aria-hidden="true"></div>
+                    <div class="activity-content">
+                      <div class="activity-top-row">
+                        <span class="activity-action-chip">{{ formatAuditAction(act.action) }}</span>
+                        <span class="activity-entity-info">
+                          on <code>{{ act.entity_type }}</code>
+                          @if (act.entity_id) { <code class="entity-id-code">#{{ act.entity_id.slice(0, 8) }}</code> }
+                        </span>
+                        <span class="status-badge activity-outcome-badge" [class.status-active]="act.outcome === 'success'" [class.status-cancelled]="act.outcome !== 'success'">
+                          {{ act.outcome }}
+                        </span>
+                        <time class="activity-timestamp">{{ act.occurred_at | date:'medium' }}</time>
+                      </div>
+                      @if (act.actor_email) {
+                        <div class="activity-bottom-row">
+                          <span class="activity-actor-tag">
+                            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/></svg>
+                            {{ act.actor_email }}
+                          </span>
+                        </div>
+                      }
+                    </div>
                   </div>
-                  @if (act.actor_email) {
-                    <span class="activity-actor">{{ act.actor_email }}</span>
-                  }
-                </div>
-              }
+                }
+              </div>
             }
           </div>
         </div>

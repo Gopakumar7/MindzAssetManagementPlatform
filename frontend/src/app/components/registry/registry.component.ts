@@ -1612,6 +1612,141 @@ export class RegistryComponent implements OnInit {
     return (status || '').replace(/_/g, ' ');
   }
 
+  readonly todayDate: Date = new Date();
+  readonly todayDateIso: string = this.todayDate.toISOString();
+
+  calculatePercentage(count: number | undefined | null, total: number | undefined | null): number {
+    if (!total || total <= 0 || !count || count <= 0) return 0;
+    return Math.min(100, Math.round((count / total) * 100));
+  }
+
+  getStatusSlices(): { status: string; label: string; count: number; percentage: number; color: string }[] {
+    if (!this.dashboardData || !this.dashboardData.assets_by_status) return [];
+    const total = this.dashboardData.total_assets;
+    const statusColorMap: Record<string, string> = {
+      in_stock: '#16a34a',     // Emerald/Green
+      assigned: '#2563eb',     // Blue
+      maintenance: '#f59e0b',  // Amber/Orange
+      disposed: '#64748b',     // Slate/Gray
+    };
+    const fallbackColors = ['#8b5cf6', '#ec4899', '#06b6d4', '#eab308'];
+    let fallbackIndex = 0;
+
+    return Object.entries(this.dashboardData.assets_by_status).map(([status, count]) => {
+      const percentage = this.calculatePercentage(count, total);
+      const color = statusColorMap[status] || fallbackColors[(fallbackIndex++) % fallbackColors.length];
+      return {
+        status,
+        label: this.formatStatus(status),
+        count,
+        percentage,
+        color,
+      };
+    });
+  }
+
+  getStatusDonutGradient(): string {
+    if (!this.dashboardData || this.dashboardData.total_assets <= 0) {
+      return 'conic-gradient(#e2e8f0 0% 100%)';
+    }
+    const slices = this.getStatusSlices();
+    if (slices.length === 0) {
+      return 'conic-gradient(#e2e8f0 0% 100%)';
+    }
+    let currentPct = 0;
+    const parts: string[] = [];
+    for (const slice of slices) {
+      const nextPct = Math.min(100, currentPct + slice.percentage);
+      parts.push(`${slice.color} ${currentPct}% ${nextPct}%`);
+      currentPct = nextPct;
+    }
+    if (currentPct < 100 && slices.length > 0) {
+      parts.push(`${slices[slices.length - 1].color} ${currentPct}% 100%`);
+    }
+    return `conic-gradient(${parts.join(', ')})`;
+  }
+
+  getExpiryBadgeClass(daysRemaining: number): string {
+    if (daysRemaining < 0) return 'status-expired';
+    if (daysRemaining <= 7) return 'status-urgent';
+    return 'status-expiring_soon';
+  }
+
+  getExpiryLabel(daysRemaining: number): string {
+    if (daysRemaining < 0) return `${Math.abs(daysRemaining)}d overdue`;
+    if (daysRemaining === 0) return 'Expires today';
+    if (daysRemaining <= 7) return `${daysRemaining}d left (Urgent)`;
+    return `${daysRemaining}d left`;
+  }
+
+  formatAuditAction(action: string | undefined | null): string {
+    if (!action) return 'Activity';
+    return action
+      .replace(/[._]/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  navigateToAssets(status?: string): void {
+    if (!this.can('asset.read')) return;
+    this.filters = {
+      search: '',
+      category_id: '',
+      status: status ?? '',
+      site_id: '',
+      location_id: '',
+      department_id: '',
+    };
+    this.page = 1;
+    this.setView('assets');
+  }
+
+  filterByCategory(categoryId: string): void {
+    if (!this.can('asset.read')) return;
+    this.filters = {
+      search: '',
+      category_id: categoryId,
+      status: '',
+      site_id: '',
+      location_id: '',
+      department_id: '',
+    };
+    this.page = 1;
+    this.setView('assets');
+  }
+
+  filterByDepartment(departmentId: string | null): void {
+    if (!this.can('asset.read') || !departmentId) return;
+    this.filters = {
+      search: '',
+      category_id: '',
+      status: '',
+      site_id: '',
+      location_id: '',
+      department_id: departmentId,
+    };
+    this.page = 1;
+    this.setView('assets');
+  }
+
+  navigateToContracts(): void {
+    if (this.can('maintenance.read')) {
+      this.selectReport('warranty-expiry');
+      this.setView('reports');
+    }
+  }
+
+  navigateToMaintenance(): void {
+    if (this.can('maintenance.read')) {
+      this.setView('maintenance');
+    }
+  }
+
+  navigateToProcurement(): void {
+    if (this.can('procurement.read')) {
+      this.setView('procurement');
+    }
+  }
+
   isReportEmpty(): boolean {
     if (this.activeReport === 'asset-register') return this.assetRegisterReport.length === 0;
     if (this.activeReport === 'asset-allocation') return this.assetAllocationReport.length === 0;
