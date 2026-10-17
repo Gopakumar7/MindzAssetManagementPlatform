@@ -28,8 +28,10 @@
   }
 
   <nav class="tabs" aria-label="Workspace sections">
-    @if (can('asset.read')) {
+    @if (can('dashboard.read')) {
       <button type="button" [class.active]="activeView === 'dashboard'" (click)="setView('dashboard')" [disabled]="!companyId">Dashboard</button>
+    }
+    @if (can('asset.read')) {
       <button type="button" [class.active]="activeView === 'assets'" (click)="setView('assets')" [disabled]="!companyId">Assets</button>
     }
     @if (can('asset.read') || can('maintenance.read') || can('procurement.read')) {
@@ -55,7 +57,7 @@
     }
   </nav>
 
-  @if (activeView === 'dashboard') {
+  @if (activeView === 'dashboard' && can('dashboard.read')) {
     <section class="panel dashboard-panel">
       <div class="section-heading dashboard-header">
         <div>
@@ -1105,7 +1107,7 @@
           <label>Quantity<input type="number" name="poQuantity" [(ngModel)]="purchaseOrderForm.quantity_ordered" required min="1" max="10000"></label>
           <label>Unit cost<input type="number" name="poCost" [(ngModel)]="purchaseOrderForm.unit_cost" required min="0" step="0.01"></label>
           <label class="wide">Notes<textarea name="poNotes" [(ngModel)]="purchaseOrderForm.notes" rows="2"></textarea></label>
-          <div class="form-actions"><button class="primary" type="submit" [disabled]="saving || !suppliers.length || !activeCategories.length">Create order</button>
+          <div class="form-actions"><button class="primary" type="submit" [disabled]="saving || !suppliers.length || !activeCategories.length || !purchaseOrderForm.supplier_id || !purchaseOrderForm.category_id || !purchaseOrderForm.order_number.trim() || !purchaseOrderForm.description.trim()">Create order</button>
             <span class="muted">This form creates one order line; multiple lines are supported by the API.</span>
           </div>
         </form>

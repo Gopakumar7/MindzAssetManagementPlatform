@@ -53,7 +53,7 @@ router = APIRouter(
 @router.get(
     '/dashboard',
     response_model=DashboardResponse,
-    dependencies=[Depends(require_permission('asset.read'))],
+    dependencies=[Depends(require_permission('dashboard.read'))],
 )
 def get_dashboard(
     company_id: UUID,

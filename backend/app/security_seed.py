@@ -24,6 +24,7 @@ _PERMISSIONS = {
     'maintenance.manage': 'Manage company service contracts and maintenance requests',
     'asset.history.read': 'Read asset history',
     'audit.read': 'Read security and business audit events',
+    'dashboard.read': 'Read executive dashboard and key metrics',
 }
 
 _ROLE_PERMISSIONS = {
@@ -33,13 +34,13 @@ _ROLE_PERMISSIONS = {
         'organization.read', 'organization.manage', 'asset.read', 'asset.create',
         'asset.update', 'asset.usage.manage', 'asset.history.read', 'audit.read',
         'asset.assignment.manage', 'procurement.read', 'procurement.manage',
-        'maintenance.read', 'maintenance.manage',
+        'maintenance.read', 'maintenance.manage', 'dashboard.read',
     },
     ('company', 'asset_manager'): {
         'company.read', 'organization.read', 'organization.manage', 'asset.read',
         'asset.create', 'asset.update', 'asset.usage.manage', 'asset.assignment.manage',
         'asset.history.read', 'procurement.read', 'procurement.manage',
-        'maintenance.read', 'maintenance.manage',
+        'maintenance.read', 'maintenance.manage', 'dashboard.read',
     },
     ('company', 'it_support'): {
         'company.read', 'organization.read', 'asset.read', 'asset.update',
@@ -48,7 +49,7 @@ _ROLE_PERMISSIONS = {
     },
     ('company', 'auditor'): {
         'company.read', 'organization.read', 'asset.read', 'asset.history.read', 'audit.read',
-        'procurement.read', 'maintenance.read',
+        'procurement.read', 'maintenance.read', 'dashboard.read',
     },
     ('company', 'read_only_user'): {
         'company.read', 'organization.read', 'asset.read', 'asset.history.read', 'procurement.read',
@@ -88,6 +89,19 @@ def seed_security_defaults(db: Session, *, commit: bool = True) -> None:
                     for permission_code in sorted(permission_codes)
                 ],
             )
+        else:
+            existing_perm_ids = set(
+                db.scalars(
+                    select(role_permissions.c.permission_id).where(role_permissions.c.role_id == role.id)
+                ).all()
+            )
+            missing = [
+                {'role_id': role.id, 'permission_id': permissions[p].id}
+                for p in sorted(permission_codes)
+                if p in permissions and permissions[p].id not in existing_perm_ids
+            ]
+            if missing:
+                db.execute(role_permissions.insert(), missing)
     if commit:
         db.commit()
     else:

@@ -414,8 +414,11 @@ export class RegistryComponent implements OnInit {
             padding: defaultRule.padding
           };
         }
+        if (this.activeView === 'dashboard' && !this.can('dashboard.read')) {
+          this.activeView = 'assets';
+        }
         this.loadAssets();
-        if (this.activeView === 'dashboard') {
+        if (this.activeView === 'dashboard' && this.can('dashboard.read')) {
           this.loadDashboard();
         } else if (this.activeView === 'reports') {
           this.loadActiveReport();
@@ -486,6 +489,9 @@ export class RegistryComponent implements OnInit {
   }
 
   setView(view: ViewName): void {
+    if (view === 'dashboard' && !this.can('dashboard.read')) {
+      view = 'assets';
+    }
     this.activeView = view;
     this.errorMessage = '';
     this.successMessage = '';
@@ -754,6 +760,41 @@ export class RegistryComponent implements OnInit {
 
   createPurchaseOrder(): void {
     if (!this.companyId || this.saving || !this.can('procurement.manage')) return;
+    if (!this.purchaseOrderForm.supplier_id) {
+      this.errorMessage = 'Please choose a supplier.';
+      return;
+    }
+    if (!this.purchaseOrderForm.order_number.trim()) {
+      this.errorMessage = 'Please enter an order number.';
+      return;
+    }
+    if (!this.purchaseOrderForm.ordered_date) {
+      this.errorMessage = 'Please choose an order date.';
+      return;
+    }
+    if (this.purchaseOrderForm.expected_date && this.purchaseOrderForm.expected_date < this.purchaseOrderForm.ordered_date) {
+      this.errorMessage = 'Expected date must be on or after the ordered date.';
+      return;
+    }
+    if (!this.purchaseOrderForm.category_id) {
+      this.errorMessage = 'Please choose an asset category for the item.';
+      return;
+    }
+    if (!this.purchaseOrderForm.description.trim()) {
+      this.errorMessage = 'Please enter an item description.';
+      return;
+    }
+    const qty = Number(this.purchaseOrderForm.quantity_ordered);
+    if (!qty || qty <= 0) {
+      this.errorMessage = 'Quantity ordered must be greater than zero.';
+      return;
+    }
+    const cost = Number(this.purchaseOrderForm.unit_cost);
+    if (isNaN(cost) || cost < 0) {
+      this.errorMessage = 'Unit cost must be zero or a positive amount.';
+      return;
+    }
+    this.errorMessage = '';
     this.saving = true;
     this.registry.createPurchaseOrder(this.companyId, {
       supplier_id: this.purchaseOrderForm.supplier_id,
@@ -764,8 +805,8 @@ export class RegistryComponent implements OnInit {
       lines: [{
         category_id: this.purchaseOrderForm.category_id,
         description: this.purchaseOrderForm.description.trim(),
-        quantity_ordered: Number(this.purchaseOrderForm.quantity_ordered),
-        unit_cost: Number(this.purchaseOrderForm.unit_cost)
+        quantity_ordered: qty,
+        unit_cost: cost
       }]
     }).subscribe({
       next: (order) => {
@@ -1416,7 +1457,7 @@ export class RegistryComponent implements OnInit {
   }
 
   loadDashboard(): void {
-    if (!this.companyId) return;
+    if (!this.companyId || !this.can('dashboard.read')) return;
     this.dashboardLoading = true;
     this.dashboardError = '';
     this.registry.dashboard(this.companyId).subscribe({
@@ -1775,10 +1816,22 @@ export class RegistryComponent implements OnInit {
     return localDate.toISOString().slice(0, 10);
   }
 
-  private fail(error: { error?: { detail?: string | { message?: string } }; message?: string }): void {
+  private fail(error: { error?: { detail?: string | { message?: string } | Array<{ msg?: string; loc?: (string | number)[] }> }; message?: string }): void {
     this.loading = false;
     this.saving = false;
     const detail = error.error?.detail;
-    this.errorMessage = typeof detail === 'string' ? detail : detail?.message ?? error.message ?? 'Request failed.';
+    if (typeof detail === 'string') {
+      this.errorMessage = detail;
+    } else if (Array.isArray(detail)) {
+      this.errorMessage = detail
+        .map((d) => {
+          const field = Array.isArray(d.loc) ? d.loc.filter((part) => part !== 'body').join(' -> ') : '';
+          return field ? `${field}: ${d.msg}` : (d.msg || JSON.stringify(d));
+        })
+        .join('; ') || 'Validation error.';
+    } else {
+      this.errorMessage = detail?.message ?? error.message ?? 'Request failed.';
+    }
+    this.changeDetector.markForCheck();
   }
 }

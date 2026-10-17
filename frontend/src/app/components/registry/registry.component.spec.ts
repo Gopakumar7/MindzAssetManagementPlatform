@@ -43,7 +43,7 @@ describe('RegistryComponent user access navigation', () => {
       system_permissions: [],
       memberships: []
     };
-    permissions = new Set(['company.read', 'company.members.manage', 'asset.read', 'asset.assignment.manage']);
+    permissions = new Set(['company.read', 'company.members.manage', 'asset.read', 'asset.assignment.manage', 'dashboard.read']);
     registry = jasmine.createSpyObj<RegistryService>('RegistryService', [
       'companies',
       'listMaster',
@@ -279,6 +279,75 @@ describe('RegistryComponent user access navigation', () => {
     expect(fixture.componentInstance.suppliers).toEqual([]);
   });
 
+  it('validates required fields and dates before dispatching createPurchaseOrder', () => {
+    permissions = new Set(['company.read', 'asset.read', 'procurement.read', 'procurement.manage']);
+    const component = fixture.componentInstance;
+
+    // 1. Missing supplier
+    component.purchaseOrderForm.supplier_id = '';
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Please choose a supplier.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+
+    // 2. Missing order number
+    component.purchaseOrderForm.supplier_id = 'sup-1';
+    component.purchaseOrderForm.order_number = '   ';
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Please enter an order number.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+
+    // 3. Expected date before ordered date
+    component.purchaseOrderForm.order_number = 'PO-001';
+    component.purchaseOrderForm.ordered_date = '2026-10-15';
+    component.purchaseOrderForm.expected_date = '2026-10-10';
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Expected date must be on or after the ordered date.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+
+    // 4. Missing category
+    component.purchaseOrderForm.expected_date = '2026-10-20';
+    component.purchaseOrderForm.category_id = '';
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Please choose an asset category for the item.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+
+    // 5. Missing description
+    component.purchaseOrderForm.category_id = 'cat-1';
+    component.purchaseOrderForm.description = '   ';
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Please enter an item description.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+  });
+
+  it('parses array-based FastAPI 422 validation errors into readable error message', () => {
+    permissions = new Set(['company.read', 'asset.read', 'procurement.read', 'procurement.manage']);
+    const component = fixture.componentInstance;
+    component.purchaseOrderForm = {
+      supplier_id: 'sup-1',
+      order_number: 'PO-001',
+      ordered_date: '2026-10-15',
+      expected_date: '2026-10-20',
+      notes: '',
+      category_id: 'cat-1',
+      description: 'Laptops',
+      quantity_ordered: 5,
+      unit_cost: 1000
+    };
+
+    registry.createPurchaseOrder.and.returnValue(throwError(() => ({
+      error: {
+        detail: [
+          { loc: ['body', 'supplier_id'], msg: 'Input should be a valid UUID, invalid length 5', type: 'uuid_parsing' },
+          { loc: ['body', 'lines', 0, 'category_id'], msg: 'Input should be a valid UUID, invalid length 5', type: 'uuid_parsing' }
+        ]
+      }
+    })));
+
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toContain('supplier_id: Input should be a valid UUID');
+    expect(component.errorMessage).toContain('lines -> 0 -> category_id: Input should be a valid UUID');
+  });
+
   it('hides user management from users without the company membership permission', () => {
     permissions = new Set(['company.read', 'asset.read']);
     fixture.detectChanges();
@@ -449,7 +518,7 @@ describe('RegistryComponent user access navigation', () => {
   });
 
   it('loads and displays executive dashboard metrics', () => {
-    permissions = new Set(['company.read', 'asset.read']);
+    permissions = new Set(['company.read', 'asset.read', 'dashboard.read']);
     registry.dashboard.and.returnValue(of({
       total_assets: 10,
       assets_by_status: { in_stock: 6, assigned: 4 },
@@ -624,7 +693,7 @@ describe('RegistryComponent user access navigation', () => {
   });
 
   it('displays genuine zeroes when dashboard returns genuine zero metrics', () => {
-    permissions = new Set(['company.read', 'asset.read']);
+    permissions = new Set(['company.read', 'asset.read', 'dashboard.read']);
     registry.dashboard.and.returnValue(of({
       total_assets: 0,
       assets_by_status: {},
@@ -648,7 +717,7 @@ describe('RegistryComponent user access navigation', () => {
   });
 
   it('handles dashboard error and allows retry', () => {
-    permissions = new Set(['company.read', 'asset.read']);
+    permissions = new Set(['company.read', 'asset.read', 'dashboard.read']);
     registry.dashboard.and.returnValue(throwError(() => ({ error: { detail: 'API timeout' } })));
 
     const component = fixture.componentInstance;
@@ -674,6 +743,40 @@ describe('RegistryComponent user access navigation', () => {
     component.loadDashboard();
     expect(component.dashboardError).toBe('');
     expect(component.dashboardData?.total_assets).toBe(1);
+  });
+
+  it('hides Dashboard tab and defaults landing view to assets when user lacks dashboard.read', () => {
+    // Simulate read-only user permissions without dashboard.read
+    permissions.clear();
+    ['company.read', 'organization.read', 'asset.read', 'asset.history.read', 'procurement.read', 'maintenance.read'].forEach(p => permissions.add(p));
+
+    registry.dashboard.calls.reset();
+    const component = fixture.componentInstance;
+    component.selectCompany(company.id);
+    fixture.detectChanges();
+
+    // Verify active view fell back to 'assets'
+    expect(component.activeView).toBe('assets');
+    expect(registry.dashboard).not.toHaveBeenCalled();
+
+    // Verify Dashboard tab button is not rendered in navigation
+    const buttons: HTMLButtonElement[] = Array.from(fixture.nativeElement.querySelectorAll('.tabs button'));
+    const buttonTexts = buttons.map(b => b.textContent?.trim());
+    expect(buttonTexts).not.toContain('Dashboard');
+    expect(buttonTexts).toContain('Assets');
+  });
+
+  it('prevents setView("dashboard") and falls back to assets when user lacks dashboard.read', () => {
+    permissions.clear();
+    ['company.read', 'asset.read'].forEach(p => permissions.add(p));
+
+    registry.dashboard.calls.reset();
+    const component = fixture.componentInstance;
+    component.activeView = 'assets';
+    component.setView('dashboard');
+
+    expect(component.activeView).toBe('assets');
+    expect(registry.dashboard).not.toHaveBeenCalled();
   });
 
   it('loads operational reports and switches report tabs', () => {

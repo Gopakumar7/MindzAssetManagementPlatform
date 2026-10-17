@@ -634,10 +634,11 @@ def test_reports_auth_and_permission_enforcement(client, db_session):
         assert login.status_code == 200
         restricted_client.headers['X-CSRF-Token'] = restricted_client.cookies['mindzen_csrf']
 
-        # Can access dashboard and asset register (requires asset.read)
+        # Cannot access dashboard without dashboard.read -> 403
         dash_res = restricted_client.get(f'/api/v1/companies/{cid}/dashboard')
-        assert dash_res.status_code == 200
+        assert dash_res.status_code == 403
 
+        # Can access asset register (requires asset.read)
         asset_rep = restricted_client.get(f'/api/v1/companies/{cid}/reports/asset-register')
         assert asset_rep.status_code == 200
 
@@ -651,4 +652,66 @@ def test_reports_auth_and_permission_enforcement(client, db_session):
         # Cannot access procurement report (requires procurement.read) -> 403
         proc_rep = restricted_client.get(f'/api/v1/companies/{cid}/reports/procurement')
         assert proc_rep.status_code == 403
+
+
+def test_dashboard_access_by_default_roles(client, db_session):
+    """Verify that only authorized roles (company_administrator, asset_manager, auditor)
+
+    can access the executive dashboard, while read_only_user and it_support are denied (403).
+    """
+    from app.models import Company, User, CompanyMembership, Role
+    from app.authentication import password_hasher
+    import uuid
+
+    company = Company(
+        id=uuid.uuid4(),
+        code='ROLETEST',
+        name='Role Dashboard Access Test',
+        is_active=True,
+    )
+    db_session.add(company)
+    db_session.flush()
+
+    role_expectations = {
+        'company_administrator': 200,
+        'asset_manager': 200,
+        'auditor': 200,
+        'it_support': 403,
+        'read_only_user': 403,
+    }
+
+    for role_code, expected_status in role_expectations.items():
+        role = db_session.scalar(select(Role).where(Role.scope == 'company', Role.code == role_code))
+        assert role is not None, f'Missing seeded role {role_code}'
+        user_email = f'{role_code}_{company.code.lower()}@mindzen.invalid'
+        user = User(
+            id=uuid.uuid4(),
+            email=user_email,
+            password_hash=password_hasher.hash('Test-Password-42!'),
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.flush()
+
+        db_session.add(CompanyMembership(
+            company_id=company.id,
+            user_id=user.id,
+            role_id=role.id,
+            status='active',
+        ))
+        db_session.commit()
+
+        with type(client)(client.app) as user_client:
+            login = user_client.post(
+                '/api/v1/auth/login',
+                json={'email': user_email, 'password': 'Test-Password-42!'},
+            )
+            assert login.status_code == 200, f'Login failed for {role_code}'
+            user_client.headers['X-CSRF-Token'] = user_client.cookies['mindzen_csrf']
+
+            res = user_client.get(f'/api/v1/companies/{company.id}/dashboard')
+            assert res.status_code == expected_status, (
+                f'Role {role_code} expected HTTP {expected_status} for dashboard, got {res.status_code}'
+            )
+
 
