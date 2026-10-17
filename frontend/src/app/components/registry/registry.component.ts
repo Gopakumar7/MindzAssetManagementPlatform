@@ -760,42 +760,61 @@ export class RegistryComponent implements OnInit {
 
   createPurchaseOrder(): void {
     if (!this.companyId || this.saving || !this.can('procurement.manage')) return;
+    if (!this.suppliers.length) {
+      this.errorMessage = 'Please register at least one supplier before creating a purchase order.';
+      this.changeDetector.markForCheck();
+      return;
+    }
+    if (!this.activeCategories.length) {
+      this.errorMessage = 'Please create at least one asset category before creating a purchase order.';
+      this.changeDetector.markForCheck();
+      return;
+    }
     if (!this.purchaseOrderForm.supplier_id) {
       this.errorMessage = 'Please choose a supplier.';
+      this.changeDetector.markForCheck();
       return;
     }
     if (!this.purchaseOrderForm.order_number.trim()) {
       this.errorMessage = 'Please enter an order number.';
+      this.changeDetector.markForCheck();
       return;
     }
     if (!this.purchaseOrderForm.ordered_date) {
       this.errorMessage = 'Please choose an order date.';
+      this.changeDetector.markForCheck();
       return;
     }
     if (this.purchaseOrderForm.expected_date && this.purchaseOrderForm.expected_date < this.purchaseOrderForm.ordered_date) {
       this.errorMessage = 'Expected date must be on or after the ordered date.';
+      this.changeDetector.markForCheck();
       return;
     }
     if (!this.purchaseOrderForm.category_id) {
       this.errorMessage = 'Please choose an asset category for the item.';
+      this.changeDetector.markForCheck();
       return;
     }
     if (!this.purchaseOrderForm.description.trim()) {
       this.errorMessage = 'Please enter an item description.';
+      this.changeDetector.markForCheck();
       return;
     }
     const qty = Number(this.purchaseOrderForm.quantity_ordered);
     if (!qty || qty <= 0) {
       this.errorMessage = 'Quantity ordered must be greater than zero.';
+      this.changeDetector.markForCheck();
       return;
     }
     const cost = Number(this.purchaseOrderForm.unit_cost);
     if (isNaN(cost) || cost < 0) {
       this.errorMessage = 'Unit cost must be zero or a positive amount.';
+      this.changeDetector.markForCheck();
       return;
     }
     this.errorMessage = '';
     this.saving = true;
+    this.changeDetector.markForCheck();
     this.registry.createPurchaseOrder(this.companyId, {
       supplier_id: this.purchaseOrderForm.supplier_id,
       order_number: this.purchaseOrderForm.order_number.trim(),
@@ -825,6 +844,7 @@ export class RegistryComponent implements OnInit {
         this.saving = false;
         this.successMessage = `Purchase order ${order.order_number} created.`;
         this.errorMessage = '';
+        this.changeDetector.markForCheck();
       },
       error: (error) => this.fail(error)
     });

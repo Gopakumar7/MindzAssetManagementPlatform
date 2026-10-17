@@ -283,7 +283,23 @@ describe('RegistryComponent user access navigation', () => {
     permissions = new Set(['company.read', 'asset.read', 'procurement.read', 'procurement.manage']);
     const component = fixture.componentInstance;
 
-    // 1. Missing supplier
+    // 0a. No suppliers registered
+    component.suppliers = [];
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Please register at least one supplier before creating a purchase order.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+
+    // 0b. No categories registered
+    component.suppliers = [{ id: 'sup-1', company_id: company.id, code: 'SUP1', name: 'Supplier 1', is_active: true, email: null, phone: null, notes: null, created_at: '' }];
+    component.categories = [];
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Please create at least one asset category before creating a purchase order.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+
+    // Setup active category
+    component.categories = [{ id: 'cat-1', company_id: company.id, code: 'CAT1', name: 'Laptops', is_active: true }];
+
+    // 1. Missing supplier selection
     component.purchaseOrderForm.supplier_id = '';
     component.createPurchaseOrder();
     expect(component.errorMessage).toBe('Please choose a supplier.');
@@ -317,11 +333,27 @@ describe('RegistryComponent user access navigation', () => {
     component.createPurchaseOrder();
     expect(component.errorMessage).toBe('Please enter an item description.');
     expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+
+    // 6. Zero or negative quantity
+    component.purchaseOrderForm.description = 'Laptops';
+    component.purchaseOrderForm.quantity_ordered = 0;
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Quantity ordered must be greater than zero.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+
+    // 7. Negative unit cost
+    component.purchaseOrderForm.quantity_ordered = 5;
+    component.purchaseOrderForm.unit_cost = -10;
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Unit cost must be zero or a positive amount.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
   });
 
   it('parses array-based FastAPI 422 validation errors into readable error message', () => {
     permissions = new Set(['company.read', 'asset.read', 'procurement.read', 'procurement.manage']);
     const component = fixture.componentInstance;
+    component.suppliers = [{ id: 'sup-1', company_id: company.id, code: 'SUP1', name: 'Supplier 1', is_active: true, email: null, phone: null, notes: null, created_at: '' }];
+    component.categories = [{ id: 'cat-1', company_id: company.id, code: 'CAT1', name: 'Laptops', is_active: true }];
     component.purchaseOrderForm = {
       supplier_id: 'sup-1',
       order_number: 'PO-001',
