@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
@@ -46,12 +46,14 @@ export class LoginComponent {
   constructor(
     private readonly auth: AuthService,
     private readonly router: Router,
-    private readonly route: ActivatedRoute
+    private readonly route: ActivatedRoute,
+    private readonly cdr: ChangeDetectorRef
   ) {}
 
   submit(): void {
     this.submitting = true;
     this.errorMessage = '';
+    this.cdr.markForCheck();
     this.auth.login(this.email.trim(), this.password).subscribe({
       next: () => {
         this.submitting = false;
@@ -63,6 +65,7 @@ export class LoginComponent {
         this.errorMessage = error instanceof HttpErrorResponse && error.status === 429
           ? 'Too many attempts. Please wait before trying again.'
           : 'Unable to sign in with those credentials.';
+        this.cdr.markForCheck();
       }
     });
   }

@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
@@ -50,25 +50,32 @@ export class InvitationComponent {
   accepted = false;
   submitting = false;
 
-  constructor(authRoute: ActivatedRoute, private readonly auth: AuthService) {
+  constructor(
+    authRoute: ActivatedRoute,
+    private readonly auth: AuthService,
+    private readonly cdr: ChangeDetectorRef
+  ) {
     this.token = authRoute.snapshot.queryParamMap.get('token') ?? '';
   }
 
   submit(): void {
     this.submitting = true;
     this.errorMessage = '';
+    this.cdr.markForCheck();
     this.auth.acceptInvitation(this.token.trim(), this.password).subscribe({
       next: () => {
         this.submitting = false;
         this.accepted = true;
         this.message = 'Invitation accepted. You can now sign in.';
         this.password = '';
+        this.cdr.markForCheck();
       },
       error: (error: unknown) => {
         this.submitting = false;
         this.errorMessage = error instanceof HttpErrorResponse && error.status === 400
           ? 'This invitation is invalid, expired, or has already been used.'
           : 'The invitation could not be accepted. Please try again.';
+        this.cdr.markForCheck();
       }
     });
   }
