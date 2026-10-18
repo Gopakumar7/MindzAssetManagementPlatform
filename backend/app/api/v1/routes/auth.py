@@ -30,8 +30,26 @@ router = APIRouter(prefix='/auth', tags=['authentication'])
 
 def _validate_origin(request: Request) -> None:
     origin = request.headers.get('origin')
-    if origin is not None and origin not in settings.cors_origins_list:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Request origin is not allowed')
+    if origin is None:
+        return
+
+    allowed_origins = settings.cors_origins_list
+    if origin in allowed_origins:
+        return
+
+    # Nginx must explicitly forward the original host and scheme.
+    forwarded_host = request.headers.get('x-forwarded-host')
+    forwarded_proto = request.headers.get('x-forwarded-proto')
+
+    if forwarded_host and forwarded_proto:
+        expected_origin = f'{forwarded_proto}://{forwarded_host}'
+        if origin == expected_origin:
+            return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail='Request origin is not allowed',
+    )
 
 
 @router.post('/login')
