@@ -524,3 +524,261 @@ def test_multiline_goods_receipt_partial_deliveries_and_over_receipt_protection(
     )
     assert late_rcv.status_code == 409
 
+
+def test_postgresql_multiline_procurement_verification(client, db_session):
+    # 1. Setup Company with default categories
+    company = client.post(
+        '/api/v1/companies',
+        json={'code': 'PGVERIF', 'name': 'PostgreSQL Multi-line Verification', 'number_prefix': 'PGV'},
+    ).json()
+    cats = client.get(f"/api/v1/companies/{company['id']}/categories").json()
+    assert len(cats) >= 3
+    cat_laptop, cat_display, cat_printer = cats[0], cats[1], cats[2]
+
+    # Create Supplier
+    supplier = client.post(
+        f"/api/v1/companies/{company['id']}/suppliers",
+        json={'code': 'SUP-PGV', 'name': 'Global Hardware Ltd'},
+    ).json()
+
+    # Scenario 1 & 2: Create PO with at least 3 lines from different categories with discounts and taxes
+    po_res = client.post(
+        f"/api/v1/companies/{company['id']}/purchase-orders",
+        json={
+            'supplier_id': supplier['id'],
+            'order_number': 'PO-PGV-001',
+            'ordered_date': '2026-10-18',
+            'expected_date': '2026-10-28',
+            'notes': 'Verification PO with 3 distinct categories',
+            'lines': [
+                {
+                    'category_id': cat_laptop['id'],
+                    'description': 'Executive Ultrabook 14',
+                    'quantity_ordered': 5,
+                    'unit_cost': '1200.00',
+                },
+                {
+                    'category_id': cat_display['id'],
+                    'description': 'Curved 34-inch Monitor',
+                    'quantity_ordered': 3,
+                    'unit_cost': '400.00',
+                },
+                {
+                    'category_id': cat_printer['id'],
+                    'description': 'Network Laser Printer',
+                    'quantity_ordered': 2,
+                    'unit_cost': '250.00',
+                },
+            ],
+        },
+    )
+    assert po_res.status_code == 201, po_res.text
+    order = po_res.json()
+    order_id = order['id']
+
+    # Confirm Authoritative Calculations
+    assert order['total_quantity'] == 10
+    assert order['subtotal'] == '7700.00'
+    assert order['total_discount'] == '0.00'
+    assert order['total_tax'] == '0.00'
+    assert order['total_amount'] == '7700.00'
+    assert order['status'] == 'open'
+
+    # Scenario 3: Retrieve PO and verify persistence of all lines and calculated totals
+    get_po = client.get(f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}")
+    assert get_po.status_code == 200
+    retrieved = get_po.json()
+    assert retrieved['total_quantity'] == 10
+    assert retrieved['subtotal'] == '7700.00'
+    assert retrieved['total_discount'] == '0.00'
+    assert retrieved['total_tax'] == '0.00'
+    assert retrieved['total_amount'] == '7700.00'
+    lines_by_desc = {l['description']: l for l in retrieved['lines']}
+    line_laptop = lines_by_desc['Executive Ultrabook 14']
+    line_display = lines_by_desc['Curved 34-inch Monitor']
+    line_printer = lines_by_desc['Network Laser Printer']
+    assert line_laptop['line_subtotal'] == '6000.00'
+    assert line_laptop['line_total'] == '6000.00'
+    assert line_laptop['quantity_remaining'] == 5
+    assert line_display['line_subtotal'] == '1200.00'
+    assert line_display['line_total'] == '1200.00'
+    assert line_display['quantity_remaining'] == 3
+    assert line_printer['line_subtotal'] == '500.00'
+    assert line_printer['line_total'] == '500.00'
+    assert line_printer['quantity_remaining'] == 2
+
+    # Scenario 4: Receive only part of the quantity on one line and confirm remaining quantity
+    rcv1_res = client.post(
+        f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}/goods-receipts",
+        json={
+            'receipt_number': 'GRN-PGV-01',
+            'received_date': '2026-10-19',
+            'delivery_reference': 'DEL-01',
+            'lines': [
+                {
+                    'purchase_order_line_id': line_laptop['id'],
+                    'quantity_received': 2,
+                    'quantity_rejected': 0,
+                    'serial_numbers': ['LAPTOP-PG-01', 'LAPTOP-PG-02'],
+                },
+            ],
+        },
+    )
+    assert rcv1_res.status_code == 201, rcv1_res.text
+    po_after_rcv1 = client.get(f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}").json()
+    assert po_after_rcv1['status'] == 'partially_received'
+    lines_after_rcv1 = {l['description']: l for l in po_after_rcv1['lines']}
+    assert lines_after_rcv1['Executive Ultrabook 14']['quantity_received'] == 2
+    assert lines_after_rcv1['Executive Ultrabook 14']['quantity_remaining'] == 3
+    assert lines_after_rcv1['Curved 34-inch Monitor']['quantity_received'] == 0
+    assert lines_after_rcv1['Curved 34-inch Monitor']['quantity_remaining'] == 3
+    assert lines_after_rcv1['Network Laser Printer']['quantity_received'] == 0
+    assert lines_after_rcv1['Network Laser Printer']['quantity_remaining'] == 2
+
+    # Scenario 6: Verify that over-receipt is rejected and does not modify previously committed receipt data
+    over_res = client.post(
+        f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}/goods-receipts",
+        json={
+            'receipt_number': 'GRN-OVER-ATTEMPT',
+            'received_date': '2026-10-19',
+            'lines': [
+                {
+                    'purchase_order_line_id': line_laptop['id'],
+                    'quantity_received': 4,
+                    'quantity_rejected': 0,
+                },
+            ],
+        },
+    )
+    assert over_res.status_code == 422
+    assert 'exceeds the remaining ordered quantity' in over_res.json()['detail']
+    po_check = client.get(f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}").json()
+    assert {l['description']: l['quantity_received'] for l in po_check['lines']} == {
+        'Executive Ultrabook 14': 2,
+        'Curved 34-inch Monitor': 0,
+        'Network Laser Printer': 0,
+    }
+
+    # Scenario 7: Verify that retrying a receipt cannot create duplicate assets
+    # Retrying the exact receipt is rejected with 409 Conflict
+    retry_dup_number = client.post(
+        f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}/goods-receipts",
+        json={
+            'receipt_number': 'GRN-PGV-01',
+            'received_date': '2026-10-19',
+            'lines': [
+                {
+                    'purchase_order_line_id': line_laptop['id'],
+                    'quantity_received': 2,
+                    'quantity_rejected': 0,
+                    'serial_numbers': ['LAPTOP-PG-01', 'LAPTOP-PG-02'],
+                },
+            ],
+        },
+    )
+    assert retry_dup_number.status_code == 409
+    assert 'already exists' in retry_dup_number.json()['detail']
+
+    # Total assets in database must still be exactly 2 (no duplicate assets created)
+    db_session.expire_all()
+    assets_mid = db_session.scalars(select(Asset).where(Asset.company_id == UUID(company['id']))).all()
+    assert len(assets_mid) == 2
+
+    # Scenario 5: Receive quantities against other lines and confirm transition from partially_received to received
+    rcv2_res = client.post(
+        f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}/goods-receipts",
+        json={
+            'receipt_number': 'GRN-PGV-02',
+            'received_date': '2026-10-19',
+            'lines': [
+                {
+                    'purchase_order_line_id': line_display['id'],
+                    'quantity_received': 2,
+                    'quantity_rejected': 0,
+                    'serial_numbers': ['MON-PG-01', 'MON-PG-02'],
+                },
+                {
+                    'purchase_order_line_id': line_printer['id'],
+                    'quantity_received': 1,
+                    'quantity_rejected': 0,
+                    'serial_numbers': ['PRN-PG-01'],
+                },
+            ],
+        },
+    )
+    assert rcv2_res.status_code == 201
+    po_after_rcv2 = client.get(f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}").json()
+    assert po_after_rcv2['status'] == 'partially_received'
+
+    # Partial Receipt 3: complete all remaining: 3 laptops, 1 display, 1 printer
+    rcv3_res = client.post(
+        f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}/goods-receipts",
+        json={
+            'receipt_number': 'GRN-PGV-03',
+            'received_date': '2026-10-19',
+            'lines': [
+                {
+                    'purchase_order_line_id': line_laptop['id'],
+                    'quantity_received': 3,
+                    'quantity_rejected': 0,
+                    'serial_numbers': ['LAPTOP-PG-03', 'LAPTOP-PG-04', 'LAPTOP-PG-05'],
+                },
+                {
+                    'purchase_order_line_id': line_display['id'],
+                    'quantity_received': 1,
+                    'quantity_rejected': 0,
+                    'serial_numbers': ['MON-PG-03'],
+                },
+                {
+                    'purchase_order_line_id': line_printer['id'],
+                    'quantity_received': 1,
+                    'quantity_rejected': 0,
+                    'serial_numbers': ['PRN-PG-02'],
+                },
+            ],
+        },
+    )
+    assert rcv3_res.status_code == 201
+
+    # Order must now be fully 'received' with 0 remaining
+    po_final = client.get(f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}").json()
+    assert po_final['status'] == 'received'
+    final_lines = {l['description']: l for l in po_final['lines']}
+    assert final_lines['Executive Ultrabook 14']['quantity_remaining'] == 0
+    assert final_lines['Curved 34-inch Monitor']['quantity_remaining'] == 0
+    assert final_lines['Network Laser Printer']['quantity_remaining'] == 0
+
+    # Scenario 8: Verify that asset records retain the correct PO-line and goods-receipt references
+    db_session.expire_all()
+    all_assets = db_session.scalars(select(Asset).where(Asset.company_id == UUID(company['id']))).all()
+    assert len(all_assets) == 10
+    for asset in all_assets:
+        assert asset.goods_receipt_line_id is not None
+        assert asset.vendor_reference == 'SUP-PGV'
+        assert asset.status == 'in_stock'
+        gr_line = db_session.get(GoodsReceiptLine, asset.goods_receipt_line_id)
+        assert gr_line is not None
+        assert gr_line.company_id == UUID(company['id'])
+        assert gr_line.purchase_order_id == UUID(order_id)
+        assert gr_line.purchase_order_line_id in (
+            UUID(line_laptop['id']), UUID(line_display['id']), UUID(line_printer['id'])
+        )
+
+    # Scenario 9: Verify company isolation and audit events
+    # 9a: Company isolation
+    other_company = client.post(
+        '/api/v1/companies',
+        json={'code': 'PGVOTHER', 'name': 'Other Company Isolation', 'number_prefix': 'OTH'},
+    ).json()
+    isolated_get = client.get(f"/api/v1/companies/{other_company['id']}/purchase-orders/{order_id}")
+    assert isolated_get.status_code == 404
+
+    # 9b: Audit events
+    audits = db_session.scalars(
+        select(AuditEvent).where(AuditEvent.company_id == UUID(company['id']))
+    ).all()
+    audit_actions = [a.action for a in audits]
+    assert 'purchase_order_created' in audit_actions
+    assert audit_actions.count('goods_received') == 3
+
+

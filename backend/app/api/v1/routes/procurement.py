@@ -399,10 +399,23 @@ def receive_goods(
     }
     if len(order_lines) != len(submitted_ids):
         raise HTTPException(status_code=422, detail='Every receipt line must belong to this purchase order')
+    receipt_number = payload.receipt_number.strip()
+    if not receipt_number:
+        raise HTTPException(status_code=422, detail='Receipt number cannot be blank')
+    if db.scalar(
+        select(GoodsReceipt.id).where(
+            GoodsReceipt.company_id == company_id,
+            GoodsReceipt.receipt_number == receipt_number,
+        )
+    ) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f'Goods receipt number "{receipt_number}" already exists in this company',
+        )
     receipt = GoodsReceipt(
         company_id=company_id,
         purchase_order_id=order.id,
-        receipt_number=payload.receipt_number.strip(),
+        receipt_number=receipt_number,
         received_date=payload.received_date,
         delivery_reference=payload.delivery_reference,
         notes=payload.notes,
