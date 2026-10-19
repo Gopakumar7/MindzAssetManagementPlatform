@@ -22,7 +22,15 @@ import {
   VerificationUnregisteredAsset,
   VerificationDashboardSummary,
   VerificationCampaignReportItem,
-  VerificationDiscrepancyReportItem
+  VerificationDiscrepancyReportItem,
+  AssetFinancial,
+  DepreciationScheduleItem,
+  AssetDepreciationEntry,
+  AssetDisposal,
+  BatchDepreciationResult,
+  AssetDepreciationReportItem,
+  AssetDisposalReportItem,
+  FinancialDashboardMetric
 } from '../../services/registry.service';
 import { RegistryComponent, serializeCsvCell } from './registry.component';
 
@@ -104,7 +112,20 @@ describe('RegistryComponent user access navigation', () => {
       'registerUnregisteredAsset',
       'getVerificationDashboard',
       'reportVerificationCampaigns',
-      'reportVerificationDiscrepancies'
+      'reportVerificationDiscrepancies',
+      'getAssetFinancial',
+      'configureAssetFinancial',
+      'editAssetFinancial',
+      'adjustAssetFinancial',
+      'getDepreciationSchedule',
+      'postDepreciation',
+      'listDepreciationEntries',
+      'postBatchDepreciation',
+      'disposeAsset',
+      'getAssetDisposal',
+      'reportAssetDepreciation',
+      'reportAssetDisposals',
+      'getFinancialDashboard'
     ]);
     registry.companies.and.returnValue(of([company]));
     registry.listMaster.and.returnValue(of([]));
@@ -160,6 +181,28 @@ describe('RegistryComponent user access navigation', () => {
     registry.getVerificationDashboard.and.returnValue(of(testDashboardSummary));
     registry.reportVerificationCampaigns.and.returnValue(of([]));
     registry.reportVerificationDiscrepancies.and.returnValue(of([]));
+    registry.getAssetFinancial.and.returnValue(of(undefined as any));
+    registry.configureAssetFinancial.and.returnValue(of({} as any));
+    registry.editAssetFinancial.and.returnValue(of({} as any));
+    registry.adjustAssetFinancial.and.returnValue(of({} as any));
+    registry.getDepreciationSchedule.and.returnValue(of([]));
+    registry.postDepreciation.and.returnValue(of({} as any));
+    registry.listDepreciationEntries.and.returnValue(of([]));
+    registry.postBatchDepreciation.and.returnValue(of({ period: '2026-10', processed_count: 0, posted_count: 0, skipped_count: 0, total_depreciation_posted: 0, posted_asset_ids: [], skipped: [] }));
+    registry.disposeAsset.and.returnValue(of({} as any));
+    registry.getAssetDisposal.and.returnValue(of({} as any));
+    registry.reportAssetDepreciation.and.returnValue(of([]));
+    registry.reportAssetDisposals.and.returnValue(of([]));
+    registry.getFinancialDashboard.and.returnValue(of({
+      total_capitalised_cost: 0,
+      total_accumulated_depreciation: 0,
+      total_net_book_value: 0,
+      approaching_eol_count: 0,
+      fully_depreciated_active_count: 0,
+      disposed_count: 0,
+      total_disposal_proceeds: 0,
+      total_disposal_gain_loss: 0
+    }));
 
 
     TestBed.configureTestingModule({
@@ -1565,7 +1608,20 @@ describe('RegistryComponent Physical Asset Verification', () => {
       'registerUnregisteredAsset',
       'getVerificationDashboard',
       'reportVerificationCampaigns',
-      'reportVerificationDiscrepancies'
+      'reportVerificationDiscrepancies',
+      'getAssetFinancial',
+      'configureAssetFinancial',
+      'editAssetFinancial',
+      'adjustAssetFinancial',
+      'getDepreciationSchedule',
+      'postDepreciation',
+      'listDepreciationEntries',
+      'postBatchDepreciation',
+      'disposeAsset',
+      'getAssetDisposal',
+      'reportAssetDepreciation',
+      'reportAssetDisposals',
+      'getFinancialDashboard'
     ]);
 
     registry.companies.and.returnValue(of([company]));
@@ -1639,6 +1695,28 @@ describe('RegistryComponent Physical Asset Verification', () => {
       resolved_at: null,
       created_at: '2026-10-19T00:00:00Z'
     }]));
+    registry.getAssetFinancial.and.returnValue(of(undefined as any));
+    registry.configureAssetFinancial.and.returnValue(of({} as any));
+    registry.editAssetFinancial.and.returnValue(of({} as any));
+    registry.adjustAssetFinancial.and.returnValue(of({} as any));
+    registry.getDepreciationSchedule.and.returnValue(of([]));
+    registry.postDepreciation.and.returnValue(of({} as any));
+    registry.listDepreciationEntries.and.returnValue(of([]));
+    registry.postBatchDepreciation.and.returnValue(of({ period: '2026-10', processed_count: 0, posted_count: 0, skipped_count: 0, total_depreciation_posted: 0, posted_asset_ids: [], skipped: [] }));
+    registry.disposeAsset.and.returnValue(of({} as any));
+    registry.getAssetDisposal.and.returnValue(of({} as any));
+    registry.reportAssetDepreciation.and.returnValue(of([]));
+    registry.reportAssetDisposals.and.returnValue(of([]));
+    registry.getFinancialDashboard.and.returnValue(of({
+      total_capitalised_cost: 0,
+      total_accumulated_depreciation: 0,
+      total_net_book_value: 0,
+      approaching_eol_count: 0,
+      fully_depreciated_active_count: 0,
+      disposed_count: 0,
+      total_disposal_proceeds: 0,
+      total_disposal_gain_loss: 0
+    }));
 
     TestBed.configureTestingModule({
       imports: [RegistryComponent],
@@ -2079,3 +2157,401 @@ const testDashboardSummary: VerificationDashboardSummary = {
   pending_resolutions: 1,
   resolved_resolutions: 0
 };
+
+const testFinancial: AssetFinancial = {
+  id: 'fin-1',
+  company_id: 'company-1',
+  asset_id: 'asset-1',
+  capitalised_cost: 1200.0,
+  currency: 'USD',
+  depreciation_method: 'straight_line',
+  useful_life_months: 24,
+  residual_value: 0.0,
+  depreciation_start_date: '2026-01-01',
+  accumulated_depreciation: 100.0,
+  current_book_value: 1100.0,
+  financial_status: 'active',
+  created_at: '2026-01-15T00:00:00Z',
+  updated_at: '2026-01-15T00:00:00Z'
+};
+
+const testScheduleItem: DepreciationScheduleItem = {
+  period: '2026-01',
+  period_start_date: '2026-01-01',
+  period_end_date: '2026-01-31',
+  depreciation_amount: 50.0,
+  accumulated_depreciation: 50.0,
+  book_value: 1150.0,
+  status: 'posted'
+};
+
+const testDeprecEntry: AssetDepreciationEntry = {
+  id: 'entry-1',
+  company_id: 'company-1',
+  asset_id: 'asset-1',
+  period: '2026-01',
+  period_start_date: '2026-01-01',
+  period_end_date: '2026-01-31',
+  depreciation_amount: 50.0,
+  accumulated_depreciation_after: 50.0,
+  book_value_after: 1150.0,
+  method: 'straight_line',
+  posted_at: '2026-01-31T23:59:59Z',
+  posted_by_id: 'admin-1',
+  notes: 'First month depreciation'
+};
+
+const testDisposal: AssetDisposal = {
+  id: 'disp-1',
+  company_id: 'company-1',
+  asset_id: 'asset-1',
+  disposal_date: '2026-06-30',
+  disposal_reason: 'end_of_life',
+  disposal_method: 'scrap',
+  sale_proceeds: 50.0,
+  net_book_value_at_disposal: 1100.0,
+  gain_loss: -1050.0,
+  notes: 'Scrapped after damage',
+  disposed_by_id: 'admin-1',
+  created_at: '2026-06-30T10:00:00Z'
+};
+
+const testFinancialDashboard: FinancialDashboardMetric = {
+  total_capitalised_cost: 1200.0,
+  total_accumulated_depreciation: 100.0,
+  total_net_book_value: 1100.0,
+  approaching_eol_count: 1,
+  fully_depreciated_active_count: 0,
+  disposed_count: 0,
+  total_disposal_proceeds: 0.0,
+  total_disposal_gain_loss: 0.0
+};
+
+const testDeprecReportItem: AssetDepreciationReportItem = {
+  asset_id: 'asset-1',
+  asset_number: 'AST-000001',
+  asset_name: 'Laptop X1',
+  category_name: 'Laptops',
+  financial_status: 'active',
+  acquisition_date: '2026-01-15',
+  capitalised_cost: 1200.0,
+  currency: 'USD',
+  depreciation_method: 'straight_line',
+  useful_life_months: 24,
+  residual_value: 0.0,
+  depreciation_start_date: '2026-01-01',
+  accumulated_depreciation: 100.0,
+  current_book_value: 1100.0
+};
+
+const testDisposalReportItem: AssetDisposalReportItem = {
+  asset_id: 'asset-1',
+  asset_number: 'AST-000001',
+  asset_name: 'Laptop X1',
+  category_name: 'Laptops',
+  disposal_date: '2026-06-30',
+  disposal_reason: 'end_of_life',
+  disposal_method: 'scrap',
+  sale_proceeds: 50.0,
+  net_book_value_at_disposal: 1100.0,
+  gain_loss: -1050.0,
+  disposed_by_email: 'admin@example.invalid',
+  notes: 'Scrapped after damage'
+};
+
+describe('RegistryComponent Asset Financial Lifecycle', () => {
+  let fixture: ComponentFixture<RegistryComponent>;
+  let component: RegistryComponent;
+  let registry: jasmine.SpyObj<RegistryService>;
+  let permissions: Set<string>;
+
+  const company: Company = {
+    id: 'company-1',
+    code: 'ACME',
+    name: 'Acme',
+    is_active: true
+  };
+
+  beforeEach(() => {
+    permissions = new Set(['company.read', 'asset.read', 'finance.read', 'finance.manage', 'dashboard.read']);
+    registry = jasmine.createSpyObj<RegistryService>('RegistryService', [
+      'companies',
+      'listMaster',
+      'listNumberRules',
+      'companyMembers',
+      'companyRoles',
+      'listAssets',
+      'getAsset',
+      'usages',
+      'history',
+      'assignments',
+      'assignmentRecipients',
+      'createAssignment',
+      'recordHandover',
+      'returnAssignment',
+      'transferAssignment',
+      'listLocations',
+      'suppliers',
+      'purchaseOrders',
+      'getPurchaseOrder',
+      'goodsReceipts',
+      'serviceContracts',
+      'maintenanceUsers',
+      'maintenanceRequests',
+      'dashboard',
+      'reportAssetRegister',
+      'reportAssetAllocation',
+      'reportWarrantyExpiry',
+      'reportMaintenance',
+      'reportProcurement',
+      'listVerificationCampaigns',
+      'getVerificationCampaign',
+      'createVerificationCampaign',
+      'updateVerificationCampaign',
+      'transitionVerificationCampaignStatus',
+      'getVerificationExpectedAssets',
+      'recordVerificationObservation',
+      'getVerificationDiscrepancies',
+      'resolveVerificationDiscrepancy',
+      'recordUnregisteredAsset',
+      'getUnregisteredAssets',
+      'registerUnregisteredAsset',
+      'getVerificationDashboard',
+      'reportVerificationCampaigns',
+      'reportVerificationDiscrepancies',
+      'getAssetFinancial',
+      'configureAssetFinancial',
+      'editAssetFinancial',
+      'adjustAssetFinancial',
+      'getDepreciationSchedule',
+      'postDepreciation',
+      'listDepreciationEntries',
+      'postBatchDepreciation',
+      'disposeAsset',
+      'getAssetDisposal',
+      'reportAssetDepreciation',
+      'reportAssetDisposals',
+      'getFinancialDashboard'
+    ]);
+
+    registry.companies.and.returnValue(of([company]));
+    registry.listMaster.and.returnValue(of([]));
+    registry.listNumberRules.and.returnValue(of([]));
+    registry.companyMembers.and.returnValue(of([]));
+    registry.companyRoles.and.returnValue(of([]));
+    registry.listAssets.and.returnValue(of({ items: [testAsset], total: 1, page: 1, page_size: 15 }));
+    registry.getAsset.and.returnValue(of(testAsset));
+    registry.usages.and.returnValue(of([]));
+    registry.history.and.returnValue(of([]));
+    registry.assignments.and.returnValue(of([]));
+    registry.assignmentRecipients.and.returnValue(of([]));
+    registry.listLocations.and.returnValue(of([]));
+    registry.suppliers.and.returnValue(of([]));
+    registry.purchaseOrders.and.returnValue(of([]));
+    registry.getPurchaseOrder.and.returnValue(of({} as any));
+    registry.goodsReceipts.and.returnValue(of([]));
+    registry.serviceContracts.and.returnValue(of([]));
+    registry.maintenanceUsers.and.returnValue(of([]));
+    registry.maintenanceRequests.and.returnValue(of([]));
+    registry.dashboard.and.returnValue(of({
+      total_assets: 1,
+      assets_by_status: { in_stock: 1 },
+      assets_by_category: [],
+      assets_by_site: [],
+      assets_by_department: [],
+      expiring_contracts_count: 0,
+      expiring_contracts: [],
+      maintenance_summary: { open: 0, in_progress: 0, resolved: 0, closed: 0, total_open_and_in_progress: 0 },
+      procurement_summary: { total_purchase_orders: 0, orders_by_status: {}, total_goods_receipts: 0, total_items_received: 0, total_items_rejected: 0 },
+      recent_activity: []
+    }));
+    registry.reportAssetRegister.and.returnValue(of([]));
+    registry.reportAssetAllocation.and.returnValue(of([]));
+    registry.reportWarrantyExpiry.and.returnValue(of([]));
+    registry.reportMaintenance.and.returnValue(of([]));
+    registry.reportProcurement.and.returnValue(of([]));
+
+    registry.listVerificationCampaigns.and.returnValue(of([]));
+    registry.getVerificationCampaign.and.returnValue(of({} as any));
+    registry.createVerificationCampaign.and.returnValue(of({} as any));
+    registry.updateVerificationCampaign.and.returnValue(of({} as any));
+    registry.transitionVerificationCampaignStatus.and.returnValue(of({} as any));
+    registry.getVerificationExpectedAssets.and.returnValue(of([]));
+    registry.recordVerificationObservation.and.returnValue(of({} as any));
+    registry.getVerificationDiscrepancies.and.returnValue(of([]));
+    registry.resolveVerificationDiscrepancy.and.returnValue(of({} as any));
+    registry.recordUnregisteredAsset.and.returnValue(of({} as any));
+    registry.getUnregisteredAssets.and.returnValue(of([]));
+    registry.registerUnregisteredAsset.and.returnValue(of({} as any));
+    registry.getVerificationDashboard.and.returnValue(of({} as any));
+    registry.reportVerificationCampaigns.and.returnValue(of([]));
+    registry.reportVerificationDiscrepancies.and.returnValue(of([]));
+
+    registry.getAssetFinancial.and.returnValue(of(testFinancial));
+    registry.configureAssetFinancial.and.returnValue(of(testFinancial));
+    registry.editAssetFinancial.and.returnValue(of(testFinancial));
+    registry.adjustAssetFinancial.and.returnValue(of({ ...testFinancial, useful_life_months: 48 }));
+    registry.getDepreciationSchedule.and.returnValue(of([testScheduleItem]));
+    registry.postDepreciation.and.returnValue(of(testDeprecEntry));
+    registry.listDepreciationEntries.and.returnValue(of([testDeprecEntry]));
+    registry.postBatchDepreciation.and.returnValue(of({
+      period: '2026-02',
+      processed_count: 1,
+      posted_count: 1,
+      skipped_count: 0,
+      total_depreciation_posted: 50.0,
+      posted_asset_ids: ['asset-1'],
+      skipped: []
+    }));
+    registry.disposeAsset.and.returnValue(of(testDisposal));
+    registry.getAssetDisposal.and.returnValue(of(testDisposal));
+    registry.reportAssetDepreciation.and.returnValue(of([testDeprecReportItem]));
+    registry.reportAssetDisposals.and.returnValue(of([testDisposalReportItem]));
+    registry.getFinancialDashboard.and.returnValue(of(testFinancialDashboard));
+
+    TestBed.configureTestingModule({
+      imports: [RegistryComponent],
+      providers: [
+        provideHttpClient(),
+        provideRouter([]),
+        { provide: RegistryService, useValue: registry },
+        {
+          provide: AuthService,
+          useValue: {
+            currentUser: signal({ id: 'admin-1', email: 'admin@example.invalid', system_permissions: [], memberships: [] }),
+            permissions: () => new Set(permissions)
+          }
+        }
+      ]
+    });
+
+    fixture = TestBed.createComponent(RegistryComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  it('should load asset financial profile, depreciation schedule, and entries when opening an asset', () => {
+    component.openAsset(testAsset);
+
+    expect(registry.getAssetFinancial).toHaveBeenCalledWith('company-1', testAsset.id);
+    expect(registry.getDepreciationSchedule).toHaveBeenCalledWith('company-1', testAsset.id);
+    expect(registry.listDepreciationEntries).toHaveBeenCalledWith('company-1', testAsset.id);
+    expect(component.activeAssetFinancial).toEqual(testFinancial);
+    expect(component.activeAssetSchedule.length).toBe(1);
+    expect(component.activeAssetDeprecEntries.length).toBe(1);
+    expect(component.depreciationPercentage(component.activeAssetFinancial)).toBeGreaterThan(0);
+  });
+
+  it('should open configure financial modal and submit new financial profile', () => {
+    component.selectedAsset = testAsset;
+    component.openConfigureFinancialModal();
+
+    expect(component.configureFinancialModalOpen).toBeTrue();
+    expect(component.configureFinancialForm.currency).toBe('USD');
+
+    component.configureFinancialForm.useful_life_months = 36;
+    component.submitConfigureFinancial();
+
+    expect(registry.configureAssetFinancial).toHaveBeenCalledWith('company-1', testAsset.id, jasmine.objectContaining({
+      useful_life_months: 36
+    }));
+    expect(component.configureFinancialModalOpen).toBeFalse();
+    expect(component.successMessage).toContain('Financial profile configured');
+  });
+
+  it('should open adjust financial modal and submit prospective adjustment', () => {
+    component.selectedAsset = testAsset;
+    component.activeAssetFinancial = testFinancial;
+    component.openAdjustFinancialModal();
+
+    expect(component.adjustFinancialModalOpen).toBeTrue();
+
+    component.adjustFinancialForm.useful_life_months = 48;
+    component.adjustFinancialForm.notes = 'Extended operational warranty';
+    component.submitAdjustFinancial();
+
+    expect(registry.adjustAssetFinancial).toHaveBeenCalledWith('company-1', testAsset.id, jasmine.objectContaining({
+      useful_life_months: 48,
+      notes: 'Extended operational warranty'
+    }));
+    expect(component.adjustFinancialModalOpen).toBeFalse();
+    expect(component.successMessage).toContain('adjusted prospectively');
+  });
+
+  it('should post monthly depreciation entry', () => {
+    registry.postDepreciation.and.returnValue(of({ ...testDeprecEntry, period: '2026-02' }));
+    component.selectedAsset = testAsset;
+    component.activeAssetFinancial = testFinancial;
+    component.openPostDepreciationModal('2026-02');
+
+    expect(component.postDepreciationModalOpen).toBeTrue();
+    expect(component.postDepreciationForm.period).toBe('2026-02');
+
+    component.submitPostDepreciation();
+
+    expect(registry.postDepreciation).toHaveBeenCalledWith('company-1', testAsset.id, jasmine.objectContaining({
+      period: '2026-02'
+    }));
+    expect(component.postDepreciationModalOpen).toBeFalse();
+    expect(component.successMessage).toContain('Depreciation posted for period 2026-02');
+  });
+
+  it('should execute batch depreciation run across company assets', () => {
+    component.openBatchDepreciationModal();
+
+    expect(component.batchDepreciationModalOpen).toBeTrue();
+
+    component.batchDepreciationForm.period = '2026-02';
+    component.submitBatchDepreciation();
+
+    expect(registry.postBatchDepreciation).toHaveBeenCalledWith('company-1', jasmine.objectContaining({
+      period: '2026-02'
+    }));
+    expect(component.batchDepreciationResult?.posted_count).toBe(1);
+    expect(component.successMessage).toContain('Batch run for 2026-02');
+  });
+
+  it('should open dispose asset modal and submit disposal', () => {
+    component.selectedAsset = testAsset;
+    component.activeAssetFinancial = testFinancial;
+    component.openDisposeAssetModal();
+
+    expect(component.disposeAssetModalOpen).toBeTrue();
+
+    component.disposeAssetForm.sale_proceeds = 50.0;
+    component.submitDisposeAsset();
+
+    expect(registry.disposeAsset).toHaveBeenCalledWith('company-1', testAsset.id, jasmine.objectContaining({
+      sale_proceeds: 50.0
+    }));
+    expect(component.disposeAssetModalOpen).toBeFalse();
+    expect(component.successMessage).toContain('disposed');
+  });
+
+  it('should load financial dashboard metrics on dashboard view', () => {
+    component.setView('dashboard');
+
+    expect(registry.getFinancialDashboard).toHaveBeenCalledWith('company-1');
+    expect(component.financialDashboard).toEqual(testFinancialDashboard);
+  });
+
+  it('should load asset-depreciation and asset-disposals reports and generate valid CSV', () => {
+    component.selectReport('asset-depreciation');
+
+    expect(registry.reportAssetDepreciation).toHaveBeenCalledWith('company-1', jasmine.any(Object));
+    expect(component.assetDepreciationReport.length).toBe(1);
+
+    const depCsv = component.generateReportCsvContent();
+    expect(depCsv).toContain('AST-000001');
+    expect(depCsv).toContain('Capitalised Cost');
+
+    component.selectReport('asset-disposals');
+
+    expect(registry.reportAssetDisposals).toHaveBeenCalledWith('company-1', jasmine.any(Object));
+    expect(component.assetDisposalReport.length).toBe(1);
+
+    const dispCsv = component.generateReportCsvContent();
+    expect(dispCsv).toContain('AST-000001');
+    expect(dispCsv).toContain('NBV at Disposal');
+  });
+});

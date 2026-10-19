@@ -38,6 +38,9 @@ from app.models import (
     VerificationExpectedAsset,
     VerificationObservation,
     VerificationUnregisteredAsset,
+    AssetFinancial,
+    AssetDepreciationEntry,
+    AssetDisposal,
 )
 
 _AUDITED_FIELDS: dict[type, tuple[str, ...]] = {
@@ -118,6 +121,20 @@ _AUDITED_FIELDS: dict[type, tuple[str, ...]] = {
         'company_id', 'campaign_id', 'serial_number', 'description', 'category_id',
         'site_id', 'location_id', 'custodian_id', 'observed_condition', 'status',
         'registered_asset_id',
+    ),
+    AssetFinancial: (
+        'company_id', 'asset_id', 'capitalised_cost', 'currency', 'depreciation_method',
+        'useful_life_months', 'residual_value', 'depreciation_start_date',
+        'accumulated_depreciation', 'current_book_value', 'financial_status',
+    ),
+    AssetDepreciationEntry: (
+        'company_id', 'asset_id', 'period', 'period_start_date', 'period_end_date',
+        'depreciation_amount', 'accumulated_depreciation_after', 'book_value_after',
+        'method', 'posted_by_id',
+    ),
+    AssetDisposal: (
+        'company_id', 'asset_id', 'disposal_date', 'disposal_reason', 'disposal_method',
+        'sale_proceeds', 'net_book_value_at_disposal', 'gain_loss', 'notes', 'disposed_by_id',
     ),
 }
 

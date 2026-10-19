@@ -961,6 +961,70 @@ export class RegistryService {
     if (filters.status && filters.status !== 'all') params = params.set('status', filters.status);
     return this.http.get<VerificationDiscrepancyReportItem[]>(`${this.base}/companies/${companyId}/reports/verification-discrepancies`, { params });
   }
+
+  // --- Asset Financial Lifecycle ---
+
+  getAssetFinancial(companyId: string, assetId: string): Observable<AssetFinancial> {
+    return this.http.get<AssetFinancial>(`${this.base}/companies/${companyId}/assets/${assetId}/financial`);
+  }
+
+  configureAssetFinancial(companyId: string, assetId: string, payload: AssetFinancialCreate): Observable<AssetFinancial> {
+    return this.http.put<AssetFinancial>(`${this.base}/companies/${companyId}/assets/${assetId}/financial`, payload);
+  }
+
+  editAssetFinancial(companyId: string, assetId: string, payload: Partial<AssetFinancialCreate>): Observable<AssetFinancial> {
+    return this.http.patch<AssetFinancial>(`${this.base}/companies/${companyId}/assets/${assetId}/financial`, payload);
+  }
+
+  adjustAssetFinancial(companyId: string, assetId: string, payload: AssetFinancialAdjust): Observable<AssetFinancial> {
+    return this.http.post<AssetFinancial>(`${this.base}/companies/${companyId}/assets/${assetId}/financial/adjust`, payload);
+  }
+
+  getDepreciationSchedule(companyId: string, assetId: string): Observable<DepreciationScheduleItem[]> {
+    return this.http.get<DepreciationScheduleItem[]>(`${this.base}/companies/${companyId}/assets/${assetId}/depreciation-schedule`);
+  }
+
+  postDepreciation(companyId: string, assetId: string, payload: { period: string; notes?: string | null }): Observable<AssetDepreciationEntry> {
+    return this.http.post<AssetDepreciationEntry>(`${this.base}/companies/${companyId}/assets/${assetId}/depreciation-entries`, payload);
+  }
+
+  listDepreciationEntries(companyId: string, assetId: string): Observable<AssetDepreciationEntry[]> {
+    return this.http.get<AssetDepreciationEntry[]>(`${this.base}/companies/${companyId}/assets/${assetId}/depreciation-entries`);
+  }
+
+  postBatchDepreciation(companyId: string, payload: { period: string; notes?: string | null }): Observable<BatchDepreciationResult> {
+    return this.http.post<BatchDepreciationResult>(`${this.base}/companies/${companyId}/depreciation-entries/batch`, payload);
+  }
+
+  disposeAsset(companyId: string, assetId: string, payload: AssetDisposalCreate): Observable<AssetDisposal> {
+    return this.http.post<AssetDisposal>(`${this.base}/companies/${companyId}/assets/${assetId}/dispose`, payload);
+  }
+
+  getAssetDisposal(companyId: string, assetId: string): Observable<AssetDisposal> {
+    return this.http.get<AssetDisposal>(`${this.base}/companies/${companyId}/assets/${assetId}/disposal`);
+  }
+
+  reportAssetDepreciation(companyId: string, filters: { category_id?: string; site_id?: string; location_id?: string; financial_status?: string } = {}): Observable<AssetDepreciationReportItem[]> {
+    let params = new HttpParams();
+    if (filters.category_id) params = params.set('category_id', filters.category_id);
+    if (filters.site_id) params = params.set('site_id', filters.site_id);
+    if (filters.location_id) params = params.set('location_id', filters.location_id);
+    if (filters.financial_status) params = params.set('financial_status', filters.financial_status);
+    return this.http.get<AssetDepreciationReportItem[]>(`${this.base}/companies/${companyId}/reports/asset-depreciation`, { params });
+  }
+
+  reportAssetDisposals(companyId: string, filters: { start_date?: string; end_date?: string; disposal_reason?: string; disposal_method?: string } = {}): Observable<AssetDisposalReportItem[]> {
+    let params = new HttpParams();
+    if (filters.start_date) params = params.set('start_date', filters.start_date);
+    if (filters.end_date) params = params.set('end_date', filters.end_date);
+    if (filters.disposal_reason) params = params.set('disposal_reason', filters.disposal_reason);
+    if (filters.disposal_method) params = params.set('disposal_method', filters.disposal_method);
+    return this.http.get<AssetDisposalReportItem[]>(`${this.base}/companies/${companyId}/reports/asset-disposals`, { params });
+  }
+
+  getFinancialDashboard(companyId: string): Observable<FinancialDashboardMetric> {
+    return this.http.get<FinancialDashboardMetric>(`${this.base}/companies/${companyId}/dashboard/financial`);
+  }
 }
 
 export interface VerificationCampaign {
@@ -1193,6 +1257,144 @@ export interface VerificationDiscrepancyReportItem {
   resolved_by_name?: string | null;
   resolved_at?: string | null;
   created_at: string;
+}
+
+export interface AssetFinancial {
+  id: string;
+  company_id: string;
+  asset_id: string;
+  capitalised_cost: number | string;
+  currency: string;
+  depreciation_method: string;
+  useful_life_months: number;
+  residual_value: number | string;
+  depreciation_start_date: string;
+  accumulated_depreciation: number | string;
+  current_book_value: number | string;
+  financial_status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssetFinancialCreate {
+  capitalised_cost: number;
+  currency?: string;
+  depreciation_method?: string;
+  useful_life_months: number;
+  residual_value?: number;
+  depreciation_start_date: string;
+}
+
+export interface AssetFinancialAdjust {
+  useful_life_months?: number | null;
+  residual_value?: number | null;
+  notes?: string | null;
+}
+
+export interface DepreciationScheduleItem {
+  period: string;
+  period_start_date: string;
+  period_end_date: string;
+  depreciation_amount: number | string;
+  accumulated_depreciation: number | string;
+  book_value: number | string;
+  status: string;
+}
+
+export interface AssetDepreciationEntry {
+  id: string;
+  company_id: string;
+  asset_id: string;
+  period: string;
+  period_start_date: string;
+  period_end_date: string;
+  depreciation_amount: number | string;
+  accumulated_depreciation_after: number | string;
+  book_value_after: number | string;
+  method: string;
+  posted_by_id: string;
+  posted_at: string;
+  notes?: string | null;
+}
+
+export interface BatchDepreciationResult {
+  period: string;
+  processed_count: number;
+  posted_count: number;
+  skipped_count: number;
+  total_depreciation_posted: number | string;
+  posted_asset_ids: string[];
+  skipped: Array<{ asset_id: string; asset_number?: string; reason: string }>;
+}
+
+export interface AssetDisposal {
+  id: string;
+  company_id: string;
+  asset_id: string;
+  disposal_date: string;
+  disposal_reason: string;
+  disposal_method: string;
+  sale_proceeds: number | string;
+  net_book_value_at_disposal: number | string;
+  gain_loss: number | string;
+  notes?: string | null;
+  disposed_by_id: string;
+  created_at: string;
+}
+
+export interface AssetDisposalCreate {
+  disposal_date: string;
+  disposal_reason: string;
+  disposal_method: string;
+  sale_proceeds?: number;
+  notes?: string | null;
+}
+
+export interface AssetDepreciationReportItem {
+  asset_id: string;
+  asset_number: string;
+  asset_name: string;
+  category_name: string;
+  site_name?: string | null;
+  location_name?: string | null;
+  acquisition_date?: string | null;
+  capitalised_cost: number | string;
+  currency: string;
+  depreciation_method: string;
+  useful_life_months: number;
+  residual_value: number | string;
+  depreciation_start_date: string;
+  accumulated_depreciation: number | string;
+  current_book_value: number | string;
+  financial_status: string;
+}
+
+export interface AssetDisposalReportItem {
+  asset_id: string;
+  asset_number: string;
+  asset_name: string;
+  category_name: string;
+  acquisition_date?: string | null;
+  acquisition_cost?: number | string | null;
+  disposal_date: string;
+  disposal_reason: string;
+  disposal_method: string;
+  sale_proceeds: number | string;
+  net_book_value_at_disposal: number | string;
+  gain_loss: number | string;
+  disposed_by_email?: string | null;
+  notes?: string | null;
+}
+
+export interface FinancialDashboardMetric {
+  total_capitalised_cost: number | string;
+  total_accumulated_depreciation: number | string;
+  total_net_book_value: number | string;
+  approaching_eol_count: number;
+  fully_depreciated_active_count: number;
+  disposed_count: number;
+  total_disposal_proceeds: number | string;
+  total_disposal_gain_loss: number | string;
 }
 
 

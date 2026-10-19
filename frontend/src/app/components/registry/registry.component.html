@@ -400,6 +400,39 @@
             }
           </div>
         </div>
+
+        @if (can('finance.read') && financialDashboard) {
+          <div class="financial-dashboard-deck" style="margin-top: 1.5rem;">
+            <div class="card-title-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+              <h3 style="margin: 0;">Financial Lifecycle Overview</h3>
+              @if (can('finance.manage')) {
+                <button type="button" class="secondary" (click)="openBatchDepreciationModal()">Batch Run Depreciation</button>
+              }
+            </div>
+            <div class="kpi-grid">
+              <div class="kpi-card card-blue">
+                <span class="kpi-value">{{ financialDashboard.total_capitalised_cost | number:'1.2-2' }}</span>
+                <span class="kpi-label">Capitalised Cost</span>
+                <span class="kpi-meta">{{ financialDashboard.approaching_eol_count }} approaching EOL</span>
+              </div>
+              <div class="kpi-card card-purple">
+                <span class="kpi-value">{{ financialDashboard.total_accumulated_depreciation | number:'1.2-2' }}</span>
+                <span class="kpi-label">Accumulated Depreciation</span>
+                <span class="kpi-meta">{{ financialDashboard.fully_depreciated_active_count }} fully depreciated</span>
+              </div>
+              <div class="kpi-card card-green">
+                <span class="kpi-value">{{ financialDashboard.total_net_book_value | number:'1.2-2' }}</span>
+                <span class="kpi-label">Current Net Book Value</span>
+                <span class="kpi-meta">Authoritative basis</span>
+              </div>
+              <div class="kpi-card card-orange">
+                <span class="kpi-value">{{ financialDashboard.total_disposal_gain_loss | number:'1.2-2' }}</span>
+                <span class="kpi-label">Disposal Gain / Loss</span>
+                <span class="kpi-meta">{{ financialDashboard.disposed_count }} asset(s) retired/disposed</span>
+              </div>
+            </div>
+          </div>
+        }
       }
     </section>
   }
@@ -449,6 +482,14 @@
           </button>
           <button type="button" [class.active]="activeReport === 'verification-discrepancies'" (click)="selectReport('verification-discrepancies')">
             7. Verification Discrepancies
+          </button>
+        }
+        @if (can('finance.read')) {
+          <button type="button" [class.active]="activeReport === 'asset-depreciation'" (click)="selectReport('asset-depreciation')">
+            8. Asset Depreciation
+          </button>
+          <button type="button" [class.active]="activeReport === 'asset-disposals'" (click)="selectReport('asset-disposals')">
+            9. Asset Disposals
           </button>
         }
       </nav>
@@ -620,6 +661,41 @@
               <option value="pending">Pending</option>
               <option value="resolved">Resolved</option>
               <option value="dismissed">Dismissed</option>
+            </select>
+          </label>
+        }
+
+        @if (activeReport === 'asset-depreciation') {
+          <label>
+            Financial Status
+            <select [(ngModel)]="reportFinancialStatusFilter" (change)="loadActiveReport()">
+              <option value="">All Statuses</option>
+              <option value="draft">Draft</option>
+              <option value="active">Active</option>
+              <option value="fully_depreciated">Fully Depreciated</option>
+              <option value="disposed">Disposed</option>
+            </select>
+          </label>
+          <label>
+            Category
+            <select [(ngModel)]="reportCategoryFilter" (change)="loadActiveReport()">
+              <option value="">All Categories</option>
+              @for (c of categories; track c.id) {
+                <option [value]="c.id">{{ c.name }}</option>
+              }
+            </select>
+          </label>
+        }
+
+        @if (activeReport === 'asset-disposals') {
+          <label>
+            Disposal Method
+            <select [(ngModel)]="reportDisposalMethodFilter" (change)="loadActiveReport()">
+              <option value="">All Methods</option>
+              <option value="sale">Sale</option>
+              <option value="scrap">Scrap</option>
+              <option value="donation">Donation</option>
+              <option value="write_off">Write-off</option>
             </select>
           </label>
         }
@@ -934,6 +1010,86 @@
               </table>
             </div>
             <p class="muted" style="margin-top: 0.5rem;">Showing {{ verificationDiscrepancyReport.length }} discrepancy record(s).</p>
+          }
+        }
+
+        @if (activeReport === 'asset-depreciation') {
+          @if (assetDepreciationReport.length === 0) {
+            <p class="empty">No asset depreciation records match the selected criteria.</p>
+          } @else {
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Asset #</th>
+                    <th>Category</th>
+                    <th>Status</th>
+                    <th>Cap Cost</th>
+                    <th>Residual</th>
+                    <th>Useful Life</th>
+                    <th>Deprec Start</th>
+                    <th>Accumulated Deprec</th>
+                    <th>Net Book Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of assetDepreciationReport; track item.asset_id) {
+                    <tr>
+                      <td><strong>{{ item.asset_number }}</strong></td>
+                      <td>{{ item.category_name }}</td>
+                      <td><span class="status-badge" [ngClass]="financialStatusBadgeClass(item.financial_status)">{{ formatStatus(item.financial_status) }}</span></td>
+                      <td>{{ item.currency }} {{ item.capitalised_cost | number:'1.2-2' }}</td>
+                      <td>{{ item.currency }} {{ item.residual_value | number:'1.2-2' }}</td>
+                      <td>{{ item.useful_life_months }} mo</td>
+                      <td>{{ item.depreciation_start_date }}</td>
+                      <td>{{ item.currency }} {{ item.accumulated_depreciation | number:'1.2-2' }}</td>
+                      <td><strong>{{ item.currency }} {{ item.current_book_value | number:'1.2-2' }}</strong></td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <p class="muted" style="margin-top: 0.5rem;">Showing {{ assetDepreciationReport.length }} asset depreciation record(s).</p>
+          }
+        }
+
+        @if (activeReport === 'asset-disposals') {
+          @if (assetDisposalReport.length === 0) {
+            <p class="empty">No asset disposal records match the selected criteria.</p>
+          } @else {
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Asset #</th>
+                    <th>Category</th>
+                    <th>Disposal Date</th>
+                    <th>Method</th>
+                    <th>Reason</th>
+                    <th>Sale Proceeds</th>
+                    <th>NBV at Disposal</th>
+                    <th>Gain / Loss</th>
+                    <th>Disposed By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of assetDisposalReport; track item.asset_id) {
+                    <tr>
+                      <td><strong>{{ item.asset_number }}</strong></td>
+                      <td>{{ item.category_name }}</td>
+                      <td>{{ item.disposal_date }}</td>
+                      <td><span class="status-badge status-disposed">{{ formatStatus(item.disposal_method) }}</span></td>
+                      <td>{{ formatStatus(item.disposal_reason) }}</td>
+                      <td>{{ item.sale_proceeds | number:'1.2-2' }}</td>
+                      <td>{{ item.net_book_value_at_disposal | number:'1.2-2' }}</td>
+                      <td><strong [class.success-text]="isPositive(item.gain_loss)" [class.danger-text]="!isPositive(item.gain_loss)">{{ item.gain_loss | number:'1.2-2' }}</strong></td>
+                      <td>{{ item.disposed_by_email || '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <p class="muted" style="margin-top: 0.5rem;">Showing {{ assetDisposalReport.length }} disposal record(s).</p>
           }
         }
       }
@@ -2499,6 +2655,176 @@
         </div>
       </section>
     }
+
+    @if (can('finance.read')) {
+      <section class="financial-section">
+        <div class="section-heading">
+          <div>
+            <h3>Financial Lifecycle &amp; Depreciation</h3>
+            <p class="muted">Authoritative acquisition cost, straight-line depreciation schedule, net book value, and retirement/disposal tracking.</p>
+          </div>
+          <div class="actions">
+            @if (can('finance.manage')) {
+              @if (!activeAssetFinancial) {
+                <button type="button" class="primary" (click)="openConfigureFinancialModal()">Configure Financials</button>
+              } @else if (activeAssetFinancial.financial_status !== 'disposed') {
+                <button type="button" class="secondary" (click)="openAdjustFinancialModal()">Adjust Profile</button>
+                @if (activeAssetFinancial.financial_status !== 'fully_depreciated') {
+                  <button type="button" class="primary" (click)="openPostDepreciationModal()">Post Depreciation</button>
+                }
+                @if (!currentAssignment) {
+                  <button type="button" class="danger-button" (click)="openDisposeAssetModal()">Dispose Asset</button>
+                } @else {
+                  <span class="muted small-note" title="Asset must be returned before disposal">Cannot dispose (assigned)</span>
+                }
+              }
+            }
+          </div>
+        </div>
+
+        @if (financialLoading) {
+          <div class="loading">Loading financial lifecycle details…</div>
+        } @else if (!activeAssetFinancial) {
+          <div class="notice">
+            <p>No financial profile configured for this asset.</p>
+            @if (can('finance.manage')) {
+              <button type="button" class="primary" style="margin-top: 0.5rem;" (click)="openConfigureFinancialModal()">Configure Financial Profile</button>
+            }
+          </div>
+        } @else {
+          <!-- Financial metrics grid -->
+          <div class="financial-summary-cards">
+            <div class="fin-card">
+              <span class="fin-label">Financial Status</span>
+              <span class="status-badge" [ngClass]="financialStatusBadgeClass(activeAssetFinancial.financial_status)">{{ formatStatus(activeAssetFinancial.financial_status) }}</span>
+            </div>
+            <div class="fin-card">
+              <span class="fin-label">Capitalised Cost</span>
+              <span class="fin-value">{{ activeAssetFinancial.currency }} {{ activeAssetFinancial.capitalised_cost | number:'1.2-2' }}</span>
+              <span class="fin-meta">Acq: {{ selectedAsset?.acquisition_date || '—' }}</span>
+            </div>
+            <div class="fin-card">
+              <span class="fin-label">Useful Life &amp; Residual</span>
+              <span class="fin-value">{{ activeAssetFinancial.useful_life_months }} mo</span>
+              <span class="fin-meta">Residual: {{ activeAssetFinancial.currency }} {{ activeAssetFinancial.residual_value | number:'1.2-2' }}</span>
+            </div>
+            <div class="fin-card">
+              <span class="fin-label">Accumulated Deprec</span>
+              <span class="fin-value">{{ activeAssetFinancial.currency }} {{ activeAssetFinancial.accumulated_depreciation | number:'1.2-2' }}</span>
+              <div class="progress-bar-container" title="{{ depreciationPercentage(activeAssetFinancial) }}% depreciated">
+                <div class="progress-bar-fill" [style.width.%]="depreciationPercentage(activeAssetFinancial)"></div>
+              </div>
+              <span class="fin-meta">{{ depreciationPercentage(activeAssetFinancial) }}% of basis</span>
+            </div>
+            <div class="fin-card highlight">
+              <span class="fin-label">Net Book Value</span>
+              <span class="fin-value">{{ activeAssetFinancial.currency }} {{ activeAssetFinancial.current_book_value | number:'1.2-2' }}</span>
+              <span class="fin-meta">Method: Straight Line</span>
+            </div>
+          </div>
+
+          <!-- Disposal Banner if Disposed -->
+          @if (activeAssetFinancial.financial_status === 'disposed' && activeAssetDisposal) {
+            <div class="disposal-banner" style="margin-top: 1rem; padding: 1rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;">
+              <h4 style="margin-top: 0; margin-bottom: 0.5rem;">Asset Disposed on {{ activeAssetDisposal.disposal_date }}</h4>
+              <div class="disposal-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem;">
+                <div><strong>Method:</strong> {{ formatStatus(activeAssetDisposal.disposal_method) }}</div>
+                <div><strong>Reason:</strong> {{ formatStatus(activeAssetDisposal.disposal_reason) }}</div>
+                <div><strong>Sale Proceeds:</strong> {{ activeAssetFinancial.currency }} {{ activeAssetDisposal.sale_proceeds | number:'1.2-2' }}</div>
+                <div><strong>NBV at Disposal:</strong> {{ activeAssetFinancial.currency }} {{ activeAssetDisposal.net_book_value_at_disposal | number:'1.2-2' }}</div>
+                <div><strong>Gain / Loss:</strong> <span [class.success-text]="isPositive(activeAssetDisposal.gain_loss)" [class.danger-text]="!isPositive(activeAssetDisposal.gain_loss)">{{ activeAssetFinancial.currency }} {{ activeAssetDisposal.gain_loss | number:'1.2-2' }}</span></div>
+                @if (activeAssetDisposal.notes) {
+                  <div style="grid-column: 1 / -1;"><strong>Notes:</strong> {{ activeAssetDisposal.notes }}</div>
+                }
+              </div>
+            </div>
+          }
+
+          <!-- Posted Depreciation Entries -->
+          <div class="sub-section" style="margin-top: 1.25rem;">
+            <h4>Posted Depreciation Entries ({{ activeAssetDeprecEntries.length }})</h4>
+            @if (activeAssetDeprecEntries.length === 0) {
+              <p class="empty">No depreciation entries posted yet.</p>
+            } @else {
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Period</th>
+                      <th>Depreciation</th>
+                      <th>Accumulated</th>
+                      <th>Book Value After</th>
+                      <th>Posted At</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (entry of activeAssetDeprecEntries; track entry.id) {
+                      <tr>
+                        <td><strong>{{ entry.period }}</strong></td>
+                        <td>{{ activeAssetFinancial.currency }} {{ entry.depreciation_amount | number:'1.2-2' }}</td>
+                        <td>{{ activeAssetFinancial.currency }} {{ entry.accumulated_depreciation_after | number:'1.2-2' }}</td>
+                        <td>{{ activeAssetFinancial.currency }} {{ entry.book_value_after | number:'1.2-2' }}</td>
+                        <td>{{ entry.posted_at | date:'medium' }}</td>
+                        <td>{{ entry.notes || '—' }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+
+          <!-- Depreciation Schedule Projection -->
+          <details class="sub-section schedule-details" style="margin-top: 1.25rem;">
+            <summary style="cursor: pointer;"><strong style="font-size: 1rem;">View Straight-Line Depreciation Schedule ({{ activeAssetSchedule.length }} periods)</strong></summary>
+            @if (activeAssetSchedule.length === 0) {
+              <p class="empty" style="margin-top: 0.5rem;">No schedule available.</p>
+            } @else {
+              <div class="table-wrap" style="margin-top: 0.5rem;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Period</th>
+                      <th>Dates</th>
+                      <th>Depreciation Amount</th>
+                      <th>Accumulated Depreciation</th>
+                      <th>Net Book Value</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (sch of activeAssetSchedule; track sch.period) {
+                      <tr [class.posted-row]="sch.status === 'posted'">
+                        <td><strong>{{ sch.period }}</strong></td>
+                        <td>{{ sch.period_start_date }} → {{ sch.period_end_date }}</td>
+                        <td>{{ activeAssetFinancial.currency }} {{ sch.depreciation_amount | number:'1.2-2' }}</td>
+                        <td>{{ activeAssetFinancial.currency }} {{ sch.accumulated_depreciation | number:'1.2-2' }}</td>
+                        <td>{{ activeAssetFinancial.currency }} {{ sch.book_value | number:'1.2-2' }}</td>
+                        <td>
+                          <span class="status-badge" [class.status-active]="sch.status === 'posted'" [class.status-draft]="sch.status !== 'posted'">
+                            {{ formatStatus(sch.status) }}
+                          </span>
+                        </td>
+                        <td>
+                          @if (sch.status !== 'posted' && can('finance.manage') && activeAssetFinancial.financial_status !== 'disposed') {
+                            <button type="button" class="link-button" (click)="openPostDepreciationModal(sch.period)">Post</button>
+                          } @else if (sch.status === 'posted') {
+                            <span class="muted">✓</span>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </details>
+        }
+      </section>
+    }
+
 <div class="usage-section">
   <h3>Departments using this asset</h3>
   <p class="muted">Usage is separate from responsibility, custodian and physical location. It does not duplicate the asset.</p>
@@ -2717,6 +3043,204 @@
 }
 </section>
 }
+
+  <!-- Configure Financial Profile Modal -->
+  @if (configureFinancialModalOpen && selectedAsset) {
+    <div class="modal-backdrop" (click)="closeConfigureFinancialModal()">
+      <div class="modal-card" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Configure Financial Profile — {{ selectedAsset.asset_number }}</h3>
+          <button type="button" class="close-btn" (click)="closeConfigureFinancialModal()">&times;</button>
+        </div>
+        <form class="form-grid" (ngSubmit)="submitConfigureFinancial()">
+          <label>Capitalised Cost (required)
+            <input type="number" name="cfgCapCost" [(ngModel)]="configureFinancialForm.capitalised_cost" min="0" step="0.01" required>
+          </label>
+          <label>Currency
+            <input type="text" name="cfgCurrency" [(ngModel)]="configureFinancialForm.currency" maxlength="3" required>
+          </label>
+          <label>Useful Life (Months, required)
+            <input type="number" name="cfgUsefulLife" [(ngModel)]="configureFinancialForm.useful_life_months" min="1" step="1" required>
+          </label>
+          <label>Residual Value
+            <input type="number" name="cfgResidual" [(ngModel)]="configureFinancialForm.residual_value" min="0" step="0.01" required>
+          </label>
+          <label>Depreciation Start Date (required)
+            <input type="date" name="cfgDeprecStart" [(ngModel)]="configureFinancialForm.depreciation_start_date" required>
+          </label>
+          <div class="form-actions wide">
+            <button type="button" class="secondary" (click)="closeConfigureFinancialModal()">Cancel</button>
+            <button type="submit" class="primary" [disabled]="saving || !configureFinancialForm.depreciation_start_date">Save Financial Profile</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  }
+
+  <!-- Adjust Financial Profile Modal -->
+  @if (adjustFinancialModalOpen && selectedAsset && activeAssetFinancial) {
+    <div class="modal-backdrop" (click)="closeAdjustFinancialModal()">
+      <div class="modal-card" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Prospective Financial Adjustment — {{ selectedAsset.asset_number }}</h3>
+          <button type="button" class="close-btn" (click)="closeAdjustFinancialModal()">&times;</button>
+        </div>
+        <p class="muted" style="margin-bottom: 1rem;">
+          Prospective adjustments update remaining useful life or residual value prospectively from the latest posted period. Historical posted depreciation entries remain intact.
+        </p>
+        <form class="form-grid" (ngSubmit)="submitAdjustFinancial()">
+          <label>Revised Useful Life (Months)
+            <input type="number" name="adjLife" [(ngModel)]="adjustFinancialForm.useful_life_months" min="1" step="1">
+          </label>
+          <label>Revised Residual Value
+            <input type="number" name="adjResidual" [(ngModel)]="adjustFinancialForm.residual_value" min="0" step="0.01">
+          </label>
+          <label class="wide">Reason for Adjustment / Notes
+            <textarea name="adjNotes" [(ngModel)]="adjustFinancialForm.notes" rows="2" placeholder="Explain the rationale for this prospective adjustment…"></textarea>
+          </label>
+          <div class="form-actions wide">
+            <button type="button" class="secondary" (click)="closeAdjustFinancialModal()">Cancel</button>
+            <button type="submit" class="primary" [disabled]="saving">Apply Adjustment</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  }
+
+  <!-- Post Single Depreciation Modal -->
+  @if (postDepreciationModalOpen && selectedAsset) {
+    <div class="modal-backdrop" (click)="closePostDepreciationModal()">
+      <div class="modal-card" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Post Depreciation Entry — {{ selectedAsset.asset_number }}</h3>
+          <button type="button" class="close-btn" (click)="closePostDepreciationModal()">&times;</button>
+        </div>
+        <form class="form-grid" (ngSubmit)="submitPostDepreciation()">
+          <label>Depreciation Period (YYYY-MM, required)
+            <input type="text" name="postPeriod" [(ngModel)]="postDepreciationForm.period" placeholder="YYYY-MM" pattern="^\d{4}-(0[1-9]|1[0-2])$" required>
+          </label>
+          <label class="wide">Notes (optional)
+            <textarea name="postNotes" [(ngModel)]="postDepreciationForm.notes" rows="2" placeholder="Optional notes for this monthly entry…"></textarea>
+          </label>
+          <div class="form-actions wide">
+            <button type="button" class="secondary" (click)="closePostDepreciationModal()">Cancel</button>
+            <button type="submit" class="primary" [disabled]="saving || !postDepreciationForm.period">Post Depreciation Entry</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  }
+
+  <!-- Batch Run Depreciation Modal -->
+  @if (batchDepreciationModalOpen) {
+    <div class="modal-backdrop" (click)="closeBatchDepreciationModal()">
+      <div class="modal-card" (click)="$event.stopPropagation()" style="max-width: 800px;">
+        <div class="modal-header">
+          <h3>Batch Run Depreciation — {{ company?.name }}</h3>
+          <button type="button" class="close-btn" (click)="closeBatchDepreciationModal()">&times;</button>
+        </div>
+        <p class="muted" style="margin-bottom: 1rem;">
+          Execute authoritative straight-line depreciation for all eligible active assets in the specified period.
+        </p>
+        <form class="form-grid" (ngSubmit)="submitBatchDepreciation()">
+          <label>Target Period (YYYY-MM, required)
+            <input type="text" name="batchPeriod" [(ngModel)]="batchDepreciationForm.period" placeholder="YYYY-MM" pattern="^\d{4}-(0[1-9]|1[0-2])$" required>
+          </label>
+          <label class="wide">Batch Notes (optional)
+            <textarea name="batchNotes" [(ngModel)]="batchDepreciationForm.notes" rows="2" placeholder="Batch run notes…"></textarea>
+          </label>
+          <div class="form-actions wide">
+            <button type="button" class="secondary" (click)="closeBatchDepreciationModal()">{{ batchDepreciationResult ? 'Close' : 'Cancel' }}</button>
+            <button type="submit" class="primary" [disabled]="batchDepreciationLoading || !batchDepreciationForm.period">
+              {{ batchDepreciationLoading ? 'Executing Batch Run…' : 'Execute Batch Run' }}
+            </button>
+          </div>
+        </form>
+
+        @if (batchDepreciationResult) {
+          <div class="batch-results" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;">
+            <h4>Batch Execution Summary (Period: {{ batchDepreciationResult.period }})</h4>
+            <div style="display: flex; gap: 1.5rem; margin-bottom: 1rem;">
+              <div><strong>Posted:</strong> {{ batchDepreciationResult.posted_count }}</div>
+              <div><strong>Skipped:</strong> {{ batchDepreciationResult.skipped_count }}</div>
+              <div><strong>Total Depreciation:</strong> {{ batchDepreciationResult.total_depreciation_posted | number:'1.2-2' }}</div>
+            </div>
+
+            @if (batchDepreciationResult.skipped.length > 0) {
+              <div class="table-wrap" style="max-height: 250px; overflow-y: auto;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Asset ID / Number</th>
+                      <th>Status</th>
+                      <th>Reason / Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (item of batchDepreciationResult.skipped; track item.asset_id) {
+                      <tr>
+                        <td><strong>{{ item.asset_number || item.asset_id }}</strong></td>
+                        <td><span class="status-badge status-draft">Skipped</span></td>
+                        <td>{{ item.reason || '—' }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  }
+
+  <!-- Dispose Asset Modal -->
+  @if (disposeAssetModalOpen && selectedAsset) {
+    <div class="modal-backdrop" (click)="closeDisposeAssetModal()">
+      <div class="modal-card" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Retire / Dispose Asset — {{ selectedAsset.asset_number }}</h3>
+          <button type="button" class="close-btn" (click)="closeDisposeAssetModal()">&times;</button>
+        </div>
+        <p class="muted" style="margin-bottom: 1rem;">
+          Disposing an asset marks it as disposed, calculates final gain/loss against authoritative net book value, and prevents any further depreciation postings.
+        </p>
+        <form class="form-grid" (ngSubmit)="submitDisposeAsset()">
+          <label>Disposal Date (required)
+            <input type="date" name="dispDate" [(ngModel)]="disposeAssetForm.disposal_date" required>
+          </label>
+          <label>Disposal Method (required)
+            <select name="dispMethod" [(ngModel)]="disposeAssetForm.disposal_method" required>
+              <option value="scrap">Scrap</option>
+              <option value="sale">Sale</option>
+              <option value="donation">Donation</option>
+              <option value="write_off">Write-off</option>
+            </select>
+          </label>
+          <label>Disposal Reason (required)
+            <select name="dispReason" [(ngModel)]="disposeAssetForm.disposal_reason" required>
+              <option value="end_of_life">End of Life</option>
+              <option value="damaged_beyond_repair">Damaged Beyond Repair</option>
+              <option value="lost_or_stolen">Lost or Stolen</option>
+              <option value="obsolete">Obsolete</option>
+              <option value="sold">Sold</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>Sale Proceeds
+            <input type="number" name="dispProceeds" [(ngModel)]="disposeAssetForm.sale_proceeds" min="0" step="0.01" required>
+          </label>
+          <label class="wide">Notes
+            <textarea name="dispNotes" [(ngModel)]="disposeAssetForm.notes" rows="2" placeholder="Disposal rationale and references…"></textarea>
+          </label>
+          <div class="form-actions wide">
+            <button type="button" class="secondary" (click)="closeDisposeAssetModal()">Cancel</button>
+            <button type="submit" class="danger-button" [disabled]="saving || !disposeAssetForm.disposal_date">Confirm Asset Disposal</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  }
 
 <footer><a routerLink="/status">System status</a><span>MindZen technical foundation · organisation and asset registry</span></footer>
 </main>

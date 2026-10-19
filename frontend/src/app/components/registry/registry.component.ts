@@ -44,13 +44,24 @@ import {
   VerificationUnregisteredAssetRegister,
   VerificationDashboardSummary,
   VerificationCampaignReportItem,
-  VerificationDiscrepancyReportItem
+  VerificationDiscrepancyReportItem,
+  AssetFinancial,
+  AssetFinancialCreate,
+  AssetFinancialAdjust,
+  DepreciationScheduleItem,
+  AssetDepreciationEntry,
+  BatchDepreciationResult,
+  AssetDisposal,
+  AssetDisposalCreate,
+  AssetDepreciationReportItem,
+  AssetDisposalReportItem,
+  FinancialDashboardMetric
 } from '../../services/registry.service';
 import { AuthService } from '../../services/auth.service';
 
 type ViewName = 'dashboard' | 'assets' | 'reports' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company' | 'users-access' | 'procurement' | 'maintenance' | 'verification';
 type MasterKind = 'departments' | 'sites' | 'categories' | 'cost-centers';
-export type ReportType = 'asset-register' | 'asset-allocation' | 'warranty-expiry' | 'maintenance' | 'procurement' | 'verification-campaigns' | 'verification-discrepancies';
+export type ReportType = 'asset-register' | 'asset-allocation' | 'warranty-expiry' | 'maintenance' | 'procurement' | 'verification-campaigns' | 'verification-discrepancies' | 'asset-depreciation' | 'asset-disposals';
 
 /**
  * Serializes a single cell value for CSV export according to RFC-4180.
@@ -214,6 +225,59 @@ export class RegistryComponent implements OnInit {
     acquisition_cost: null,
     acquisition_date: this.today(),
     resolution_notes: ''
+  };
+
+  // Asset Financial Lifecycle state
+  activeAssetFinancial?: AssetFinancial;
+  activeAssetSchedule: DepreciationScheduleItem[] = [];
+  activeAssetDeprecEntries: AssetDepreciationEntry[] = [];
+  activeAssetDisposal?: AssetDisposal;
+  financialLoading = false;
+  financialDashboard?: FinancialDashboardMetric;
+  assetDepreciationReport: AssetDepreciationReportItem[] = [];
+  assetDisposalReport: AssetDisposalReportItem[] = [];
+  reportFinancialStatusFilter = '';
+  reportDisposalMethodFilter = '';
+
+  // Financial Modals and Forms
+  configureFinancialModalOpen = false;
+  configureFinancialForm: AssetFinancialCreate = {
+    capitalised_cost: 0,
+    currency: 'USD',
+    depreciation_method: 'straight_line',
+    useful_life_months: 36,
+    residual_value: 0,
+    depreciation_start_date: this.today()
+  };
+
+  adjustFinancialModalOpen = false;
+  adjustFinancialForm: AssetFinancialAdjust = {
+    useful_life_months: undefined,
+    residual_value: undefined,
+    notes: ''
+  };
+
+  postDepreciationModalOpen = false;
+  postDepreciationForm = {
+    period: this.today().slice(0, 7),
+    notes: ''
+  };
+
+  batchDepreciationModalOpen = false;
+  batchDepreciationForm = {
+    period: this.today().slice(0, 7),
+    notes: ''
+  };
+  batchDepreciationResult?: BatchDepreciationResult;
+  batchDepreciationLoading = false;
+
+  disposeAssetModalOpen = false;
+  disposeAssetForm: AssetDisposalCreate = {
+    disposal_date: this.today(),
+    disposal_reason: 'end_of_life',
+    disposal_method: 'scrap',
+    sale_proceeds: 0,
+    notes: ''
   };
 
 
@@ -479,6 +543,13 @@ export class RegistryComponent implements OnInit {
       this.campaignDiscrepancies = [];
       this.campaignUnregisteredAssets = [];
       this.verificationLoading = false;
+      this.activeAssetFinancial = undefined;
+      this.activeAssetSchedule = [];
+      this.activeAssetDeprecEntries = [];
+      this.activeAssetDisposal = undefined;
+      this.financialDashboard = undefined;
+      this.assetDepreciationReport = [];
+      this.assetDisposalReport = [];
     }
     this.companyId = id;
     this.company = this.companies.find((item) => item.id === id);
@@ -1604,6 +1675,14 @@ export class RegistryComponent implements OnInit {
     }
     this.refreshAssetDetails();
     this.loadServiceContracts();
+    if (this.can('finance.read')) {
+      this.loadAssetFinancial(asset.id);
+    } else {
+      this.activeAssetFinancial = undefined;
+      this.activeAssetSchedule = [];
+      this.activeAssetDeprecEntries = [];
+      this.activeAssetDisposal = undefined;
+    }
   }
 
   refreshAssetDetails(): void {
@@ -1620,6 +1699,9 @@ export class RegistryComponent implements OnInit {
         this.selectedUsages = result.usages;
         this.assetHistory = result.history;
         this.assignmentHistory = result.assignments;
+        if (this.can('finance.read')) {
+          this.loadAssetFinancial(result.asset.id);
+        }
         const current = this.currentAssignment;
         if (current) {
           this.transferForm = {
@@ -1820,6 +1902,9 @@ export class RegistryComponent implements OnInit {
         this.changeDetector.markForCheck();
       }
     });
+    if (this.can('finance.read')) {
+      this.loadFinancialDashboard();
+    }
   }
 
   selectReport(type: ReportType): void {
@@ -1834,6 +1919,8 @@ export class RegistryComponent implements OnInit {
     this.reportPriorityFilter = '';
     this.reportDiscrepancyTypeFilter = '';
     this.reportCampaignFilter = '';
+    this.reportFinancialStatusFilter = '';
+    this.reportDisposalMethodFilter = '';
     this.loadActiveReport();
   }
 
@@ -1961,6 +2048,38 @@ export class RegistryComponent implements OnInit {
           this.changeDetector.markForCheck();
         }
       });
+    } else if (this.activeReport === 'asset-depreciation') {
+      this.registry.reportAssetDepreciation(this.companyId, {
+        financial_status: this.reportFinancialStatusFilter || undefined,
+        category_id: this.reportCategoryFilter || undefined,
+        site_id: this.reportSiteFilter || undefined,
+      }).subscribe({
+        next: (items) => {
+          this.assetDepreciationReport = items;
+          this.reportsLoading = false;
+          this.changeDetector.markForCheck();
+        },
+        error: (err) => {
+          this.reportsLoading = false;
+          this.reportsError = err?.error?.detail || 'Failed to load asset depreciation report.';
+          this.changeDetector.markForCheck();
+        }
+      });
+    } else if (this.activeReport === 'asset-disposals') {
+      this.registry.reportAssetDisposals(this.companyId, {
+        disposal_method: this.reportDisposalMethodFilter || undefined,
+      }).subscribe({
+        next: (items) => {
+          this.assetDisposalReport = items;
+          this.reportsLoading = false;
+          this.changeDetector.markForCheck();
+        },
+        error: (err) => {
+          this.reportsLoading = false;
+          this.reportsError = err?.error?.detail || 'Failed to load asset disposals report.';
+          this.changeDetector.markForCheck();
+        }
+      });
     }
   }
 
@@ -2015,6 +2134,27 @@ export class RegistryComponent implements OnInit {
         item.discrepancy_id, item.campaign_reference, item.asset_number ?? '', item.discrepancy_type,
         item.status, item.expected_summary ?? '', item.observed_summary ?? '', item.resolution_action ?? '',
         item.resolution_notes ?? '', item.resolved_by_name ?? '', item.resolved_at ?? '', item.created_at
+      ]);
+    } else if (this.activeReport === 'asset-depreciation') {
+      headers = [
+        'Asset Number', 'Category', 'Financial Status', 'Acquisition Date',
+        'Capitalised Cost', 'Currency', 'Method', 'Useful Life (Months)',
+        'Residual Value', 'Deprec Start Date', 'Accumulated Deprec', 'Net Book Value'
+      ];
+      rows = this.assetDepreciationReport.map(item => [
+        item.asset_number, item.category_name, item.financial_status, item.acquisition_date ?? '',
+        item.capitalised_cost, item.currency, item.depreciation_method, item.useful_life_months,
+        item.residual_value, item.depreciation_start_date, item.accumulated_depreciation, item.current_book_value
+      ]);
+    } else if (this.activeReport === 'asset-disposals') {
+      headers = [
+        'Asset Number', 'Category', 'Disposal Date', 'Reason',
+        'Method', 'Sale Proceeds', 'NBV at Disposal', 'Gain / Loss', 'Disposed By', 'Notes'
+      ];
+      rows = this.assetDisposalReport.map(item => [
+        item.asset_number, item.category_name, item.disposal_date, item.disposal_reason,
+        item.disposal_method, item.sale_proceeds, item.net_book_value_at_disposal, item.gain_loss, item.disposed_by_email ?? '',
+        item.notes ?? ''
       ]);
     }
 
@@ -2193,6 +2333,8 @@ export class RegistryComponent implements OnInit {
     if (this.activeReport === 'procurement') return this.procurementReport.length === 0;
     if (this.activeReport === 'verification-campaigns') return this.verificationCampaignReport.length === 0;
     if (this.activeReport === 'verification-discrepancies') return this.verificationDiscrepancyReport.length === 0;
+    if (this.activeReport === 'asset-depreciation') return this.assetDepreciationReport.length === 0;
+    if (this.activeReport === 'asset-disposals') return this.assetDisposalReport.length === 0;
     return true;
   }
 
@@ -2207,6 +2349,8 @@ export class RegistryComponent implements OnInit {
     this.reportPriorityFilter = '';
     this.reportDiscrepancyTypeFilter = '';
     this.reportCampaignFilter = '';
+    this.reportFinancialStatusFilter = '';
+    this.reportDisposalMethodFilter = '';
     this.loadActiveReport();
   }
 
@@ -2629,6 +2773,297 @@ export class RegistryComponent implements OnInit {
       case 'cancelled': return 'status-cancelled';
       default: return 'status-in_stock';
     }
+  }
+
+  currentPeriod(): string {
+    return this.today().slice(0, 7);
+  }
+
+  financialStatusBadgeClass(status?: string): string {
+    switch (status) {
+      case 'active': return 'status-active';
+      case 'draft': return 'status-in_stock';
+      case 'fully_depreciated': return 'status-assigned';
+      case 'disposed': return 'status-cancelled';
+      default: return 'status-in_stock';
+    }
+  }
+
+  depreciationPercentage(financial?: AssetFinancial): number {
+    if (!financial) return 0;
+    const cost = Number(financial.capitalised_cost) || 0;
+    const residual = Number(financial.residual_value) || 0;
+    const accumulated = Number(financial.accumulated_depreciation) || 0;
+    const basis = cost - residual;
+    if (basis <= 0) return 100;
+    const pct = (accumulated / basis) * 100;
+    return Math.min(100, Math.max(0, Math.round(pct * 10) / 10));
+  }
+
+  isPositive(val: number | string | undefined | null): boolean {
+    if (val === undefined || val === null) return false;
+    return Number(val) >= 0;
+  }
+
+  isPeriodPosted(period: string): boolean {
+    return this.activeAssetDeprecEntries.some(e => e.period === period);
+  }
+
+  loadAssetFinancial(assetId: string): void {
+    if (!this.companyId || !this.can('finance.read')) return;
+    this.financialLoading = true;
+    this.registry.getAssetFinancial(this.companyId, assetId).subscribe({
+      next: (fin) => {
+        this.activeAssetFinancial = fin;
+        this.financialLoading = false;
+        this.loadDepreciationSchedule(assetId);
+        this.loadDepreciationEntries(assetId);
+        if (fin.financial_status === 'disposed') {
+          this.loadAssetDisposal(assetId);
+        } else {
+          this.activeAssetDisposal = undefined;
+        }
+        this.changeDetector.markForCheck();
+      },
+      error: () => {
+        this.financialLoading = false;
+        this.activeAssetFinancial = undefined;
+        this.activeAssetSchedule = [];
+        this.activeAssetDeprecEntries = [];
+        this.activeAssetDisposal = undefined;
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  loadDepreciationSchedule(assetId: string): void {
+    if (!this.companyId || !this.can('finance.read')) return;
+    this.registry.getDepreciationSchedule(this.companyId, assetId).subscribe({
+      next: (schedule) => {
+        this.activeAssetSchedule = schedule;
+        this.changeDetector.markForCheck();
+      },
+      error: () => {
+        this.activeAssetSchedule = [];
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  loadDepreciationEntries(assetId: string): void {
+    if (!this.companyId || !this.can('finance.read')) return;
+    this.registry.listDepreciationEntries(this.companyId, assetId).subscribe({
+      next: (entries) => {
+        this.activeAssetDeprecEntries = entries;
+        this.changeDetector.markForCheck();
+      },
+      error: () => {
+        this.activeAssetDeprecEntries = [];
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  loadAssetDisposal(assetId: string): void {
+    if (!this.companyId || !this.can('finance.read')) return;
+    this.registry.getAssetDisposal(this.companyId, assetId).subscribe({
+      next: (disposal) => {
+        this.activeAssetDisposal = disposal;
+        this.changeDetector.markForCheck();
+      },
+      error: () => {
+        this.activeAssetDisposal = undefined;
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  loadFinancialDashboard(): void {
+    if (!this.companyId || !this.can('finance.read')) return;
+    this.registry.getFinancialDashboard(this.companyId).subscribe({
+      next: (data) => {
+        this.financialDashboard = data;
+        this.changeDetector.markForCheck();
+      },
+      error: () => {}
+    });
+  }
+
+  openConfigureFinancialModal(): void {
+    if (!this.selectedAsset) return;
+    const acqCost = Number(this.selectedAsset.acquisition_cost) || 0;
+    const acqDate = this.selectedAsset.acquisition_date || this.today();
+    this.configureFinancialForm = {
+      capitalised_cost: acqCost,
+      currency: 'USD',
+      depreciation_method: 'straight_line',
+      useful_life_months: 36,
+      residual_value: 0,
+      depreciation_start_date: acqDate
+    };
+    this.configureFinancialModalOpen = true;
+  }
+
+  closeConfigureFinancialModal(): void {
+    this.configureFinancialModalOpen = false;
+  }
+
+  submitConfigureFinancial(): void {
+    if (!this.selectedAsset || !this.companyId) return;
+    this.saving = true;
+    this.registry.configureAssetFinancial(this.companyId, this.selectedAsset.id, this.configureFinancialForm).subscribe({
+      next: (fin) => {
+        this.saving = false;
+        this.activeAssetFinancial = fin;
+        this.configureFinancialModalOpen = false;
+        this.successMessage = `Financial profile configured for ${this.selectedAsset?.asset_number}.`;
+        this.loadDepreciationSchedule(fin.asset_id);
+        this.loadDepreciationEntries(fin.asset_id);
+        this.changeDetector.markForCheck();
+      },
+      error: (err) => {
+        this.saving = false;
+        this.fail(err);
+      }
+    });
+  }
+
+  openAdjustFinancialModal(): void {
+    if (!this.activeAssetFinancial) return;
+    this.adjustFinancialForm = {
+      useful_life_months: this.activeAssetFinancial.useful_life_months,
+      residual_value: Number(this.activeAssetFinancial.residual_value),
+      notes: ''
+    };
+    this.adjustFinancialModalOpen = true;
+  }
+
+  closeAdjustFinancialModal(): void {
+    this.adjustFinancialModalOpen = false;
+  }
+
+  submitAdjustFinancial(): void {
+    if (!this.selectedAsset || !this.companyId) return;
+    this.saving = true;
+    this.registry.adjustAssetFinancial(this.companyId, this.selectedAsset.id, this.adjustFinancialForm).subscribe({
+      next: (fin) => {
+        this.saving = false;
+        this.activeAssetFinancial = fin;
+        this.adjustFinancialModalOpen = false;
+        this.successMessage = `Financial profile adjusted prospectively for ${this.selectedAsset?.asset_number}.`;
+        this.loadDepreciationSchedule(fin.asset_id);
+        this.changeDetector.markForCheck();
+      },
+      error: (err) => {
+        this.saving = false;
+        this.fail(err);
+      }
+    });
+  }
+
+  openPostDepreciationModal(period?: string): void {
+    this.postDepreciationForm = {
+      period: period || this.currentPeriod(),
+      notes: ''
+    };
+    this.postDepreciationModalOpen = true;
+  }
+
+  closePostDepreciationModal(): void {
+    this.postDepreciationModalOpen = false;
+  }
+
+  submitPostDepreciation(): void {
+    if (!this.selectedAsset || !this.companyId) return;
+    this.saving = true;
+    this.registry.postDepreciation(this.companyId, this.selectedAsset.id, this.postDepreciationForm).subscribe({
+      next: (entry) => {
+        this.saving = false;
+        this.postDepreciationModalOpen = false;
+        const currency = this.activeAssetFinancial?.currency || '';
+        this.successMessage = `Depreciation posted for period ${entry.period}: ${currency} ${entry.depreciation_amount}.`;
+        this.loadAssetFinancial(this.selectedAsset!.id);
+        this.loadAssets();
+        this.changeDetector.markForCheck();
+      },
+      error: (err) => {
+        this.saving = false;
+        this.fail(err);
+      }
+    });
+  }
+
+  openBatchDepreciationModal(): void {
+    this.batchDepreciationForm = {
+      period: this.currentPeriod(),
+      notes: ''
+    };
+    this.batchDepreciationResult = undefined;
+    this.batchDepreciationModalOpen = true;
+  }
+
+  closeBatchDepreciationModal(): void {
+    this.batchDepreciationModalOpen = false;
+  }
+
+  submitBatchDepreciation(): void {
+    if (!this.companyId) return;
+    this.batchDepreciationLoading = true;
+    this.registry.postBatchDepreciation(this.companyId, this.batchDepreciationForm).subscribe({
+      next: (res) => {
+        this.batchDepreciationLoading = false;
+        this.batchDepreciationResult = res;
+        this.successMessage = `Batch run for ${res.period}: ${res.posted_count} posted, ${res.skipped_count} skipped, total ${res.total_depreciation_posted}.`;
+        if (this.selectedAsset) {
+          this.loadAssetFinancial(this.selectedAsset.id);
+        }
+        this.loadAssets();
+        if (this.activeView === 'dashboard') {
+          this.loadDashboard();
+        }
+        this.changeDetector.markForCheck();
+      },
+      error: (err) => {
+        this.batchDepreciationLoading = false;
+        this.fail(err);
+      }
+    });
+  }
+
+  openDisposeAssetModal(): void {
+    this.disposeAssetForm = {
+      disposal_date: this.today(),
+      disposal_reason: 'end_of_life',
+      disposal_method: 'scrap',
+      sale_proceeds: 0,
+      notes: ''
+    };
+    this.disposeAssetModalOpen = true;
+  }
+
+  closeDisposeAssetModal(): void {
+    this.disposeAssetModalOpen = false;
+  }
+
+  submitDisposeAsset(): void {
+    if (!this.selectedAsset || !this.companyId) return;
+    this.saving = true;
+    this.registry.disposeAsset(this.companyId, this.selectedAsset.id, this.disposeAssetForm).subscribe({
+      next: (disposal) => {
+        this.saving = false;
+        this.disposeAssetModalOpen = false;
+        this.activeAssetDisposal = disposal;
+        this.successMessage = `Asset ${this.selectedAsset?.asset_number} disposed. Net Book Value: ${disposal.net_book_value_at_disposal}, Gain/Loss: ${disposal.gain_loss}.`;
+        this.refreshAssetDetails();
+        this.loadAssetFinancial(this.selectedAsset!.id);
+        this.loadAssets();
+        this.changeDetector.markForCheck();
+      },
+      error: (err) => {
+        this.saving = false;
+        this.fail(err);
+      }
+    });
   }
 
   private today(): string {

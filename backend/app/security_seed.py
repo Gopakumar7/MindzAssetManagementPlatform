@@ -27,6 +27,8 @@ _PERMISSIONS = {
     'dashboard.read': 'Read executive dashboard and key metrics',
     'verification.read': 'Read company physical asset verification campaigns and discrepancies',
     'verification.manage': 'Manage company physical asset verification campaigns, observations, and resolutions',
+    'finance.read': 'Read company asset financial records, depreciation, and disposal reports',
+    'finance.manage': 'Manage company asset financial profiles, depreciation entries, and disposals',
 }
 
 _ROLE_PERMISSIONS = {
@@ -38,6 +40,7 @@ _ROLE_PERMISSIONS = {
         'asset.assignment.manage', 'procurement.read', 'procurement.manage',
         'maintenance.read', 'maintenance.manage', 'dashboard.read',
         'verification.read', 'verification.manage',
+        'finance.read', 'finance.manage',
     },
     ('company', 'asset_manager'): {
         'company.read', 'organization.read', 'organization.manage', 'asset.read',
@@ -45,6 +48,7 @@ _ROLE_PERMISSIONS = {
         'asset.history.read', 'procurement.read', 'procurement.manage',
         'maintenance.read', 'maintenance.manage', 'dashboard.read',
         'verification.read', 'verification.manage',
+        'finance.read', 'finance.manage',
     },
     ('company', 'it_support'): {
         'company.read', 'organization.read', 'asset.read', 'asset.update',
@@ -54,10 +58,11 @@ _ROLE_PERMISSIONS = {
     ('company', 'auditor'): {
         'company.read', 'organization.read', 'asset.read', 'asset.history.read', 'audit.read',
         'procurement.read', 'maintenance.read', 'dashboard.read', 'verification.read',
+        'finance.read',
     },
     ('company', 'read_only_user'): {
         'company.read', 'organization.read', 'asset.read', 'asset.history.read', 'procurement.read',
-        'maintenance.read', 'verification.read',
+        'maintenance.read', 'verification.read', 'finance.read',
     },
 }
 

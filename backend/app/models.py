@@ -821,3 +821,116 @@ class VerificationUnregisteredAsset(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
+
+class AssetFinancial(Base):
+    __tablename__ = 'asset_financials'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_asset_financials_company_id_id'),
+        UniqueConstraint('company_id', 'asset_id', name='uq_asset_financials_company_asset'),
+        CheckConstraint('capitalised_cost >= 0', name='ck_asset_financials_capitalised_cost'),
+        CheckConstraint('residual_value >= 0', name='ck_asset_financials_residual_value'),
+        CheckConstraint('residual_value <= capitalised_cost', name='ck_asset_financials_residual_le_cost'),
+        CheckConstraint('useful_life_months > 0', name='ck_asset_financials_useful_life_months'),
+        CheckConstraint('accumulated_depreciation >= 0', name='ck_asset_financials_accum_deprec_gte_zero'),
+        CheckConstraint('accumulated_depreciation <= capitalised_cost - residual_value', name='ck_asset_financials_accum_deprec_le_basis'),
+        CheckConstraint('current_book_value >= residual_value', name='ck_asset_financials_book_value_gte_residual'),
+        CheckConstraint(
+            "financial_status IN ('draft', 'active', 'fully_depreciated', 'disposed')",
+            name='ck_asset_financials_status',
+        ),
+        CheckConstraint(
+            "depreciation_method IN ('straight_line')",
+            name='ck_asset_financials_method',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'asset_id'],
+            ['assets.company_id', 'assets.id'],
+            ondelete='RESTRICT',
+        ),
+        Index('ix_asset_financials_company_status', 'company_id', 'financial_status'),
+        Index('ix_asset_financials_company_asset', 'company_id', 'asset_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    asset_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    capitalised_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default='USD')
+    depreciation_method: Mapped[str] = mapped_column(String(32), nullable=False, default='straight_line')
+    useful_life_months: Mapped[int] = mapped_column(Integer, nullable=False)
+    residual_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal('0.00'))
+    depreciation_start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    accumulated_depreciation: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal('0.00'))
+    current_book_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    financial_status: Mapped[str] = mapped_column(String(32), nullable=False, default='active')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class AssetDepreciationEntry(Base):
+    __tablename__ = 'asset_depreciation_entries'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_asset_deprec_entries_company_id_id'),
+        UniqueConstraint('company_id', 'asset_id', 'period', name='uq_asset_deprec_entries_company_asset_period'),
+        CheckConstraint('depreciation_amount >= 0', name='ck_asset_deprec_entries_amount'),
+        CheckConstraint('accumulated_depreciation_after >= 0', name='ck_asset_deprec_entries_accum'),
+        CheckConstraint('book_value_after >= 0', name='ck_asset_deprec_entries_book_value'),
+        ForeignKeyConstraint(
+            ['company_id', 'asset_id'],
+            ['assets.company_id', 'assets.id'],
+            ondelete='RESTRICT',
+        ),
+        Index('ix_asset_deprec_entries_company_period', 'company_id', 'period'),
+        Index('ix_asset_deprec_entries_asset_period', 'company_id', 'asset_id', 'period'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    asset_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    period: Mapped[str] = mapped_column(String(7), nullable=False)  # 'YYYY-MM'
+    period_start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    depreciation_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    accumulated_depreciation_after: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    book_value_after: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    method: Mapped[str] = mapped_column(String(32), nullable=False, default='straight_line')
+    posted_by_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='RESTRICT'), nullable=False)
+    posted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class AssetDisposal(Base):
+    __tablename__ = 'asset_disposals'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_asset_disposals_company_id_id'),
+        UniqueConstraint('company_id', 'asset_id', name='uq_asset_disposals_company_asset'),
+        CheckConstraint(
+            "disposal_reason IN ('sale', 'scrap', 'lost', 'damaged', 'obsolete', 'donated', 'trade_in', 'other')",
+            name='ck_asset_disposals_reason',
+        ),
+        CheckConstraint(
+            "disposal_method IN ('auction', 'direct_sale', 'certified_destruction', 'recycled', 'trade_in', 'written_off', 'other')",
+            name='ck_asset_disposals_method',
+        ),
+        CheckConstraint('sale_proceeds >= 0', name='ck_asset_disposals_proceeds'),
+        ForeignKeyConstraint(
+            ['company_id', 'asset_id'],
+            ['assets.company_id', 'assets.id'],
+            ondelete='RESTRICT',
+        ),
+        Index('ix_asset_disposals_company_date', 'company_id', 'disposal_date'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    asset_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    disposal_date: Mapped[date] = mapped_column(Date, nullable=False)
+    disposal_reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    disposal_method: Mapped[str] = mapped_column(String(32), nullable=False)
+    sale_proceeds: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal('0.00'))
+    net_book_value_at_disposal: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    gain_loss: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    disposed_by_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='RESTRICT'), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+

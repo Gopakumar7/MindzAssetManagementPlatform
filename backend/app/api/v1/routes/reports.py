@@ -11,6 +11,8 @@ from app.models import (
     Asset,
     AssetAssignment,
     AssetCategory,
+    AssetDisposal,
+    AssetFinancial,
     AssetServiceContract,
     AuditEvent,
     Department,
@@ -31,11 +33,14 @@ from app.models import (
 )
 from app.schemas import (
     AssetAllocationReportItem,
+    AssetDepreciationReportItem,
+    AssetDisposalReportItem,
     AssetRegisterReportItem,
     CategoryMetric,
     DashboardResponse,
     DepartmentMetric,
     ExpiringContractMetric,
+    FinancialDashboardMetric,
     MaintenanceReportItem,
     MaintenanceSummaryMetric,
     ProcurementReportItem,
@@ -828,3 +833,253 @@ def get_verification_discrepancies_report(
         return Response(content=buf.getvalue(), media_type='text/csv', headers={'Content-Disposition': 'attachment; filename="verification-discrepancies.csv"'})
 
     return items
+
+
+@router.get(
+    '/reports/asset-depreciation',
+    response_model=list[AssetDepreciationReportItem],
+    dependencies=[Depends(require_permission('finance.read'))],
+)
+def get_asset_depreciation_report(
+    company_id: UUID,
+    category_id: UUID | None = Query(None),
+    site_id: UUID | None = Query(None),
+    location_id: UUID | None = Query(None),
+    financial_status: str | None = Query(None),
+    format: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    get_company(db, company_id)
+    query = (
+        select(
+            Asset,
+            AssetFinancial,
+            AssetCategory.name.label('category_name'),
+            Site.name.label('site_name'),
+            Location.name.label('location_name'),
+        )
+        .join(AssetFinancial, (AssetFinancial.company_id == Asset.company_id) & (AssetFinancial.asset_id == Asset.id))
+        .join(AssetCategory, (AssetCategory.company_id == Asset.company_id) & (AssetCategory.id == Asset.category_id))
+        .outerjoin(Site, (Site.company_id == Asset.company_id) & (Site.id == Asset.site_id))
+        .outerjoin(Location, (Location.company_id == Asset.company_id) & (Location.id == Asset.location_id))
+        .where(Asset.company_id == company_id)
+    )
+    if category_id:
+        query = query.where(Asset.category_id == category_id)
+    if site_id:
+        query = query.where(Asset.site_id == site_id)
+    if location_id:
+        query = query.where(Asset.location_id == location_id)
+    if financial_status:
+        query = query.where(AssetFinancial.financial_status == financial_status)
+
+    query = query.order_by(Asset.asset_number.asc())
+    rows = db.execute(query).all()
+
+    items = [
+        AssetDepreciationReportItem(
+            asset_id=r.Asset.id,
+            asset_number=r.Asset.asset_number,
+            asset_name=r.Asset.model or r.Asset.asset_number,
+            category_name=r.category_name,
+            site_name=r.site_name,
+            location_name=r.location_name,
+            acquisition_date=r.Asset.acquisition_date,
+            capitalised_cost=r.AssetFinancial.capitalised_cost,
+            currency=r.AssetFinancial.currency,
+            depreciation_method=r.AssetFinancial.depreciation_method,
+            useful_life_months=r.AssetFinancial.useful_life_months,
+            residual_value=r.AssetFinancial.residual_value,
+            depreciation_start_date=r.AssetFinancial.depreciation_start_date,
+            accumulated_depreciation=r.AssetFinancial.accumulated_depreciation,
+            current_book_value=r.AssetFinancial.current_book_value,
+            financial_status=r.AssetFinancial.financial_status,
+        )
+        for r in rows
+    ]
+
+    if format == 'csv':
+        import io, csv
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            'Asset Number', 'Asset Name', 'Category', 'Site', 'Location',
+            'Acquisition Date', 'Capitalised Cost', 'Currency', 'Method',
+            'Useful Life (Months)', 'Residual Value', 'Depreciation Start Date',
+            'Accumulated Depreciation', 'Current Book Value', 'Financial Status',
+        ])
+        for item in items:
+            writer.writerow([
+                item.asset_number, item.asset_name, item.category_name,
+                item.site_name or '', item.location_name or '',
+                item.acquisition_date or '', str(item.capitalised_cost), item.currency,
+                item.depreciation_method, item.useful_life_months, str(item.residual_value),
+                item.depreciation_start_date, str(item.accumulated_depreciation),
+                str(item.current_book_value), item.financial_status,
+            ])
+        return Response(
+            content=buf.getvalue(),
+            media_type='text/csv',
+            headers={'Content-Disposition': 'attachment; filename="asset-depreciation.csv"'},
+        )
+
+    return items
+
+
+@router.get(
+    '/reports/asset-disposals',
+    response_model=list[AssetDisposalReportItem],
+    dependencies=[Depends(require_permission('finance.read'))],
+)
+def get_asset_disposals_report(
+    company_id: UUID,
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+    disposal_reason: str | None = Query(None),
+    disposal_method: str | None = Query(None),
+    format: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    get_company(db, company_id)
+    query = (
+        select(
+            AssetDisposal,
+            Asset.asset_number,
+            Asset.model.label('asset_name'),
+            AssetCategory.name.label('category_name'),
+            Asset.acquisition_date,
+            Asset.acquisition_cost,
+            User.email.label('disposed_by_email'),
+        )
+        .join(Asset, (Asset.company_id == AssetDisposal.company_id) & (Asset.id == AssetDisposal.asset_id))
+        .join(AssetCategory, (AssetCategory.company_id == Asset.company_id) & (AssetCategory.id == Asset.category_id))
+        .outerjoin(User, User.id == AssetDisposal.disposed_by_id)
+        .where(AssetDisposal.company_id == company_id)
+    )
+    if start_date:
+        query = query.where(AssetDisposal.disposal_date >= start_date)
+    if end_date:
+        query = query.where(AssetDisposal.disposal_date <= end_date)
+    if disposal_reason:
+        query = query.where(AssetDisposal.disposal_reason == disposal_reason)
+    if disposal_method:
+        query = query.where(AssetDisposal.disposal_method == disposal_method)
+
+    query = query.order_by(AssetDisposal.disposal_date.desc(), AssetDisposal.created_at.desc())
+    rows = db.execute(query).all()
+
+    items = [
+        AssetDisposalReportItem(
+            asset_id=r.AssetDisposal.asset_id,
+            asset_number=r.asset_number,
+            asset_name=r.asset_name or r.asset_number,
+            category_name=r.category_name,
+            acquisition_date=r.acquisition_date,
+            acquisition_cost=Decimal(str(r.acquisition_cost)) if r.acquisition_cost is not None else None,
+            disposal_date=r.AssetDisposal.disposal_date,
+            disposal_reason=r.AssetDisposal.disposal_reason,
+            disposal_method=r.AssetDisposal.disposal_method,
+            sale_proceeds=r.AssetDisposal.sale_proceeds,
+            net_book_value_at_disposal=r.AssetDisposal.net_book_value_at_disposal,
+            gain_loss=r.AssetDisposal.gain_loss,
+            disposed_by_email=r.disposed_by_email,
+            notes=r.AssetDisposal.notes,
+        )
+        for r in rows
+    ]
+
+    if format == 'csv':
+        import io, csv
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            'Asset Number', 'Asset Name', 'Category', 'Acquisition Date', 'Acquisition Cost',
+            'Disposal Date', 'Disposal Reason', 'Disposal Method', 'Sale Proceeds',
+            'Net Book Value at Disposal', 'Gain/Loss', 'Disposed By', 'Notes',
+        ])
+        for item in items:
+            writer.writerow([
+                item.asset_number, item.asset_name, item.category_name,
+                item.acquisition_date or '', str(item.acquisition_cost) if item.acquisition_cost is not None else '',
+                item.disposal_date, item.disposal_reason, item.disposal_method,
+                str(item.sale_proceeds), str(item.net_book_value_at_disposal),
+                str(item.gain_loss), item.disposed_by_email or '', item.notes or '',
+            ])
+        return Response(
+            content=buf.getvalue(),
+            media_type='text/csv',
+            headers={'Content-Disposition': 'attachment; filename="asset-disposals.csv"'},
+        )
+
+    return items
+
+
+@router.get(
+    '/dashboard/financial',
+    response_model=FinancialDashboardMetric,
+    dependencies=[Depends(require_permission('finance.read'))],
+)
+def get_financial_dashboard_metrics(
+    company_id: UUID,
+    db: Session = Depends(get_db),
+):
+    get_company(db, company_id)
+
+    # 1. Active / in-service financial summaries
+    active_financials = db.scalars(
+        select(AssetFinancial)
+        .where(
+            AssetFinancial.company_id == company_id,
+            AssetFinancial.financial_status.in_(['active', 'fully_depreciated']),
+        )
+    ).all()
+
+    total_cost = sum((f.capitalised_cost for f in active_financials), Decimal('0.00'))
+    total_accum = sum((f.accumulated_depreciation for f in active_financials), Decimal('0.00'))
+    total_nbv = sum((f.current_book_value for f in active_financials), Decimal('0.00'))
+
+    # Approaching EOL: useful life <= 3 months remaining
+    from app.models import AssetDepreciationEntry
+    approaching_eol = 0
+    for f in active_financials:
+        if f.financial_status == 'active':
+            posted_count = db.scalar(
+                select(func.count(AssetDepreciationEntry.id)).where(
+                    AssetDepreciationEntry.company_id == company_id,
+                    AssetDepreciationEntry.asset_id == f.asset_id,
+                )
+            ) or 0
+            remaining_months = f.useful_life_months - posted_count
+            if 0 < remaining_months <= 3:
+                approaching_eol += 1
+
+    # Fully depreciated but still in service (status != 'disposed')
+    fully_depreciated_active = db.scalar(
+        select(func.count(AssetFinancial.id))
+        .join(Asset, (Asset.company_id == AssetFinancial.company_id) & (Asset.id == AssetFinancial.asset_id))
+        .where(
+            AssetFinancial.company_id == company_id,
+            AssetFinancial.financial_status == 'fully_depreciated',
+            Asset.status != 'disposed',
+        )
+    ) or 0
+
+    # Disposal aggregates
+    disposals = db.scalars(
+        select(AssetDisposal).where(AssetDisposal.company_id == company_id)
+    ).all()
+
+    disposed_count = len(disposals)
+    total_proceeds = sum((d.sale_proceeds for d in disposals), Decimal('0.00'))
+    total_gain_loss = sum((d.gain_loss for d in disposals), Decimal('0.00'))
+
+    return FinancialDashboardMetric(
+        total_capitalised_cost=total_cost,
+        total_accumulated_depreciation=total_accum,
+        total_net_book_value=total_nbv,
+        approaching_eol_count=approaching_eol,
+        fully_depreciated_active_count=fully_depreciated_active,
+        disposed_count=disposed_count,
+        total_disposal_proceeds=total_proceeds,
+        total_disposal_gain_loss=total_gain_loss,
+    )

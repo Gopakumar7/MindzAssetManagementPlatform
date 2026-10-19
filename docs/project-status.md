@@ -2,9 +2,43 @@
 
 ## Current delivery
 
-**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, multi-line purchase orders and line-item receiving, warranty/AMC/maintenance requests, Phase 4 physical asset verification campaigns, and Phase 5 executive dashboard and operational reports: implemented.** Verification status and remaining integration limitations are recorded below.
+**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, multi-line purchase orders and line-item receiving, warranty/AMC/maintenance requests, Phase 4 physical asset verification campaigns, and Phase 5 asset financial lifecycle management (straight-line depreciation, authoritative book value, prospective adjustments, disposal cutoff/gain-loss, financial dashboard metrics, and operational reports): implemented.** Verification status and remaining integration limitations are recorded below.
 
 Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
+
+## Asset financial lifecycle management (2026-10-19)
+
+- Implemented authoritative, integrated financial lifecycle management for registered assets, tracking acquisition cost, capitalised cost, straight-line monthly depreciation, net book value (NBV), prospective adjustments, and retirement/disposal without general-ledger duplication.
+- Authoritative calculation engine and schedule projection:
+  - Straight-line monthly depreciation engine using Python `Decimal` and `ROUND_HALF_UP` rounding.
+  - Monthly periodicity (`YYYY-MM`) with full-month convention based on `depreciation_start_date`.
+  - Boundary limits strictly enforced: depreciation never reduces book value below residual value, and cannot exceed useful life. Final month absorbs fractional rounding residuals cleanly.
+  - Dynamically generated schedule projection endpoint (`GET /companies/{company_id}/assets/{asset_id}/depreciation-schedule`) returning period-by-period depreciation, accumulated depreciation, book value, and status (`posted` vs `pending`).
+- Concurrency control, locking, and posting integrity:
+  - Single authoritative backend service for both single-asset posting (`POST /assets/{asset_id}/depreciation/post`) and company-wide batch runs (`POST /depreciation/batch`).
+  - Row-level database locking (`with_for_update()`) and database unique constraint `(company_id, asset_id, period)` to prevent duplicate or conflicting postings under concurrent requests.
+  - Verified with multi-threaded concurrency integration testing running simultaneous parallel workers across PostgreSQL.
+- Historical integrity & prospective adjustments:
+  - Once depreciation entries have been posted, direct mutation of historical capitalised cost, useful life, residual value, or depreciation start date is strictly prohibited (HTTP 409 Conflict).
+  - Authorised prospective adjustments supported via `POST /companies/{company_id}/assets/{asset_id}/financial/adjust`: updates remaining useful life and residual value from the latest posted entry forward while preserving all historical posted entries intact.
+- Disposal and cutoff enforcement:
+  - Disposal workflow (`POST /companies/{company_id}/assets/{asset_id}/dispose`): records disposal date, method (`scrap`, `sale`, `donation`, `write_off`), reason (`end_of_life`, `damaged_beyond_repair`, `lost_or_stolen`, `obsolete`, `sold`, `other`), sale proceeds, and optional notes.
+  - Authoritative NBV at disposal recorded transactionally, and gain/loss calculated as `gain_loss = sale_proceeds - net_book_value_at_disposal`.
+  - Asset active assignment guard: assets with an active custodian cannot be disposed until officially returned or transferred.
+  - Post-disposal cutoff: no depreciation can be posted for periods after the disposal date (HTTP 400).
+- Reports, dashboard metrics, and CSV exports:
+  - Executive Financial Dashboard KPI summary endpoint (`GET /dashboard/financial`) providing total capitalised cost, total accumulated depreciation, total current net book value, approaching EOL asset count (≤ 3 months remaining), fully depreciated active asset count, disposed asset count, total disposal proceeds, and net disposal gain/loss.
+  - Asset Depreciation Report (`GET /reports/asset-depreciation`) with filtering by category, site, location, and financial status (`draft`, `active`, `fully_depreciated`, `disposed`), and RFC-4180 compliant CSV export (`format=csv`).
+  - Asset Disposals Report (`GET /reports/asset-disposals`) with date range and disposal reason filters, and RFC-4180 compliant CSV export (`format=csv`).
+- RBAC, multi-tenancy & audit logging:
+  - Added permissions `finance.read` and `finance.manage` seeded into `company_admin`, `asset_manager`, `technician`, `auditor`, and `read_only` roles.
+  - Multi-tenant company isolation enforced across all financial models (`AssetFinancial`, `AssetDepreciationEntry`, `AssetDisposal`).
+  - Registered all financial models and lifecycle mutations with the transactional audit framework (`asset_financial_configured`, `asset_financial_adjusted`, `asset_depreciation_posted`, `asset_disposed`).
+- Verification & Test Coverage:
+  - PostgreSQL backend pytest suite: **78 passed, 0 failed, 1 warning** in 92.55s (9 dedicated finance integration tests covering boundary values, zero depreciation on fully depreciated assets, rounding residual absorption, duplicate rejection, prospective adjustments, disposal cutoff and gain/loss calculation, batch execution, CSV exports, multi-tenant isolation, and multi-threaded PostgreSQL row-locking concurrency race testing).
+  - Frontend Angular Karma suite: **69 passed, 0 failed** in 2.47s (8 dedicated financial lifecycle tests covering asset financial loading, configuration modal submission, prospective adjustment modal, single-period depreciation posting, batch depreciation execution, disposal submission, financial dashboard cards, report table rendering, and RFC-4180 CSV export generation).
+  - Database schema: Alembic migration `20261019_asset_financial_lifecycle.py` verified with `alembic upgrade head`, `alembic downgrade -1`, `alembic upgrade head`, and `alembic check` (**zero schema drift**).
+  - Production build: `ng build` succeeded cleanly with **0 errors**.
 
 ## Physical asset verification (2026-10-19)
 

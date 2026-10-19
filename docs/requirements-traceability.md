@@ -96,18 +96,25 @@ This document maps the prompt's major capability areas to the proposed module st
 ## 6. Finance and end-of-life management
 
 - Capability area
-  - Acquisition cost, depreciation, useful life, EOL review, repair-vs-replace decisions, closure, disposal, and evidence
+  - Acquisition cost, capitalised cost, straight-line depreciation, useful life, prospective adjustments, EOL review, retirement, disposal cutoff, gain/loss calculation, and historical integrity
 - Proposed module
   - `finance`
-- Planned implementation phase
-  - Phase 5
+- Delivery status
+  - Phase 5 Asset Financial Lifecycle Management fully implemented and verified against PostgreSQL and Angular test suites.
+  - Features: Straight-line monthly depreciation engine using Python `Decimal` and `ROUND_HALF_UP`, schedule projection, single-asset and batch row-level locked postings, unique constraint `(company_id, asset_id, period)` duplicate protection, historical integrity enforcement (direct mutation blocked after entries posted with HTTP 409), prospective financial adjustments (`/financial/adjust`), asset disposal workflow with active assignment prevention and post-disposal depreciation cutoff, authoritative gain/loss calculation (`sale_proceeds - net_book_value_at_disposal`), executive financial dashboard KPI summary card, operational reports (`asset-depreciation`, `asset-disposals`) with RFC-4180 CSV export, RBAC permissions (`finance.read`, `finance.manage`), multi-tenant company isolation, and transactional audit trails.
 - Principal acceptance checks
-  - Financial metadata and depreciation policy are applied correctly
-  - EOL decisions can be tracked and approved
-  - Disposal and closure records preserve historical integrity
+  - Straight-line depreciation calculation and schedule generation accurately respect capitalised cost, residual value, useful life in months, and start date.
+  - Final month of useful life cleanly absorbs fractional rounding residuals without dipping below residual value.
+  - Concurrency control via row locks and database unique constraints prevents duplicate postings under parallel load.
+  - Historical financial profile values cannot be directly mutated once entries are posted (HTTP 409).
+  - Prospective adjustment updates remaining useful life and residual value from the latest posted entry forward.
+  - Assets with an active custodian cannot be disposed until returned or transferred.
+  - Disposing an asset locks authoritative net book value and computes gain/loss against proceeds.
+  - Depreciation cannot be posted for periods after an asset's disposal date (HTTP 400).
+  - Financial dashboard metrics and reports export accurately to RFC-4180 compliant CSV.
+  - Company isolation, RBAC (`finance.read`, `finance.manage`), and audit logging are enforced across all financial endpoints.
 - Additional detail needed
-  - Final accounting rules and depreciation assumptions
-  - Disposal evidence requirements and retention rules
+  - Country-specific statutory tax depreciation rules and multi-currency exchange rate feeds (deferred as post-MVP enhancements).
 
 ## 7. Workflow, security, and auditability
 

@@ -206,6 +206,9 @@ Phases 0-3 are required for references, security, and controlled state changes.
 
 ## Phase 5 — Finance, end-of-life, and closure
 
+### Status (2026-10-19)
+Implemented and verified against PostgreSQL and Angular suites. Includes authoritative straight-line monthly depreciation engine using Python Decimal, row-level locking for single-asset and batch depreciation postings, duplicate period prevention with database unique constraints, prospective financial adjustments (protecting historical entries from direct mutation), retirement/disposal workflow with active custodian guards and gain/loss calculation, post-disposal depreciation cutoff, executive financial dashboard KPI cards, and operational reports with CSV export. Full backend integration suite: 78 passed, 0 failed; frontend Karma suite: 69 passed, 0 failed.
+
 ### Objective
 Support financial accountability, asset retirement, disposal decisions, and final closure while preserving historical records.
 

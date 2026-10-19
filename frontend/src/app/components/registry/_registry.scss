@@ -1121,6 +1121,125 @@ footer a { color: #1d4ed8; }
   }
 }
 
+/* Financial Lifecycle Styles */
+.financial-section {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.financial-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.fin-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+
+  &.highlight {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+
+    .fin-value {
+      color: #15803d;
+      font-weight: 700;
+    }
+  }
+
+  .fin-label {
+    font-size: 0.78rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+  }
+
+  .fin-value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  .fin-meta {
+    font-size: 0.78rem;
+    color: #94a3b8;
+  }
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 0.25rem 0;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: #6366f1;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.posted-row {
+  background: #f8fafc;
+}
+
+.danger-button {
+  background: #dc2626;
+  color: #ffffff;
+  border: 1px solid #dc2626;
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.85rem;
+  transition: background 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: #b91c1c;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.success-text {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.danger-text {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.status-badge.status-draft {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.status-badge.status-fully_depreciated {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+.status-badge.status-disposed {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
 @media (max-width: 900px) {
   .dashboard-sections { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

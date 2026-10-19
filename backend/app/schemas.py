@@ -1099,3 +1099,173 @@ class VerificationDiscrepancyReportItem(BaseModel):
     created_at: datetime
 
 
+class AssetFinancialCreate(BaseModel):
+    capitalised_cost: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+    currency: str = Field(default='USD', min_length=3, max_length=3)
+    depreciation_method: str = Field(default='straight_line')
+    useful_life_months: int = Field(ge=1, le=1200)
+    residual_value: Decimal = Field(default=Decimal('0.00'), ge=0, max_digits=14, decimal_places=2)
+    depreciation_start_date: date
+
+    @model_validator(mode='after')
+    def validate_residual_le_cost(self):
+        if self.residual_value > self.capitalised_cost:
+            raise ValueError('residual_value cannot exceed capitalised_cost')
+        return self
+
+
+class AssetFinancialUpdate(BaseModel):
+    capitalised_cost: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    depreciation_method: str | None = Field(default=None)
+    useful_life_months: int | None = Field(default=None, ge=1, le=1200)
+    residual_value: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    depreciation_start_date: date | None = None
+
+    @model_validator(mode='after')
+    def validate_residual_le_cost(self):
+        if self.capitalised_cost is not None and self.residual_value is not None:
+            if self.residual_value > self.capitalised_cost:
+                raise ValueError('residual_value cannot exceed capitalised_cost')
+        return self
+
+
+class AssetFinancialAdjust(BaseModel):
+    useful_life_months: int | None = Field(default=None, ge=1, le=1200)
+    residual_value: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    notes: str | None = None
+
+
+class AssetFinancialRead(Record):
+    id: UUID
+    company_id: UUID
+    asset_id: UUID
+    capitalised_cost: Decimal
+    currency: str
+    depreciation_method: str
+    useful_life_months: int
+    residual_value: Decimal
+    depreciation_start_date: date
+    accumulated_depreciation: Decimal
+    current_book_value: Decimal
+    financial_status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class DepreciationScheduleItem(BaseModel):
+    period: str
+    period_start_date: date
+    period_end_date: date
+    depreciation_amount: Decimal
+    accumulated_depreciation: Decimal
+    book_value: Decimal
+    status: str  # 'posted', 'pending', 'skipped'
+
+
+class DepreciationPostRequest(BaseModel):
+    period: str = Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
+    notes: str | None = None
+
+
+class BatchDepreciationRequest(BaseModel):
+    period: str = Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
+    notes: str | None = None
+
+
+class BatchDepreciationResult(BaseModel):
+    period: str
+    processed_count: int
+    posted_count: int
+    skipped_count: int
+    total_depreciation_posted: Decimal
+    posted_asset_ids: list[UUID]
+    skipped: list[dict]
+
+
+class AssetDepreciationEntryRead(Record):
+    id: UUID
+    company_id: UUID
+    asset_id: UUID
+    period: str
+    period_start_date: date
+    period_end_date: date
+    depreciation_amount: Decimal
+    accumulated_depreciation_after: Decimal
+    book_value_after: Decimal
+    method: str
+    posted_by_id: UUID
+    posted_at: datetime
+    notes: str | None
+
+
+class AssetDisposalCreate(BaseModel):
+    disposal_date: date
+    disposal_reason: str = Field(min_length=1, max_length=32)
+    disposal_method: str = Field(min_length=1, max_length=32)
+    sale_proceeds: Decimal = Field(default=Decimal('0.00'), ge=0, max_digits=14, decimal_places=2)
+    notes: str | None = None
+
+
+class AssetDisposalRead(Record):
+    id: UUID
+    company_id: UUID
+    asset_id: UUID
+    disposal_date: date
+    disposal_reason: str
+    disposal_method: str
+    sale_proceeds: Decimal
+    net_book_value_at_disposal: Decimal
+    gain_loss: Decimal
+    notes: str | None
+    disposed_by_id: UUID
+    created_at: datetime
+
+
+class AssetDepreciationReportItem(BaseModel):
+    asset_id: UUID
+    asset_number: str
+    asset_name: str
+    category_name: str
+    site_name: str | None = None
+    location_name: str | None = None
+    acquisition_date: date | None = None
+    capitalised_cost: Decimal
+    currency: str
+    depreciation_method: str
+    useful_life_months: int
+    residual_value: Decimal
+    depreciation_start_date: date
+    accumulated_depreciation: Decimal
+    current_book_value: Decimal
+    financial_status: str
+
+
+class AssetDisposalReportItem(BaseModel):
+    asset_id: UUID
+    asset_number: str
+    asset_name: str
+    category_name: str
+    acquisition_date: date | None = None
+    acquisition_cost: Decimal | None = None
+    disposal_date: date
+    disposal_reason: str
+    disposal_method: str
+    sale_proceeds: Decimal
+    net_book_value_at_disposal: Decimal
+    gain_loss: Decimal
+    disposed_by_email: str | None = None
+    notes: str | None = None
+
+
+class FinancialDashboardMetric(BaseModel):
+    total_capitalised_cost: Decimal
+    total_accumulated_depreciation: Decimal
+    total_net_book_value: Decimal
+    approaching_eol_count: int
+    fully_depreciated_active_count: int
+    disposed_count: int
+    total_disposal_proceeds: Decimal
+    total_disposal_gain_loss: Decimal
+
+
