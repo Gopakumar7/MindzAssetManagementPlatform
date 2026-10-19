@@ -79,15 +79,19 @@ This document maps the prompt's major capability areas to the proposed module st
   - Audit campaigns, expected asset lists, verification outcomes, evidence, exceptions, and reconciliation
 - Proposed module
   - `verification`
-- Planned implementation phase
-  - Phase 4
+- Delivery status
+  - Phase 4 Physical Asset Verification fully implemented and verified against PostgreSQL.
+  - Features: Verification campaigns with draft -> in_progress -> under_review -> completed / cancelled lifecycle, category and location scoping, frozen snapshot of expected assets upon campaign start, physical observations recording, duplicate observation prevention, automated discrepancy detection (missing, location mismatch, custodian mismatch, condition degradation), discrepancy resolution workflow (`update_master`, `keep_as_is`, `mark_missing`, `investigate`, `dismiss`) with mandatory resolution notes and conditional master asset updating, in-field unregistered asset discovery and duplicate-safe promotion to inventory, campaign KPI summaries, operational reports (`verification-campaigns`, `verification-discrepancies`) with RFC-4180 CSV export, RBAC (`verification.read`, `verification.manage`), and audit event logging.
 - Principal acceptance checks
-  - Physical verification can be executed against expected asset records
-  - Exceptions for missing, mismatched, or incorrect assets are captured with evidence
-  - Corrective actions and reconciliation status are reviewable and auditable
+  - Physical verification campaigns freeze an immutable expected asset snapshot upon start.
+  - Physical observations record presence, actual location, actual custodian, condition, and tag references; duplicate observations for the same asset are rejected with HTTP 409.
+  - Discrepancies are automatically generated and preserved independently without modifying master asset records.
+  - Discrepancies can be resolved with mandatory resolution notes; master records update only upon `update_master`.
+  - Discovered unregistered assets can be recorded and registered into master inventory with duplicate protection (HTTP 409).
+  - Campaign summary KPIs, campaign reports, and discrepancy reports export cleanly to RFC-4180 CSV.
+  - All operations enforce company multi-tenant isolation, RBAC permissions, and transactional audit trails.
 - Additional detail needed
-  - Recommended evidence format and retention requirements
-  - Whether verification exclusions are category- or location-specific
+  - Barcode and QR scanner hardware integration and mobile camera scanning flows (future enhancement).
 
 ## 6. Finance and end-of-life management
 

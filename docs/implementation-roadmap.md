@@ -166,6 +166,9 @@ Phases 0-2 are required to establish the transaction history and domain objects 
 
 ## Phase 4 — Asset deployment, maintenance, and verification
 
+### Status (2026-10-19)
+The Physical Asset Verification module is fully implemented and verified against PostgreSQL. Implemented: campaign lifecycle management (`draft`, `in_progress`, `under_review`, `completed`, `cancelled`), category/location scoping with locked snapshot freezing upon start, physical observations recording, duplicate observation prevention, automatic discrepancy detection (missing, location mismatch, custodian mismatch, condition degradation), controlled discrepancy resolution workflow with mandatory notes and conditional master asset updating (`update_master`), in-field unregistered asset discovery and controlled master registration, real-time KPI metrics, operational reports (`verification-campaigns`, `verification-discrepancies`) with RFC-4180 CSV export, RBAC (`verification.read`, `verification.manage`), and audit event logging.
+
 ### Objective
 Support the operational lifecycle of assets after acquisition, including assignment, maintenance, and physical verification.
 

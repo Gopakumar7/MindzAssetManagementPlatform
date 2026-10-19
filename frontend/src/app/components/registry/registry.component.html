@@ -34,7 +34,7 @@
     @if (can('asset.read')) {
       <button type="button" [class.active]="activeView === 'assets'" (click)="setView('assets')" [disabled]="!companyId">Assets</button>
     }
-    @if (can('asset.read') || can('maintenance.read') || can('procurement.read')) {
+    @if (can('asset.read') || can('maintenance.read') || can('procurement.read') || can('verification.read')) {
       <button type="button" [class.active]="activeView === 'reports'" (click)="setView('reports')" [disabled]="!companyId">Reports</button>
     }
     @if (companyId && can('company.members.manage')) {
@@ -51,6 +51,9 @@
     }
     @if (companyId && can('maintenance.read')) {
       <button type="button" [class.active]="activeView === 'maintenance'" (click)="setView('maintenance')">Warranty & Maintenance</button>
+    }
+    @if (companyId && can('verification.read')) {
+      <button type="button" [class.active]="activeView === 'verification'" (click)="setView('verification')">Verification</button>
     }
     @if (can('company.read') || can('system.companies.manage')) {
       <button type="button" [class.active]="activeView === 'company'" (click)="setView('company')">Companies & numbering</button>
@@ -440,6 +443,14 @@
             5. Procurement & Receiving
           </button>
         }
+        @if (can('verification.read')) {
+          <button type="button" [class.active]="activeReport === 'verification-campaigns'" (click)="selectReport('verification-campaigns')">
+            6. Verification Campaigns
+          </button>
+          <button type="button" [class.active]="activeReport === 'verification-discrepancies'" (click)="selectReport('verification-discrepancies')">
+            7. Verification Discrepancies
+          </button>
+        }
       </nav>
 
       <div class="report-filter-bar">
@@ -563,6 +574,52 @@
               <option value="open">Open</option>
               <option value="partially_received">Partially Received</option>
               <option value="received">Received</option>
+            </select>
+          </label>
+        }
+
+        @if (activeReport === 'verification-campaigns') {
+          <label>
+            Status
+            <select [(ngModel)]="reportStatusFilter" (change)="loadActiveReport()">
+              <option value="">All Statuses</option>
+              <option value="draft">Draft</option>
+              <option value="in_progress">In Progress</option>
+              <option value="under_review">Under Review</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+        }
+
+        @if (activeReport === 'verification-discrepancies') {
+          <label>
+            Campaign
+            <select [(ngModel)]="reportCampaignFilter" (change)="loadActiveReport()">
+              <option value="">All Campaigns</option>
+              @for (camp of verificationCampaigns; track camp.id) {
+                <option [value]="camp.id">{{ camp.campaign_reference }} - {{ camp.name }}</option>
+              }
+            </select>
+          </label>
+          <label>
+            Discrepancy Type
+            <select [(ngModel)]="reportDiscrepancyTypeFilter" (change)="loadActiveReport()">
+              <option value="">All Types</option>
+              <option value="missing">Missing</option>
+              <option value="location_mismatch">Location Mismatch</option>
+              <option value="custodian_mismatch">Custodian Mismatch</option>
+              <option value="condition_mismatch">Condition Mismatch</option>
+              <option value="unregistered_found">Unregistered Found</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select [(ngModel)]="reportStatusFilter" (change)="loadActiveReport()">
+              <option value="">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="resolved">Resolved</option>
+              <option value="dismissed">Dismissed</option>
             </select>
           </label>
         }
@@ -795,6 +852,88 @@
               </div>
             }
             <p class="muted" style="margin-top: 0.5rem;">Showing {{ procurementReport.length }} purchase order(s).</p>
+          }
+        }
+
+        @if (activeReport === 'verification-campaigns') {
+          @if (verificationCampaignReport.length === 0) {
+            <p class="empty">No verification campaigns match the selected criteria.</p>
+          } @else {
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Campaign Ref</th>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Period</th>
+                    <th>Expected</th>
+                    <th>Verified</th>
+                    <th>Missing</th>
+                    <th>Discrepancies</th>
+                    <th>Unregistered</th>
+                    <th>Completion %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of verificationCampaignReport; track item.campaign_id) {
+                    <tr>
+                      <td><strong>{{ item.campaign_reference }}</strong></td>
+                      <td>{{ item.campaign_name }}</td>
+                      <td><span class="status-badge" [ngClass]="campaignStatusBadgeClass(item.status)">{{ formatStatus(item.status) }}</span></td>
+                      <td>{{ item.start_date }} → {{ item.end_date }}</td>
+                      <td>{{ item.total_expected }}</td>
+                      <td>{{ item.total_verified }}</td>
+                      <td>{{ item.total_missing }}</td>
+                      <td>{{ item.discrepancy_count }}</td>
+                      <td>{{ item.unregistered_count }}</td>
+                      <td><strong>{{ item.completion_percentage | number:'1.0-1' }}%</strong></td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <p class="muted" style="margin-top: 0.5rem;">Showing {{ verificationCampaignReport.length }} campaign(s).</p>
+          }
+        }
+
+        @if (activeReport === 'verification-discrepancies') {
+          @if (verificationDiscrepancyReport.length === 0) {
+            <p class="empty">No verification discrepancies match the selected criteria.</p>
+          } @else {
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Campaign</th>
+                    <th>Asset #</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Expected</th>
+                    <th>Observed</th>
+                    <th>Resolution Action</th>
+                    <th>Resolution Notes</th>
+                    <th>Resolved By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of verificationDiscrepancyReport; track item.discrepancy_id) {
+                    <tr>
+                      <td><strong>{{ item.campaign_reference }}</strong></td>
+                      <td>{{ item.asset_number || '—' }}</td>
+                      <td><span class="status-badge" [ngClass]="discrepancyTypeBadgeClass(item.discrepancy_type)">{{ formatDiscrepancyType(item.discrepancy_type) }}</span></td>
+                      <td><span class="status-badge" [ngClass]="'status-' + item.status">{{ formatStatus(item.status) }}</span></td>
+                      <td>{{ item.expected_summary || '—' }}</td>
+                      <td>{{ item.observed_summary || '—' }}</td>
+                      <td>{{ item.resolution_action ? formatStatus(item.resolution_action) : '—' }}</td>
+                      <td>{{ item.resolution_notes || '—' }}</td>
+                      <td>{{ item.resolved_by_name || '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <p class="muted" style="margin-top: 0.5rem;">Showing {{ verificationDiscrepancyReport.length }} discrepancy record(s).</p>
           }
         }
       }
@@ -1405,6 +1544,801 @@
           </dl>
         }
       </section>
+    }
+  </section>
+}
+
+@if (activeView === 'verification' && can('verification.read')) {
+  <section class="panel verification-panel">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Audit & Compliance</p>
+        <h2>Physical Asset Verification</h2>
+        <p class="muted">Conduct audit campaigns to verify the existence, actual location, custodian, and condition of registered physical assets.</p>
+      </div>
+      <div class="actions">
+        <button type="button" class="secondary" (click)="loadVerification()" [disabled]="verificationLoading">
+          {{ verificationLoading ? 'Loading…' : 'Refresh' }}
+        </button>
+        @if (!selectedCampaign && can('verification.manage')) {
+          <button type="button" class="primary" (click)="openCreateCampaignModal()">
+            New Campaign
+          </button>
+        }
+        @if (selectedCampaign) {
+          <button type="button" class="secondary" (click)="clearSelectedCampaign()">
+            ← Back to campaigns
+          </button>
+        }
+      </div>
+    </div>
+
+    @if (verificationLoading) {
+      <div class="loading">Loading verification data…</div>
+    }
+
+    @if (!selectedCampaign) {
+      <!-- Campaign Create Modal -->
+      @if (campaignCreateModalOpen) {
+        <div class="modal-backdrop" (click)="closeCreateCampaignModal()">
+          <div class="modal-card" (click)="$event.stopPropagation()">
+            <div class="modal-header">
+              <h3>New Verification Campaign</h3>
+              <button type="button" class="close-btn" (click)="closeCreateCampaignModal()">&times;</button>
+            </div>
+            <form (ngSubmit)="submitCreateCampaign()" class="form-grid">
+              <label>Campaign Reference (required)
+                <input type="text" [(ngModel)]="campaignCreateForm.campaign_reference" name="campaignRef" placeholder="e.g. CMP-2026-Q4" required maxlength="64">
+              </label>
+              <label>Campaign Name (required)
+                <input type="text" [(ngModel)]="campaignCreateForm.name" name="campaignName" placeholder="e.g. Q4 IT Hardware Audit" required maxlength="160">
+              </label>
+              <label class="wide">Description
+                <textarea [(ngModel)]="campaignCreateForm.description" name="campaignDesc" rows="2" placeholder="Audit scope, guidelines, or instructions…"></textarea>
+              </label>
+              <label>Start Date (required)
+                <input type="date" [(ngModel)]="campaignCreateForm.start_date" name="startDate" required>
+              </label>
+              <label>End Date (required)
+                <input type="date" [(ngModel)]="campaignCreateForm.end_date" name="endDate" required>
+              </label>
+              <div class="wide scope-picker-section">
+                <p class="section-subtitle"><strong>Target Categories (optional)</strong> — If none selected, all asset categories are included.</p>
+                <div class="checkbox-pill-grid">
+                  @for (cat of categories; track cat.id) {
+                    <label class="checkbox-pill" [class.selected]="isCategoryInScope(cat.id)">
+                      <input type="checkbox" [checked]="isCategoryInScope(cat.id)" (change)="toggleCategoryScope(cat.id)">
+                      <span>{{ cat.name }}</span>
+                    </label>
+                  }
+                </div>
+              </div>
+              <div class="wide scope-picker-section">
+                <p class="section-subtitle"><strong>Target Locations (optional)</strong> — If none selected, all locations are included.</p>
+                <div class="checkbox-pill-grid">
+                  @for (loc of allLocations; track loc.id) {
+                    <label class="checkbox-pill" [class.selected]="isLocationInScope(loc.id)">
+                      <input type="checkbox" [checked]="isLocationInScope(loc.id)" (change)="toggleLocationScope(loc.id)">
+                      <span>{{ loc.name }}</span>
+                    </label>
+                  }
+                  @if (allLocations.length === 0) {
+                    <span class="muted">No locations configured yet. All locations will be eligible.</span>
+                  }
+                </div>
+              </div>
+              <div class="form-actions wide">
+                <button type="submit" class="primary" [disabled]="saving || !campaignCreateForm.campaign_reference.trim() || !campaignCreateForm.name.trim()">
+                  Create Campaign
+                </button>
+                <button type="button" class="secondary" (click)="closeCreateCampaignModal()">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      }
+
+      <!-- Campaign Filters -->
+      <div class="filter-grid" style="margin-bottom: 1.2rem;">
+        <label>Search
+          <input type="text" [(ngModel)]="verificationSearch" (keyup.enter)="loadVerification()" placeholder="Search by reference or name…">
+        </label>
+        <label>Status
+          <select [(ngModel)]="verificationStatusFilter" (change)="loadVerification()">
+            <option value="all">All Statuses</option>
+            <option value="draft">Draft</option>
+            <option value="in_progress">In Progress</option>
+            <option value="under_review">Under Review</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </label>
+        <div class="filter-actions" style="grid-column: span 2; display: flex; align-items: flex-end; gap: 0.5rem;">
+          <button type="button" class="primary" (click)="loadVerification()">Filter</button>
+          <button type="button" class="secondary" (click)="verificationSearch = ''; verificationStatusFilter = 'all'; loadVerification()">Reset</button>
+        </div>
+      </div>
+
+      <!-- Campaigns Table -->
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Reference</th>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Verification Period</th>
+              <th>Expected Assets</th>
+              <th>Progress</th>
+              <th>Discrepancies</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (camp of verificationCampaigns; track camp.id) {
+              <tr>
+                <td><strong>{{ camp.campaign_reference }}</strong></td>
+                <td>{{ camp.name }}</td>
+                <td><span class="status-badge" [ngClass]="campaignStatusBadgeClass(camp.status)">{{ formatStatus(camp.status) }}</span></td>
+                <td>{{ camp.start_date }} → {{ camp.end_date }}</td>
+                <td><strong>{{ camp.total_expected }}</strong></td>
+                <td>
+                  <div class="progress-bar-wrap">
+                    <div class="progress-bar-bg">
+                      <div class="progress-bar-fill" [style.width.%]="camp.completion_percentage"></div>
+                    </div>
+                    <span class="progress-bar-label">{{ camp.total_verified }}/{{ camp.total_expected }} ({{ camp.completion_percentage | number:'1.0-0' }}%)</span>
+                  </div>
+                </td>
+                <td>
+                  @if (camp.total_discrepancies > 0) {
+                    <span class="status-badge status-urgent">{{ camp.total_discrepancies }} issues</span>
+                  } @else {
+                    <span class="muted">0</span>
+                  }
+                </td>
+                <td class="actions">
+                  <button type="button" class="link-button" (click)="selectVerificationCampaign(camp)">Open Campaign →</button>
+                </td>
+              </tr>
+            }
+            @if (!verificationLoading && verificationCampaigns.length === 0) {
+              <tr>
+                <td colspan="8" class="empty">No verification campaigns found. Click "New Campaign" to create one.</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+
+    @if (selectedCampaign) {
+      <!-- Campaign Header & Lifecycle Actions -->
+      <div class="campaign-header-card">
+        <div class="campaign-header-info">
+          <div class="campaign-ref-row">
+            <span class="campaign-ref-pill">{{ selectedCampaign.campaign_reference }}</span>
+            <span class="status-badge" [ngClass]="campaignStatusBadgeClass(selectedCampaign.status)">
+              {{ formatStatus(selectedCampaign.status) }}
+            </span>
+            <span class="muted">Period: {{ selectedCampaign.start_date }} → {{ selectedCampaign.end_date }}</span>
+            @if (selectedCampaign.created_by_name) {
+              <span class="muted">· Created by {{ selectedCampaign.created_by_name }}</span>
+            }
+          </div>
+          <h3 class="campaign-title">{{ selectedCampaign.name }}</h3>
+          @if (selectedCampaign.description) {
+            <p class="campaign-desc">{{ selectedCampaign.description }}</p>
+          }
+        </div>
+
+        @if (can('verification.manage')) {
+          <div class="campaign-lifecycle-actions">
+            @if (selectedCampaign.status === 'draft') {
+              <button type="button" class="primary" (click)="transitionCampaignStatus('in_progress')" [disabled]="saving">
+                Start Campaign (Lock Snapshot)
+              </button>
+              <button type="button" class="secondary danger-text" (click)="transitionCampaignStatus('cancelled')" [disabled]="saving">
+                Cancel Campaign
+              </button>
+            }
+            @if (selectedCampaign.status === 'in_progress') {
+              <button type="button" class="primary" (click)="transitionCampaignStatus('under_review')" [disabled]="saving">
+                Submit for Review
+              </button>
+              <button type="button" class="secondary danger-text" (click)="transitionCampaignStatus('cancelled')" [disabled]="saving">
+                Cancel Campaign
+              </button>
+            }
+            @if (selectedCampaign.status === 'under_review') {
+              <button type="button" class="primary" (click)="transitionCampaignStatus('completed')" [disabled]="saving">
+                Complete Campaign
+              </button>
+              <button type="button" class="secondary" (click)="transitionCampaignStatus('in_progress')" [disabled]="saving">
+                Reopen Verification
+              </button>
+              <button type="button" class="secondary danger-text" (click)="transitionCampaignStatus('cancelled')" [disabled]="saving">
+                Cancel Campaign
+              </button>
+            }
+          </div>
+        }
+      </div>
+
+      <!-- KPI Summary Dashboard Cards -->
+      <div class="kpi-grid verification-kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-card-header">
+            <span class="kpi-label">Expected Assets</span>
+          </div>
+          <span class="kpi-value">{{ campaignDashboard?.total_expected ?? selectedCampaign.total_expected }}</span>
+          <span class="kpi-trend">Scope locked at start</span>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-card-header">
+            <span class="kpi-label">Verified Assets</span>
+          </div>
+          <span class="kpi-value" style="color: #16a34a;">{{ campaignDashboard?.total_verified ?? selectedCampaign.total_verified }}</span>
+          <span class="kpi-trend">Physically observed</span>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-card-header">
+            <span class="kpi-label">Missing Assets</span>
+          </div>
+          <span class="kpi-value" [style.color]="(campaignDashboard?.total_missing || 0) > 0 ? '#dc2626' : '#64748b'">
+            {{ campaignDashboard?.total_missing ?? selectedCampaign.total_missing }}
+          </span>
+          <span class="kpi-trend">Reported not found</span>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-card-header">
+            <span class="kpi-label">Completion Rate</span>
+          </div>
+          <span class="kpi-value" style="color: #2563eb;">{{ (campaignDashboard?.completion_percentage ?? selectedCampaign.completion_percentage) | number:'1.0-1' }}%</span>
+          <div class="progress-bar-bg" style="margin-top: 0.35rem;">
+            <div class="progress-bar-fill" [style.width.%]="campaignDashboard?.completion_percentage ?? selectedCampaign.completion_percentage"></div>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-card-header">
+            <span class="kpi-label">Discrepancies</span>
+          </div>
+          <span class="kpi-value" [style.color]="(campaignDashboard?.pending_resolutions || 0) > 0 ? '#f59e0b' : '#16a34a'">
+            {{ campaignDashboard?.pending_resolutions ?? 0 }} Pending
+          </span>
+          <span class="kpi-trend">{{ campaignDashboard?.resolved_resolutions ?? 0 }} resolved</span>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-card-header">
+            <span class="kpi-label">Unregistered Found</span>
+          </div>
+          <span class="kpi-value" style="color: #8b5cf6;">{{ campaignDashboard?.unregistered_count ?? selectedCampaign.total_unregistered }}</span>
+          <span class="kpi-trend">Discovered in field</span>
+        </div>
+      </div>
+
+      <!-- Campaign Sub-Tabs -->
+      <nav class="sub-tabs" aria-label="Campaign workspace views">
+        <button type="button" [class.active]="verificationSubView === 'expected'" (click)="verificationSubView = 'expected'">
+          Expected Assets ({{ campaignExpectedAssets.length }})
+        </button>
+        <button type="button" [class.active]="verificationSubView === 'discrepancies'" (click)="verificationSubView = 'discrepancies'">
+          Discrepancies ({{ campaignDiscrepancies.length }})
+        </button>
+        <button type="button" [class.active]="verificationSubView === 'unregistered'" (click)="verificationSubView = 'unregistered'">
+          Unregistered Assets ({{ campaignUnregisteredAssets.length }})
+        </button>
+      </nav>
+
+      <!-- Sub-view 1: Expected Assets -->
+      @if (verificationSubView === 'expected') {
+        <div class="filter-grid" style="margin: 1rem 0;">
+          <label>Barcode / Asset # Search
+            <input type="text" [(ngModel)]="expectedSearch" (keyup.enter)="loadExpectedAssets()" placeholder="Scan or type asset #…">
+          </label>
+          <label>Verification Status
+            <select [(ngModel)]="expectedVerifiedFilter" (change)="loadExpectedAssets()">
+              <option [ngValue]="undefined">All Assets</option>
+              <option [ngValue]="true">Verified</option>
+              <option [ngValue]="false">Unverified</option>
+            </select>
+          </label>
+          <label>Category
+            <select [(ngModel)]="expectedCategoryFilter" (change)="loadExpectedAssets()">
+              <option value="">All Categories</option>
+              @for (c of categories; track c.id) {
+                <option [value]="c.id">{{ c.name }}</option>
+              }
+            </select>
+          </label>
+          <label>Location
+            <select [(ngModel)]="expectedLocationFilter" (change)="loadExpectedAssets()">
+              <option value="">All Locations</option>
+              @for (l of allLocations; track l.id) {
+                <option [value]="l.id">{{ l.name }}</option>
+              }
+            </select>
+          </label>
+          <div class="filter-actions" style="grid-column: span 2; display: flex; align-items: flex-end; gap: 0.5rem;">
+            <button type="button" class="primary" (click)="loadExpectedAssets()">Filter</button>
+            <button type="button" class="secondary" (click)="expectedSearch = ''; expectedVerifiedFilter = undefined; expectedCategoryFilter = ''; expectedLocationFilter = ''; loadExpectedAssets()">Reset</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Asset #</th>
+                <th>Category</th>
+                <th>Model / Mfr</th>
+                <th>Expected Location</th>
+                <th>Expected Custodian</th>
+                <th>Expected Condition</th>
+                <th>Status</th>
+                <th>Verified?</th>
+                <th>Discrepancy</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (item of campaignExpectedAssets; track item.id) {
+                <tr [class.verified-row]="item.is_verified">
+                  <td><strong>{{ item.asset_number }}</strong></td>
+                  <td>{{ item.category_name || '—' }}</td>
+                  <td>{{ item.model || '—' }} @if (item.manufacturer) { <small class="muted">({{ item.manufacturer }})</small> }</td>
+                  <td>{{ item.location_name || item.site_name || '—' }}</td>
+                  <td>{{ item.expected_custodian_name || 'Unassigned' }}</td>
+                  <td>{{ item.expected_condition || '—' }}</td>
+                  <td><span class="status-badge" [ngClass]="'status-' + item.expected_status">{{ formatStatus(item.expected_status) }}</span></td>
+                  <td>
+                    @if (item.is_verified) {
+                      @if (item.observation_found) {
+                        <span class="status-badge status-active">Found</span>
+                      } @else {
+                        <span class="status-badge status-cancelled">Missing</span>
+                      }
+                    } @else {
+                      <span class="status-badge status-in_stock">Pending</span>
+                    }
+                  </td>
+                  <td>
+                    @if (item.has_discrepancy) {
+                      @for (dt of item.discrepancy_types; track dt) {
+                        <span class="status-badge" [ngClass]="discrepancyTypeBadgeClass(dt)" style="margin-right: 0.25rem;">
+                          {{ formatDiscrepancyType(dt) }}
+                        </span>
+                      }
+                    } @else if (item.is_verified) {
+                      <span class="status-badge status-active">Matched</span>
+                    } @else {
+                      <span class="muted">—</span>
+                    }
+                  </td>
+                  <td class="actions">
+                    @if (can('verification.manage') && selectedCampaign.status === 'in_progress') {
+                      <button type="button" class="link-button" (click)="openRecordObservationModal(item)">
+                        {{ item.is_verified ? 'Re-verify' : 'Record observation' }}
+                      </button>
+                    }
+                  </td>
+                </tr>
+              }
+              @if (campaignExpectedAssets.length === 0) {
+                <tr>
+                  <td colspan="10" class="empty">No expected assets match the criteria in this campaign.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Observation Modal -->
+        @if (observationModalOpen && selectedExpectedAsset) {
+          <div class="modal-backdrop" (click)="closeRecordObservationModal()">
+            <div class="modal-card" (click)="$event.stopPropagation()">
+              <div class="modal-header">
+                <h3>Record Physical Observation · Asset {{ selectedExpectedAsset.asset_number }}</h3>
+                <button type="button" class="close-btn" (click)="closeRecordObservationModal()">&times;</button>
+              </div>
+              <p class="muted" style="margin-top: 0;">
+                Category: <strong>{{ selectedExpectedAsset.category_name }}</strong> · 
+                Expected Location: <strong>{{ selectedExpectedAsset.location_name || 'Unassigned' }}</strong> · 
+                Expected Custodian: <strong>{{ selectedExpectedAsset.expected_custodian_name || 'Unassigned' }}</strong>
+              </p>
+              <form (ngSubmit)="submitObservation()" class="form-grid">
+                <div class="wide" style="display: flex; gap: 1.5rem; margin-bottom: 0.5rem;">
+                  <label class="checkbox-line" style="font-size: 0.95rem; font-weight: 700; cursor: pointer;">
+                    <input type="radio" name="isFound" [value]="true" [(ngModel)]="observationForm.is_found">
+                    Asset Found (Present)
+                  </label>
+                  <label class="checkbox-line" style="font-size: 0.95rem; font-weight: 700; color: #dc2626; cursor: pointer;">
+                    <input type="radio" name="isFound" [value]="false" [(ngModel)]="observationForm.is_found">
+                    Asset NOT Found (Missing)
+                  </label>
+                </div>
+
+                @if (observationForm.is_found) {
+                  <label>Actual Location
+                    <select [(ngModel)]="observationForm.actual_location_id" name="obsLocation">
+                      <option value="">Keep / Same as Expected</option>
+                      @for (loc of allLocations; track loc.id) {
+                        <option [value]="loc.id">{{ loc.name }}</option>
+                      }
+                    </select>
+                  </label>
+
+                  <label>Actual Custodian
+                    <select [(ngModel)]="observationForm.actual_custodian_id" name="obsCustodian">
+                      <option value="">Unassigned / No Custodian</option>
+                      @for (u of assignmentRecipients; track u.id) {
+                        <option [value]="u.id">{{ u.email }}</option>
+                      }
+                    </select>
+                  </label>
+
+                  <label>Observed Condition (required)
+                    <select [(ngModel)]="observationForm.observed_condition" name="obsCondition" required>
+                      <option value="excellent">Excellent</option>
+                      <option value="good">Good</option>
+                      <option value="fair">Fair</option>
+                      <option value="poor">Poor</option>
+                      <option value="damaged">Damaged / Non-functional</option>
+                    </select>
+                  </label>
+                }
+
+                <label class="wide">Remarks / Field Notes
+                  <textarea [(ngModel)]="observationForm.remarks" name="obsRemarks" rows="2" placeholder="Notes on physical tags, condition observations, or location context…"></textarea>
+                </label>
+
+                <label class="wide">Reference Notes / Barcode Scanned
+                  <input type="text" [(ngModel)]="observationForm.reference_notes" name="obsRefNotes" placeholder="Optional barcode scan or tag reference…">
+                </label>
+
+                <div class="form-actions wide">
+                  <button type="submit" class="primary" [disabled]="saving">
+                    Save Observation
+                  </button>
+                  <button type="button" class="secondary" (click)="closeRecordObservationModal()">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        }
+      }
+
+      <!-- Sub-view 2: Discrepancies -->
+      @if (verificationSubView === 'discrepancies') {
+        <div class="filter-grid" style="margin: 1rem 0;">
+          <label>Discrepancy Type
+            <select [(ngModel)]="discrepancyTypeFilter" (change)="loadDiscrepancies()">
+              <option value="all">All Types</option>
+              <option value="missing">Missing</option>
+              <option value="location_mismatch">Location Mismatch</option>
+              <option value="custodian_mismatch">Custodian Mismatch</option>
+              <option value="condition_mismatch">Condition Mismatch</option>
+              <option value="unregistered_found">Unregistered Found</option>
+            </select>
+          </label>
+          <label>Status
+            <select [(ngModel)]="discrepancyStatusFilter" (change)="loadDiscrepancies()">
+              <option value="all">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="resolved">Resolved</option>
+              <option value="dismissed">Dismissed</option>
+            </select>
+          </label>
+          <div class="filter-actions" style="grid-column: span 2; display: flex; align-items: flex-end; gap: 0.5rem;">
+            <button type="button" class="primary" (click)="loadDiscrepancies()">Filter</button>
+            <button type="button" class="secondary" (click)="discrepancyTypeFilter = 'all'; discrepancyStatusFilter = 'all'; loadDiscrepancies()">Reset</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Asset #</th>
+                <th>Discrepancy Type</th>
+                <th>Status</th>
+                <th>Expected vs Observed</th>
+                <th>Notes</th>
+                <th>Resolution Summary</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (d of campaignDiscrepancies; track d.id) {
+                <tr>
+                  <td><strong>{{ d.asset_number || '—' }}</strong></td>
+                  <td><span class="status-badge" [ngClass]="discrepancyTypeBadgeClass(d.discrepancy_type)">{{ formatDiscrepancyType(d.discrepancy_type) }}</span></td>
+                  <td><span class="status-badge" [ngClass]="'status-' + d.status">{{ formatStatus(d.status) }}</span></td>
+                  <td>
+                    @if (d.discrepancy_type === 'missing') {
+                      <span class="danger-text">Asset was not found during physical inspection.</span>
+                    } @else if (d.discrepancy_type === 'location_mismatch') {
+                      <div>Expected: <strong>{{ d.expected_data?.location_name || d.expected_data?.site_name || 'None' }}</strong></div>
+                      <div>Observed: <strong style="color: #2563eb;">{{ d.observed_data?.actual_location_name || d.observed_data?.actual_site_name || 'None' }}</strong></div>
+                    } @else if (d.discrepancy_type === 'custodian_mismatch') {
+                      <div>Expected: <strong>{{ d.expected_data?.custodian_name || 'Unassigned' }}</strong></div>
+                      <div>Observed: <strong style="color: #2563eb;">{{ d.observed_data?.actual_custodian_name || 'Unassigned' }}</strong></div>
+                    } @else if (d.discrepancy_type === 'condition_mismatch') {
+                      <div>Expected: <strong>{{ d.expected_data?.condition || '—' }}</strong></div>
+                      <div>Observed: <strong style="color: #f59e0b;">{{ d.observed_data?.observed_condition || '—' }}</strong></div>
+                    } @else if (d.discrepancy_type === 'unregistered_found') {
+                      <div>Unregistered item found: <strong>{{ d.observed_data?.description }}</strong></div>
+                    }
+                  </td>
+                  <td>{{ d.notes || '—' }}</td>
+                  <td>
+                    @if (d.status === 'resolved' || d.status === 'dismissed') {
+                      <div><strong>Action:</strong> {{ formatStatus(d.resolution_action) }}</div>
+                      <div class="muted">{{ d.resolution_notes }}</div>
+                      <small class="muted">By {{ d.resolved_by_name || 'User' }} on {{ d.resolved_at | date:'shortDate' }}</small>
+                    } @else {
+                      <span class="muted">Awaiting review</span>
+                    }
+                  </td>
+                  <td class="actions">
+                    @if (d.status === 'pending' && can('verification.manage')) {
+                      <button type="button" class="link-button" (click)="openResolveDiscrepancyModal(d)">
+                        Resolve
+                      </button>
+                    }
+                  </td>
+                </tr>
+              }
+              @if (campaignDiscrepancies.length === 0) {
+                <tr>
+                  <td colspan="7" class="empty">No discrepancies recorded for this campaign.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Resolve Discrepancy Modal -->
+        @if (resolveDiscrepancyModalOpen && selectedDiscrepancy) {
+          <div class="modal-backdrop" (click)="closeResolveDiscrepancyModal()">
+            <div class="modal-card" (click)="$event.stopPropagation()">
+              <div class="modal-header">
+                <h3>Resolve Discrepancy · {{ formatDiscrepancyType(selectedDiscrepancy.discrepancy_type) }}</h3>
+                <button type="button" class="close-btn" (click)="closeResolveDiscrepancyModal()">&times;</button>
+              </div>
+              <p class="muted" style="margin-top: 0;">
+                Asset: <strong>{{ selectedDiscrepancy.asset_number || 'Unregistered' }}</strong> · 
+                Campaign: <strong>{{ selectedCampaign.campaign_reference }}</strong>
+              </p>
+
+              <form (ngSubmit)="submitResolveDiscrepancy()" class="form-grid">
+                <label class="wide">Resolution Action (required)
+                  <select [(ngModel)]="resolveDiscrepancyForm.resolution_action" name="resAction" required>
+                    <option value="update_master">Update Asset Master (Apply observed location/custodian/condition to asset registry)</option>
+                    <option value="keep_as_is">Keep Master Unchanged (Document as temporary or verified exception)</option>
+                    <option value="mark_missing">Mark Asset as Missing / Lost (Update asset status to missing)</option>
+                    <option value="investigate">Mark for Further Investigation</option>
+                    <option value="dismiss">Dismiss Discrepancy (Data entry or false alarm)</option>
+                  </select>
+                </label>
+
+                <label class="wide">Resolution Notes & Rationale (required)
+                  <textarea [(ngModel)]="resolveDiscrepancyForm.resolution_notes" name="resNotes" rows="3" placeholder="Provide audit trail justification for this resolution decision…" required></textarea>
+                </label>
+
+                <div class="form-actions wide">
+                  <button type="submit" class="primary" [disabled]="saving || !resolveDiscrepancyForm.resolution_notes.trim()">
+                    Confirm Resolution
+                  </button>
+                  <button type="button" class="secondary" (click)="closeResolveDiscrepancyModal()">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        }
+      }
+
+      <!-- Sub-view 3: Unregistered Assets -->
+      @if (verificationSubView === 'unregistered') {
+        <div style="display: flex; justify-content: space-between; align-items: center; margin: 1rem 0; flex-wrap: wrap; gap: 1rem;">
+          <div class="filter-grid" style="margin: 0;">
+            <label>Status
+              <select [(ngModel)]="unregisteredStatusFilter" (change)="loadUnregisteredAssets()">
+                <option value="all">All Statuses</option>
+                <option value="discovered">Discovered</option>
+                <option value="registered">Registered</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </label>
+          </div>
+          @if (can('verification.manage') && selectedCampaign.status === 'in_progress') {
+            <button type="button" class="primary" (click)="openRecordUnregisteredModal()">
+              + Record Unregistered Asset
+            </button>
+          }
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Category</th>
+                <th>Serial #</th>
+                <th>Location</th>
+                <th>Observed Condition</th>
+                <th>Status</th>
+                <th>Registered Asset #</th>
+                <th>Remarks</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (u of campaignUnregisteredAssets; track u.id) {
+                <tr>
+                  <td><strong>{{ u.description }}</strong></td>
+                  <td>{{ u.category_name || '—' }}</td>
+                  <td>{{ u.serial_number || '—' }}</td>
+                  <td>{{ u.location_name || u.site_name || '—' }}</td>
+                  <td>{{ u.observed_condition || '—' }}</td>
+                  <td><span class="status-badge" [ngClass]="'status-' + u.status">{{ formatStatus(u.status) }}</span></td>
+                  <td>
+                    @if (u.registered_asset_number) {
+                      <strong>{{ u.registered_asset_number }}</strong>
+                    } @else {
+                      <span class="muted">—</span>
+                    }
+                  </td>
+                  <td>{{ u.remarks || '—' }}</td>
+                  <td class="actions">
+                    @if (u.status === 'discovered' && can('verification.manage')) {
+                      <button type="button" class="link-button" (click)="openRegisterUnregisteredModal(u)">
+                        Register Asset
+                      </button>
+                    }
+                  </td>
+                </tr>
+              }
+              @if (campaignUnregisteredAssets.length === 0) {
+                <tr>
+                  <td colspan="9" class="empty">No unregistered assets discovered during this campaign.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Record Unregistered Modal -->
+        @if (unregisteredModalOpen) {
+          <div class="modal-backdrop" (click)="closeRecordUnregisteredModal()">
+            <div class="modal-card" (click)="$event.stopPropagation()">
+              <div class="modal-header">
+                <h3>Record In-Field Discovered Asset</h3>
+                <button type="button" class="close-btn" (click)="closeRecordUnregisteredModal()">&times;</button>
+              </div>
+              <p class="muted" style="margin-top: 0;">
+                Log physical assets found in the field that are not in the existing asset registry.
+              </p>
+              <form (ngSubmit)="submitRecordUnregistered()" class="form-grid">
+                <label>Description / Asset Title (required)
+                  <input type="text" [(ngModel)]="unregisteredForm.description" name="unregDesc" placeholder="e.g. Dell UltraSharp 27 Monitor" required maxlength="255">
+                </label>
+                <label>Category (required)
+                  <select [(ngModel)]="unregisteredForm.category_id" name="unregCategory" required>
+                    @for (cat of categories; track cat.id) {
+                      <option [value]="cat.id">{{ cat.name }}</option>
+                    }
+                  </select>
+                </label>
+                <label>Serial Number (optional)
+                  <input type="text" [(ngModel)]="unregisteredForm.serial_number" name="unregSerial" placeholder="e.g. CN-0ABCD1-12345" maxlength="128">
+                </label>
+                <label>Site
+                  <select [(ngModel)]="unregisteredForm.site_id" name="unregSite">
+                    <option value="">None / Unknown</option>
+                    @for (s of sites; track s.id) {
+                      <option [value]="s.id">{{ s.name }}</option>
+                    }
+                  </select>
+                </label>
+                <label>Location
+                  <select [(ngModel)]="unregisteredForm.location_id" name="unregLocation">
+                    <option value="">None / Unknown</option>
+                    @for (l of allLocations; track l.id) {
+                      <option [value]="l.id">{{ l.name }}</option>
+                    }
+                  </select>
+                </label>
+                <label>Observed Condition
+                  <select [(ngModel)]="unregisteredForm.observed_condition" name="unregCondition">
+                    <option value="excellent">Excellent</option>
+                    <option value="good">Good</option>
+                    <option value="fair">Fair</option>
+                    <option value="poor">Poor</option>
+                    <option value="damaged">Damaged</option>
+                  </select>
+                </label>
+                <label class="wide">Field Remarks & Identifier Info
+                  <textarea [(ngModel)]="unregisteredForm.remarks" name="unregRemarks" rows="2" placeholder="Where was it found, who was using it, or any manufacturer details…"></textarea>
+                </label>
+                <div class="form-actions wide">
+                  <button type="submit" class="primary" [disabled]="saving || !unregisteredForm.description.trim() || !unregisteredForm.category_id">
+                    Record Unregistered Asset
+                  </button>
+                  <button type="button" class="secondary" (click)="closeRecordUnregisteredModal()">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        }
+
+        <!-- Register Unregistered Asset Modal -->
+        @if (registerUnregisteredModalOpen && selectedUnregisteredAsset) {
+          <div class="modal-backdrop" (click)="closeRegisterUnregisteredModal()">
+            <div class="modal-card" (click)="$event.stopPropagation()">
+              <div class="modal-header">
+                <h3>Register Discovered Asset in Master Inventory</h3>
+                <button type="button" class="close-btn" (click)="closeRegisterUnregisteredModal()">&times;</button>
+              </div>
+              <p class="muted" style="margin-top: 0;">
+                Item: <strong>{{ selectedUnregisteredAsset.description }}</strong> · 
+                Category: <strong>{{ selectedUnregisteredAsset.category_name }}</strong>
+              </p>
+              <form (ngSubmit)="submitRegisterUnregistered()" class="form-grid">
+                <label>Asset Number (leave blank to auto-generate from numbering rule)
+                  <input type="text" [(ngModel)]="registerUnregisteredForm.asset_number" name="regAssetNum" placeholder="Auto-generated if blank" maxlength="64">
+                </label>
+                <label>Cost Center
+                  <select [(ngModel)]="registerUnregisteredForm.cost_center_id" name="regCostCenter">
+                    <option value="">None</option>
+                    @for (cc of costCenters; track cc.id) {
+                      <option [value]="cc.id">{{ cc.name }}</option>
+                    }
+                  </select>
+                </label>
+                <label>Responsible Department
+                  <select [(ngModel)]="registerUnregisteredForm.responsible_department_id" name="regDept">
+                    <option value="">None</option>
+                    @for (d of departments; track d.id) {
+                      <option [value]="d.id">{{ d.name }}</option>
+                    }
+                  </select>
+                </label>
+                <label>Estimated Acquisition Cost
+                  <input type="number" [(ngModel)]="registerUnregisteredForm.acquisition_cost" name="regCost" min="0" step="0.01" placeholder="0.00">
+                </label>
+                <label>Acquisition / Discovery Date
+                  <input type="date" [(ngModel)]="registerUnregisteredForm.acquisition_date" name="regDate">
+                </label>
+                <label class="wide">Resolution Notes (required)
+                  <textarea [(ngModel)]="registerUnregisteredForm.resolution_notes" name="regNotes" rows="2" placeholder="Audit note explaining the addition of this asset…" required></textarea>
+                </label>
+                <div class="form-actions wide">
+                  <button type="submit" class="primary" [disabled]="saving || !registerUnregisteredForm.resolution_notes.trim()">
+                    Register Asset & Close Finding
+                  </button>
+                  <button type="button" class="secondary" (click)="closeRegisterUnregisteredModal()">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        }
+      }
     }
   </section>
 }

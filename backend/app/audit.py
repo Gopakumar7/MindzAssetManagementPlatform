@@ -33,6 +33,11 @@ from app.models import (
     SystemRoleAssignment,
     User,
     UserInvitation,
+    VerificationCampaign,
+    VerificationDiscrepancy,
+    VerificationExpectedAsset,
+    VerificationObservation,
+    VerificationUnregisteredAsset,
 )
 
 _AUDITED_FIELDS: dict[type, tuple[str, ...]] = {
@@ -91,6 +96,29 @@ _AUDITED_FIELDS: dict[type, tuple[str, ...]] = {
     SystemRoleAssignment: ('user_id', 'role_id'),
     Role: ('code', 'name', 'scope'),
     UserInvitation: ('membership_id', 'expires_at', 'accepted_at', 'revoked_at'),
+    VerificationCampaign: (
+        'company_id', 'campaign_reference', 'name', 'status', 'start_date', 'end_date',
+        'started_at', 'completed_at', 'closed_by_id',
+    ),
+    VerificationExpectedAsset: (
+        'company_id', 'campaign_id', 'asset_id', 'expected_site_id', 'expected_location_id',
+        'expected_department_id', 'expected_custodian_id', 'expected_condition', 'expected_status',
+    ),
+    VerificationObservation: (
+        'company_id', 'campaign_id', 'expected_asset_id', 'asset_id', 'is_found',
+        'actual_site_id', 'actual_location_id', 'actual_department_id', 'actual_custodian_id',
+        'observed_condition', 'verification_date', 'verified_by_id', 'remarks',
+    ),
+    VerificationDiscrepancy: (
+        'company_id', 'campaign_id', 'observation_id', 'expected_asset_id', 'asset_id',
+        'discrepancy_type', 'status', 'resolution_action', 'resolution_notes', 'resolved_by_id',
+        'resolved_at',
+    ),
+    VerificationUnregisteredAsset: (
+        'company_id', 'campaign_id', 'serial_number', 'description', 'category_id',
+        'site_id', 'location_id', 'custodian_id', 'observed_condition', 'status',
+        'registered_asset_id',
+    ),
 }
 
 

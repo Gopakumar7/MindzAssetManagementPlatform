@@ -871,5 +871,328 @@ export class RegistryService {
     if (filters.search) params = params.set('search', filters.search);
     return this.http.get<ProcurementReportItem[]>(`${this.base}/companies/${companyId}/reports/procurement`, { params });
   }
+
+  // --- Physical Asset Verification ---
+
+  listVerificationCampaigns(companyId: string, filters: { status?: string; search?: string } = {}): Observable<VerificationCampaign[]> {
+    let params = new HttpParams();
+    if (filters.status && filters.status !== 'all') params = params.set('status', filters.status);
+    if (filters.search) params = params.set('search', filters.search);
+    return this.http.get<VerificationCampaign[]>(`${this.base}/companies/${companyId}/verification-campaigns`, { params });
+  }
+
+  getVerificationCampaign(companyId: string, campaignId: string): Observable<VerificationCampaign> {
+    return this.http.get<VerificationCampaign>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}`);
+  }
+
+  createVerificationCampaign(companyId: string, payload: VerificationCampaignCreate): Observable<VerificationCampaign> {
+    return this.http.post<VerificationCampaign>(`${this.base}/companies/${companyId}/verification-campaigns`, payload);
+  }
+
+  updateVerificationCampaign(companyId: string, campaignId: string, payload: VerificationCampaignUpdate): Observable<VerificationCampaign> {
+    return this.http.patch<VerificationCampaign>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}`, payload);
+  }
+
+  transitionVerificationCampaignStatus(companyId: string, campaignId: string, status: string): Observable<VerificationCampaign> {
+    return this.http.post<VerificationCampaign>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}/status`, { status });
+  }
+
+  getVerificationExpectedAssets(companyId: string, campaignId: string, filters: {
+    search?: string;
+    verified?: boolean;
+    category_id?: string;
+    location_id?: string;
+  } = {}): Observable<VerificationExpectedAsset[]> {
+    let params = new HttpParams();
+    if (filters.search) params = params.set('search', filters.search);
+    if (filters.verified !== undefined) params = params.set('verified', filters.verified ? 'true' : 'false');
+    if (filters.category_id) params = params.set('category_id', filters.category_id);
+    if (filters.location_id) params = params.set('location_id', filters.location_id);
+    return this.http.get<VerificationExpectedAsset[]>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}/expected-assets`, { params });
+  }
+
+  recordVerificationObservation(companyId: string, campaignId: string, expectedAssetId: string, payload: VerificationObservationCreate): Observable<VerificationObservation> {
+    return this.http.post<VerificationObservation>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}/expected-assets/${expectedAssetId}/observations`, payload);
+  }
+
+  getVerificationDiscrepancies(companyId: string, campaignId: string, filters: {
+    discrepancy_type?: string;
+    status?: string;
+  } = {}): Observable<VerificationDiscrepancy[]> {
+    let params = new HttpParams();
+    if (filters.discrepancy_type && filters.discrepancy_type !== 'all') params = params.set('discrepancy_type', filters.discrepancy_type);
+    if (filters.status && filters.status !== 'all') params = params.set('status', filters.status);
+    return this.http.get<VerificationDiscrepancy[]>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}/discrepancies`, { params });
+  }
+
+  resolveVerificationDiscrepancy(companyId: string, campaignId: string, discrepancyId: string, payload: VerificationDiscrepancyResolveRequest): Observable<VerificationDiscrepancy> {
+    return this.http.post<VerificationDiscrepancy>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}/discrepancies/${discrepancyId}/resolve`, payload);
+  }
+
+  recordUnregisteredAsset(companyId: string, campaignId: string, payload: VerificationUnregisteredAssetCreate): Observable<VerificationUnregisteredAsset> {
+    return this.http.post<VerificationUnregisteredAsset>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}/unregistered-assets`, payload);
+  }
+
+  getUnregisteredAssets(companyId: string, campaignId: string, status?: string): Observable<VerificationUnregisteredAsset[]> {
+    let params = new HttpParams();
+    if (status && status !== 'all') params = params.set('status', status);
+    return this.http.get<VerificationUnregisteredAsset[]>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}/unregistered-assets`, { params });
+  }
+
+  registerUnregisteredAsset(companyId: string, campaignId: string, unregisteredAssetId: string, payload: VerificationUnregisteredAssetRegister): Observable<VerificationUnregisteredAsset> {
+    return this.http.post<VerificationUnregisteredAsset>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}/unregistered-assets/${unregisteredAssetId}/register`, payload);
+  }
+
+  getVerificationDashboard(companyId: string, campaignId: string): Observable<VerificationDashboardSummary> {
+    return this.http.get<VerificationDashboardSummary>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}/dashboard`);
+  }
+
+  reportVerificationCampaigns(companyId: string, filters: { status?: string; search?: string } = {}): Observable<VerificationCampaignReportItem[]> {
+    let params = new HttpParams();
+    if (filters.status && filters.status !== 'all') params = params.set('status', filters.status);
+    if (filters.search) params = params.set('search', filters.search);
+    return this.http.get<VerificationCampaignReportItem[]>(`${this.base}/companies/${companyId}/reports/verification-campaigns`, { params });
+  }
+
+  reportVerificationDiscrepancies(companyId: string, filters: { campaign_id?: string; discrepancy_type?: string; status?: string } = {}): Observable<VerificationDiscrepancyReportItem[]> {
+    let params = new HttpParams();
+    if (filters.campaign_id) params = params.set('campaign_id', filters.campaign_id);
+    if (filters.discrepancy_type && filters.discrepancy_type !== 'all') params = params.set('discrepancy_type', filters.discrepancy_type);
+    if (filters.status && filters.status !== 'all') params = params.set('status', filters.status);
+    return this.http.get<VerificationDiscrepancyReportItem[]>(`${this.base}/companies/${companyId}/reports/verification-discrepancies`, { params });
+  }
 }
+
+export interface VerificationCampaign {
+  id: string;
+  company_id: string;
+  campaign_reference: string;
+  name: string;
+  description: string | null;
+  status: string;
+  start_date: string;
+  end_date: string;
+  scope_category_ids: string[] | null;
+  scope_location_ids: string[] | null;
+  created_by_id: string;
+  created_by_name: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  closed_by_id: string | null;
+  created_at: string;
+  updated_at: string;
+  total_expected: number;
+  total_verified: number;
+  total_unverified: number;
+  total_missing: number;
+  total_discrepancies: number;
+  total_unregistered: number;
+  completion_percentage: number;
+}
+
+export interface VerificationCampaignCreate {
+  campaign_reference: string;
+  name: string;
+  description?: string | null;
+  start_date: string;
+  end_date: string;
+  scope_category_ids?: string[] | null;
+  scope_location_ids?: string[] | null;
+}
+
+export interface VerificationCampaignUpdate {
+  name?: string | null;
+  description?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  scope_category_ids?: string[] | null;
+  scope_location_ids?: string[] | null;
+}
+
+export interface VerificationExpectedAsset {
+  id: string;
+  company_id: string;
+  campaign_id: string;
+  asset_id: string;
+  asset_number: string;
+  category_id: string;
+  category_name?: string | null;
+  serial_number?: string | null;
+  model?: string | null;
+  manufacturer?: string | null;
+  expected_site_id?: string | null;
+  site_name?: string | null;
+  expected_location_id?: string | null;
+  location_name?: string | null;
+  expected_department_id?: string | null;
+  department_name?: string | null;
+  expected_custodian_id?: string | null;
+  expected_custodian_name?: string | null;
+  expected_condition?: string | null;
+  expected_status: string;
+  is_verified: boolean;
+  observation_id?: string | null;
+  observation_found?: boolean | null;
+  has_discrepancy: boolean;
+  discrepancy_types: string[];
+  created_at: string;
+}
+
+export interface VerificationObservationCreate {
+  is_found: boolean;
+  actual_location_id?: string | null;
+  actual_custodian_id?: string | null;
+  observed_condition: string;
+  verification_date?: string | null;
+  remarks?: string | null;
+  reference_notes?: string | null;
+}
+
+export interface VerificationObservation {
+  id: string;
+  company_id: string;
+  campaign_id: string;
+  expected_asset_id?: string | null;
+  asset_id?: string | null;
+  asset_number?: string | null;
+  is_found: boolean;
+  actual_site_id?: string | null;
+  actual_site_name?: string | null;
+  actual_location_id?: string | null;
+  actual_location_name?: string | null;
+  actual_department_id?: string | null;
+  actual_custodian_id?: string | null;
+  actual_custodian_name?: string | null;
+  observed_condition: string;
+  verification_date: string;
+  verified_by_id: string;
+  verified_by_name?: string | null;
+  remarks?: string | null;
+  reference_notes?: string | null;
+  created_at: string;
+}
+
+export interface VerificationDiscrepancy {
+  id: string;
+  company_id: string;
+  campaign_id: string;
+  campaign_reference?: string | null;
+  observation_id?: string | null;
+  expected_asset_id?: string | null;
+  asset_id?: string | null;
+  asset_number?: string | null;
+  discrepancy_type: string;
+  status: string;
+  expected_data?: any;
+  observed_data?: any;
+  notes?: string | null;
+  resolution_action?: string | null;
+  resolution_notes?: string | null;
+  resolved_by_id?: string | null;
+  resolved_by_name?: string | null;
+  resolved_at?: string | null;
+  created_at: string;
+}
+
+export interface VerificationDiscrepancyResolveRequest {
+  resolution_action: string;
+  resolution_notes: string;
+}
+
+export interface VerificationUnregisteredAssetCreate {
+  description: string;
+  category_id: string;
+  serial_number?: string | null;
+  site_id?: string | null;
+  location_id?: string | null;
+  custodian_id?: string | null;
+  observed_condition?: string | null;
+  remarks?: string | null;
+}
+
+export interface VerificationUnregisteredAssetRegister {
+  asset_number?: string | null;
+  cost_center_id?: string | null;
+  responsible_department_id?: string | null;
+  acquisition_cost?: number | null;
+  acquisition_date?: string | null;
+  resolution_notes: string;
+}
+
+export interface VerificationUnregisteredAsset {
+  id: string;
+  company_id: string;
+  campaign_id: string;
+  observation_id?: string | null;
+  discrepancy_id?: string | null;
+  serial_number?: string | null;
+  description: string;
+  category_id: string;
+  category_name?: string | null;
+  site_id?: string | null;
+  site_name?: string | null;
+  location_id?: string | null;
+  location_name?: string | null;
+  custodian_id?: string | null;
+  custodian_name?: string | null;
+  observed_condition?: string | null;
+  remarks?: string | null;
+  status: string;
+  registered_asset_id?: string | null;
+  registered_asset_number?: string | null;
+  created_at: string;
+}
+
+export interface VerificationDashboardSummary {
+  campaign_id: string;
+  campaign_reference: string;
+  campaign_name: string;
+  status: string;
+  start_date: string;
+  end_date: string;
+  total_expected: number;
+  total_verified: number;
+  total_unverified: number;
+  total_missing: number;
+  completion_percentage: number;
+  discrepancies_by_type: Record<string, number>;
+  unregistered_count: number;
+  pending_resolutions: number;
+  resolved_resolutions: number;
+}
+
+export interface VerificationCampaignReportItem {
+  campaign_id: string;
+  campaign_reference: string;
+  campaign_name: string;
+  status: string;
+  start_date: string;
+  end_date: string;
+  total_expected: number;
+  total_verified: number;
+  total_missing: number;
+  discrepancy_count: number;
+  unregistered_count: number;
+  completion_percentage: number;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+export interface VerificationDiscrepancyReportItem {
+  discrepancy_id: string;
+  campaign_reference: string;
+  campaign_name: string;
+  asset_number?: string | null;
+  discrepancy_type: string;
+  status: string;
+  expected_summary?: string | null;
+  observed_summary?: string | null;
+  notes?: string | null;
+  resolution_action?: string | null;
+  resolution_notes?: string | null;
+  resolved_by_name?: string | null;
+  resolved_at?: string | null;
+  created_at: string;
+}
+
 

@@ -643,3 +643,181 @@ class LoginFailure(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
     identity_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class VerificationCampaign(Base):
+    __tablename__ = 'verification_campaigns'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_verification_campaigns_company_id_id'),
+        UniqueConstraint('company_id', 'campaign_reference', name='uq_verification_campaigns_reference'),
+        CheckConstraint('end_date >= start_date', name='ck_verification_campaigns_date_range'),
+        CheckConstraint(
+            "status IN ('draft', 'in_progress', 'under_review', 'completed', 'cancelled')",
+            name='ck_verification_campaigns_status',
+        ),
+        ForeignKeyConstraint(['company_id'], ['companies.id'], ondelete='RESTRICT'),
+        Index('ix_verification_campaigns_company_status', 'company_id', 'status'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    campaign_reference: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default='draft')
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    scope_category_ids: Mapped[list | None] = mapped_column(JSON)
+    scope_location_ids: Mapped[list | None] = mapped_column(JSON)
+    created_by_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='RESTRICT'), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_by_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='RESTRICT'))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class VerificationExpectedAsset(Base):
+    __tablename__ = 'verification_expected_assets'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_verification_expected_assets_company_id_id'),
+        UniqueConstraint('campaign_id', 'asset_id', name='uq_verification_expected_assets_campaign_asset'),
+        ForeignKeyConstraint(
+            ['company_id', 'campaign_id'],
+            ['verification_campaigns.company_id', 'verification_campaigns.id'],
+            ondelete='CASCADE',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'asset_id'],
+            ['assets.company_id', 'assets.id'],
+            ondelete='RESTRICT',
+        ),
+        Index('ix_verification_expected_assets_company_campaign', 'company_id', 'campaign_id'),
+        Index('ix_verification_expected_assets_company_asset', 'company_id', 'asset_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    campaign_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    asset_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    expected_site_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    expected_location_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    expected_department_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    expected_custodian_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    expected_custodian_name: Mapped[str | None] = mapped_column(String(160))
+    expected_condition: Mapped[str | None] = mapped_column(String(32))
+    expected_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class VerificationObservation(Base):
+    __tablename__ = 'verification_observations'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_verification_observations_company_id_id'),
+        UniqueConstraint('campaign_id', 'expected_asset_id', name='uq_verification_observations_campaign_expected'),
+        ForeignKeyConstraint(
+            ['company_id', 'campaign_id'],
+            ['verification_campaigns.company_id', 'verification_campaigns.id'],
+            ondelete='CASCADE',
+        ),
+        Index('ix_verification_observations_company_campaign', 'company_id', 'campaign_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    campaign_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    expected_asset_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    asset_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    is_found: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    actual_site_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    actual_location_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    actual_department_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    actual_custodian_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    observed_condition: Mapped[str] = mapped_column(String(32), nullable=False, default='good')
+    verification_date: Mapped[date] = mapped_column(Date, nullable=False)
+    verified_by_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='RESTRICT'), nullable=False)
+    remarks: Mapped[str | None] = mapped_column(Text)
+    reference_notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class VerificationDiscrepancy(Base):
+    __tablename__ = 'verification_discrepancies'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_verification_discrepancies_company_id_id'),
+        CheckConstraint(
+            "discrepancy_type IN ('missing', 'location_mismatch', 'custodian_mismatch', 'condition_mismatch', 'unregistered_asset')",
+            name='ck_verification_discrepancies_type',
+        ),
+        CheckConstraint(
+            "status IN ('open', 'resolved', 'dismissed')",
+            name='ck_verification_discrepancies_status',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'campaign_id'],
+            ['verification_campaigns.company_id', 'verification_campaigns.id'],
+            ondelete='CASCADE',
+        ),
+        Index('ix_verification_discrepancies_company_campaign', 'company_id', 'campaign_id'),
+        Index('ix_verification_discrepancies_type_status', 'company_id', 'discrepancy_type', 'status'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    campaign_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    observation_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    expected_asset_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    asset_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    discrepancy_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default='open')
+    expected_data: Mapped[dict | None] = mapped_column(JSON)
+    observed_data: Mapped[dict | None] = mapped_column(JSON)
+    notes: Mapped[str | None] = mapped_column(Text)
+    resolution_action: Mapped[str | None] = mapped_column(String(32))
+    resolution_notes: Mapped[str | None] = mapped_column(Text)
+    resolved_by_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='RESTRICT'))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class VerificationUnregisteredAsset(Base):
+    __tablename__ = 'verification_unregistered_assets'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_verification_unregistered_assets_company_id_id'),
+        CheckConstraint(
+            "status IN ('pending', 'registered', 'rejected')",
+            name='ck_verification_unregistered_assets_status',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'campaign_id'],
+            ['verification_campaigns.company_id', 'verification_campaigns.id'],
+            ondelete='CASCADE',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'category_id'],
+            ['asset_categories.company_id', 'asset_categories.id'],
+            ondelete='RESTRICT',
+        ),
+        Index('ix_verification_unregistered_assets_campaign', 'company_id', 'campaign_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    campaign_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    observation_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    discrepancy_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    serial_number: Mapped[str | None] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(200), nullable=False)
+    category_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    site_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    location_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    custodian_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    observed_condition: Mapped[str | None] = mapped_column(String(32), default='good')
+    remarks: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default='pending')
+    registered_asset_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+

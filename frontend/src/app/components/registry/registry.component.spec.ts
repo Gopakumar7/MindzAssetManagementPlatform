@@ -14,7 +14,15 @@ import {
   MaintenanceRequest,
   PurchaseOrder,
   ProcurementSupplier,
-  RegistryService
+  RegistryService,
+  VerificationCampaign,
+  VerificationExpectedAsset,
+  VerificationObservation,
+  VerificationDiscrepancy,
+  VerificationUnregisteredAsset,
+  VerificationDashboardSummary,
+  VerificationCampaignReportItem,
+  VerificationDiscrepancyReportItem
 } from '../../services/registry.service';
 import { RegistryComponent, serializeCsvCell } from './registry.component';
 
@@ -81,7 +89,22 @@ describe('RegistryComponent user access navigation', () => {
       'reportAssetAllocation',
       'reportWarrantyExpiry',
       'reportMaintenance',
-      'reportProcurement'
+      'reportProcurement',
+      'listVerificationCampaigns',
+      'getVerificationCampaign',
+      'createVerificationCampaign',
+      'updateVerificationCampaign',
+      'transitionVerificationCampaignStatus',
+      'getVerificationExpectedAssets',
+      'recordVerificationObservation',
+      'getVerificationDiscrepancies',
+      'resolveVerificationDiscrepancy',
+      'recordUnregisteredAsset',
+      'getUnregisteredAssets',
+      'registerUnregisteredAsset',
+      'getVerificationDashboard',
+      'reportVerificationCampaigns',
+      'reportVerificationDiscrepancies'
     ]);
     registry.companies.and.returnValue(of([company]));
     registry.listMaster.and.returnValue(of([]));
@@ -122,6 +145,21 @@ describe('RegistryComponent user access navigation', () => {
     registry.reportWarrantyExpiry.and.returnValue(of([]));
     registry.reportMaintenance.and.returnValue(of([]));
     registry.reportProcurement.and.returnValue(of([]));
+    registry.listVerificationCampaigns.and.returnValue(of([testCampaign]));
+    registry.getVerificationCampaign.and.returnValue(of(testCampaign));
+    registry.createVerificationCampaign.and.returnValue(of(testCampaign));
+    registry.updateVerificationCampaign.and.returnValue(of(testCampaign));
+    registry.transitionVerificationCampaignStatus.and.returnValue(of(testCampaign));
+    registry.getVerificationExpectedAssets.and.returnValue(of([testExpectedAsset]));
+    registry.recordVerificationObservation.and.returnValue(of(testObservation));
+    registry.getVerificationDiscrepancies.and.returnValue(of([testDiscrepancy]));
+    registry.resolveVerificationDiscrepancy.and.returnValue(of(testDiscrepancy));
+    registry.recordUnregisteredAsset.and.returnValue(of(testUnregisteredAsset));
+    registry.getUnregisteredAssets.and.returnValue(of([testUnregisteredAsset]));
+    registry.registerUnregisteredAsset.and.returnValue(of(testUnregisteredAsset));
+    registry.getVerificationDashboard.and.returnValue(of(testDashboardSummary));
+    registry.reportVerificationCampaigns.and.returnValue(of([]));
+    registry.reportVerificationDiscrepancies.and.returnValue(of([]));
 
 
     TestBed.configureTestingModule({
@@ -1460,6 +1498,369 @@ describe('serializeCsvCell security and formatting', () => {
   });
 });
 
+describe('RegistryComponent Physical Asset Verification', () => {
+  let fixture: ComponentFixture<RegistryComponent>;
+  let component: RegistryComponent;
+  let registry: jasmine.SpyObj<RegistryService>;
+  let permissions: Set<string>;
+
+  const company: Company = {
+    id: 'company-1',
+    code: 'ACME',
+    name: 'Acme',
+    is_active: true
+  };
+
+  beforeEach(() => {
+    permissions = new Set(['company.read', 'asset.read', 'verification.read', 'verification.manage']);
+    registry = jasmine.createSpyObj<RegistryService>('RegistryService', [
+      'companies',
+      'listMaster',
+      'listNumberRules',
+      'companyMembers',
+      'companyRoles',
+      'listAssets',
+      'getAsset',
+      'usages',
+      'history',
+      'assignments',
+      'assignmentRecipients',
+      'createAssignment',
+      'recordHandover',
+      'returnAssignment',
+      'transferAssignment',
+      'listLocations',
+      'suppliers',
+      'purchaseOrders',
+      'getPurchaseOrder',
+      'goodsReceipts',
+      'createSupplier',
+      'createPurchaseOrder',
+      'updatePurchaseOrder',
+      'receiveGoods',
+      'serviceContracts',
+      'createServiceContract',
+      'cancelServiceContract',
+      'maintenanceUsers',
+      'maintenanceRequests',
+      'createMaintenanceRequest',
+      'updateMaintenanceRequest',
+      'dashboard',
+      'reportAssetRegister',
+      'reportAssetAllocation',
+      'reportWarrantyExpiry',
+      'reportMaintenance',
+      'reportProcurement',
+      'listVerificationCampaigns',
+      'getVerificationCampaign',
+      'createVerificationCampaign',
+      'updateVerificationCampaign',
+      'transitionVerificationCampaignStatus',
+      'getVerificationExpectedAssets',
+      'recordVerificationObservation',
+      'getVerificationDiscrepancies',
+      'resolveVerificationDiscrepancy',
+      'recordUnregisteredAsset',
+      'getUnregisteredAssets',
+      'registerUnregisteredAsset',
+      'getVerificationDashboard',
+      'reportVerificationCampaigns',
+      'reportVerificationDiscrepancies'
+    ]);
+
+    registry.companies.and.returnValue(of([company]));
+    registry.listMaster.and.returnValue(of([]));
+    registry.listNumberRules.and.returnValue(of([]));
+    registry.companyMembers.and.returnValue(of([]));
+    registry.companyRoles.and.returnValue(of([]));
+    registry.listAssets.and.returnValue(of({ items: [], total: 0, page: 1, page_size: 15 }));
+    registry.getAsset.and.returnValue(of(testAsset));
+    registry.usages.and.returnValue(of([]));
+    registry.history.and.returnValue(of([]));
+    registry.assignments.and.returnValue(of([]));
+    registry.assignmentRecipients.and.returnValue(of([]));
+    registry.listLocations.and.returnValue(of([]));
+    registry.suppliers.and.returnValue(of([]));
+    registry.purchaseOrders.and.returnValue(of([]));
+    registry.getPurchaseOrder.and.returnValue(of({} as any));
+    registry.goodsReceipts.and.returnValue(of([]));
+    registry.serviceContracts.and.returnValue(of([]));
+    registry.maintenanceUsers.and.returnValue(of([]));
+    registry.maintenanceRequests.and.returnValue(of([]));
+    registry.dashboard.and.returnValue(of({} as any));
+    registry.reportAssetRegister.and.returnValue(of([]));
+    registry.reportAssetAllocation.and.returnValue(of([]));
+    registry.reportWarrantyExpiry.and.returnValue(of([]));
+    registry.reportMaintenance.and.returnValue(of([]));
+    registry.reportProcurement.and.returnValue(of([]));
+
+    registry.listVerificationCampaigns.and.returnValue(of([testCampaign]));
+    registry.getVerificationCampaign.and.returnValue(of(testCampaign));
+    registry.createVerificationCampaign.and.returnValue(of(testCampaign));
+    registry.updateVerificationCampaign.and.returnValue(of(testCampaign));
+    registry.transitionVerificationCampaignStatus.and.returnValue(of({ ...testCampaign, status: 'in_progress' }));
+    registry.getVerificationExpectedAssets.and.returnValue(of([testExpectedAsset]));
+    registry.recordVerificationObservation.and.returnValue(of(testObservation));
+    registry.getVerificationDiscrepancies.and.returnValue(of([testDiscrepancy]));
+    registry.resolveVerificationDiscrepancy.and.returnValue(of({ ...testDiscrepancy, status: 'resolved' }));
+    registry.recordUnregisteredAsset.and.returnValue(of(testUnregisteredAsset));
+    registry.getUnregisteredAssets.and.returnValue(of([testUnregisteredAsset]));
+    registry.registerUnregisteredAsset.and.returnValue(of({ ...testUnregisteredAsset, status: 'registered', registered_asset_number: 'AST-000099' }));
+    registry.getVerificationDashboard.and.returnValue(of(testDashboardSummary));
+    registry.reportVerificationCampaigns.and.returnValue(of([{
+      campaign_id: 'camp-1',
+      campaign_reference: 'VER-2026-Q4',
+      campaign_name: 'Q4 IT Verification',
+      status: 'in_progress',
+      start_date: '2026-10-01',
+      end_date: '2026-10-31',
+      total_expected: 10,
+      total_verified: 8,
+      total_missing: 1,
+      discrepancy_count: 2,
+      unregistered_count: 1,
+      completion_percentage: 80.0,
+      created_at: '2026-10-01T00:00:00Z',
+      completed_at: null
+    }]));
+    registry.reportVerificationDiscrepancies.and.returnValue(of([{
+      discrepancy_id: 'disc-1',
+      campaign_reference: 'VER-2026-Q4',
+      campaign_name: 'Q4 IT Verification',
+      asset_number: 'AST-000001',
+      discrepancy_type: 'location_mismatch',
+      status: 'pending',
+      expected_summary: 'Room 101',
+      observed_summary: 'Server Room B',
+      notes: 'Moved without transfer',
+      resolution_action: null,
+      resolution_notes: null,
+      resolved_by_name: null,
+      resolved_at: null,
+      created_at: '2026-10-19T00:00:00Z'
+    }]));
+
+    TestBed.configureTestingModule({
+      imports: [RegistryComponent],
+      providers: [
+        provideHttpClient(),
+        provideRouter([]),
+        { provide: RegistryService, useValue: registry },
+        {
+          provide: AuthService,
+          useValue: {
+            currentUser: signal({ id: 'admin-1', email: 'admin@example.invalid', system_permissions: [], memberships: [] }),
+            permissions: () => new Set(permissions)
+          }
+        }
+      ]
+    });
+    fixture = TestBed.createComponent(RegistryComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  it('navigates to verification view and loads campaigns when permission is granted', () => {
+    component.setView('verification');
+    expect(component.activeView).toBe('verification');
+    expect(registry.listVerificationCampaigns).toHaveBeenCalledWith(component.companyId, {
+      status: undefined,
+      search: undefined
+    });
+  });
+
+  it('falls back to assets view if verification.read permission is absent', () => {
+    permissions.delete('verification.read');
+    component.setView('verification');
+    expect(component.activeView).toBe('assets');
+  });
+
+  it('selects a campaign and loads expected assets, discrepancies, unregistered items, and dashboard', () => {
+    component.selectVerificationCampaign(testCampaign);
+    expect(component.selectedCampaign).toBe(testCampaign);
+    expect(component.verificationSubView).toBe('expected');
+    expect(registry.getVerificationDashboard).toHaveBeenCalledWith(component.companyId, testCampaign.id);
+    expect(registry.getVerificationExpectedAssets).toHaveBeenCalledWith(component.companyId, testCampaign.id, jasmine.any(Object));
+    expect(registry.getVerificationDiscrepancies).toHaveBeenCalledWith(component.companyId, testCampaign.id, jasmine.any(Object));
+    expect(registry.getUnregisteredAssets).toHaveBeenCalledWith(component.companyId, testCampaign.id, undefined);
+  });
+
+  it('creates a new verification campaign successfully', () => {
+    component.openCreateCampaignModal();
+    expect(component.campaignCreateModalOpen).toBeTrue();
+
+    component.campaignCreateForm = {
+      campaign_reference: 'VER-2026-TEST',
+      name: 'Test Verification',
+      description: 'Audit scope',
+      start_date: '2026-10-01',
+      end_date: '2026-10-31',
+      scope_category_ids: ['cat-1'],
+      scope_location_ids: ['loc-1']
+    };
+
+    component.submitCreateCampaign();
+    expect(registry.createVerificationCampaign).toHaveBeenCalledWith(component.companyId, jasmine.objectContaining({
+      campaign_reference: 'VER-2026-TEST',
+      name: 'Test Verification',
+      scope_category_ids: ['cat-1'],
+      scope_location_ids: ['loc-1']
+    }));
+    expect(component.campaignCreateModalOpen).toBeFalse();
+    expect(component.successMessage).toContain('created successfully');
+  });
+
+  it('transitions campaign status across lifecycle states', () => {
+    component.selectedCampaign = { ...testCampaign, status: 'draft' };
+    component.transitionCampaignStatus('in_progress');
+
+    expect(registry.transitionVerificationCampaignStatus).toHaveBeenCalledWith(
+      component.companyId,
+      testCampaign.id,
+      'in_progress'
+    );
+    expect(component.selectedCampaign.status).toBe('in_progress');
+    expect(component.successMessage).toContain('status updated to in progress');
+  });
+
+  it('records physical observation for an expected asset', () => {
+    component.selectedCampaign = { ...testCampaign, status: 'in_progress' };
+    component.openRecordObservationModal(testExpectedAsset);
+    expect(component.observationModalOpen).toBeTrue();
+    expect(component.selectedExpectedAsset).toBe(testExpectedAsset);
+
+    component.observationForm = {
+      is_found: true,
+      actual_location_id: 'loc-2',
+      actual_custodian_id: 'user-2',
+      observed_condition: 'good',
+      remarks: 'Found in meeting room',
+      reference_notes: 'Tag verified'
+    };
+
+    component.submitObservation();
+    expect(registry.recordVerificationObservation).toHaveBeenCalledWith(
+      component.companyId,
+      testCampaign.id,
+      testExpectedAsset.id,
+      jasmine.objectContaining({
+        is_found: true,
+        actual_location_id: 'loc-2',
+        actual_custodian_id: 'user-2',
+        observed_condition: 'good',
+        remarks: 'Found in meeting room'
+      })
+    );
+    expect(component.observationModalOpen).toBeFalse();
+    expect(component.successMessage).toContain('Observation recorded');
+  });
+
+  it('resolves a discrepancy with audit notes and triggers asset reload if master updated', () => {
+    component.selectedCampaign = { ...testCampaign, status: 'under_review' };
+    component.openResolveDiscrepancyModal(testDiscrepancy);
+    expect(component.resolveDiscrepancyModalOpen).toBeTrue();
+    expect(component.selectedDiscrepancy).toBe(testDiscrepancy);
+
+    component.resolveDiscrepancyForm = {
+      resolution_action: 'update_master',
+      resolution_notes: 'Approved asset relocation'
+    };
+
+    component.submitResolveDiscrepancy();
+    expect(registry.resolveVerificationDiscrepancy).toHaveBeenCalledWith(
+      component.companyId,
+      testCampaign.id,
+      testDiscrepancy.id,
+      jasmine.objectContaining({
+        resolution_action: 'update_master',
+        resolution_notes: 'Approved asset relocation'
+      })
+    );
+    expect(component.resolveDiscrepancyModalOpen).toBeFalse();
+    expect(component.successMessage).toContain('Discrepancy resolved');
+    expect(registry.listAssets).toHaveBeenCalled();
+  });
+
+  it('records an unregistered asset discovered in field', () => {
+    component.selectedCampaign = { ...testCampaign, status: 'in_progress' };
+    component.openRecordUnregisteredModal();
+    expect(component.unregisteredModalOpen).toBeTrue();
+
+    component.unregisteredForm = {
+      description: 'Found Projector',
+      category_id: 'cat-projectors',
+      serial_number: 'PRJ-12345',
+      site_id: 'site-1',
+      location_id: 'loc-1',
+      custodian_id: null,
+      observed_condition: 'fair',
+      remarks: 'Discovered in storage cupboard'
+    };
+
+    component.submitRecordUnregistered();
+    expect(registry.recordUnregisteredAsset).toHaveBeenCalledWith(
+      component.companyId,
+      testCampaign.id,
+      jasmine.objectContaining({
+        description: 'Found Projector',
+        category_id: 'cat-projectors'
+      })
+    );
+    expect(component.unregisteredModalOpen).toBeFalse();
+    expect(component.successMessage).toContain('discovery recorded');
+  });
+
+  it('registers an unregistered asset into the asset registry', () => {
+    component.selectedCampaign = { ...testCampaign, status: 'under_review' };
+    component.openRegisterUnregisteredModal(testUnregisteredAsset);
+    expect(component.registerUnregisteredModalOpen).toBeTrue();
+    expect(component.selectedUnregisteredAsset).toBe(testUnregisteredAsset);
+
+    component.registerUnregisteredForm = {
+      asset_number: 'AST-000099',
+      cost_center_id: 'cc-1',
+      responsible_department_id: 'dept-1',
+      acquisition_cost: 500,
+      acquisition_date: '2026-10-19',
+      resolution_notes: 'Registering found projector'
+    };
+
+    component.submitRegisterUnregistered();
+    expect(registry.registerUnregisteredAsset).toHaveBeenCalledWith(
+      component.companyId,
+      testCampaign.id,
+      testUnregisteredAsset.id,
+      jasmine.objectContaining({
+        asset_number: 'AST-000099',
+        resolution_notes: 'Registering found projector'
+      })
+    );
+    expect(component.registerUnregisteredModalOpen).toBeFalse();
+    expect(component.successMessage).toContain('Asset registered as AST-000099');
+    expect(registry.listAssets).toHaveBeenCalled();
+  });
+
+  it('loads verification campaign report and generates sanitized CSV export', () => {
+    component.selectReport('verification-campaigns');
+    expect(registry.reportVerificationCampaigns).toHaveBeenCalledWith(component.companyId, jasmine.any(Object));
+
+    const csv = component.generateReportCsvContent();
+    expect(csv).toContain('Campaign Ref');
+    expect(csv).toContain('VER-2026-Q4');
+    expect(csv).toContain('Q4 IT Verification');
+  });
+
+  it('loads verification discrepancies report and generates sanitized CSV export', () => {
+    component.selectReport('verification-discrepancies');
+    expect(registry.reportVerificationDiscrepancies).toHaveBeenCalledWith(component.companyId, jasmine.any(Object));
+
+    const csv = component.generateReportCsvContent();
+    expect(csv).toContain('Discrepancy ID');
+    expect(csv).toContain('disc-1');
+    expect(csv).toContain('location_mismatch');
+  });
+});
+
 
 const testAsset: Asset = {
   id: 'asset-1',
@@ -1533,4 +1934,148 @@ const testMaintenanceRequest: MaintenanceRequest = {
   cost: null,
   created_at: '2026-10-15T00:00:00Z',
   updated_at: '2026-10-15T00:00:00Z'
+};
+
+const testCampaign: VerificationCampaign = {
+  id: 'camp-1',
+  company_id: 'company-1',
+  campaign_reference: 'VER-2026-Q4',
+  name: 'Q4 IT Verification',
+  description: 'Annual verification',
+  status: 'draft',
+  start_date: '2026-10-01',
+  end_date: '2026-10-31',
+  scope_category_ids: null,
+  scope_location_ids: null,
+  created_by_id: 'admin-1',
+  created_by_name: 'Admin',
+  started_at: null,
+  completed_at: null,
+  closed_by_id: null,
+  created_at: '2026-10-01T00:00:00Z',
+  updated_at: '2026-10-01T00:00:00Z',
+  total_expected: 10,
+  total_verified: 8,
+  total_unverified: 2,
+  total_missing: 1,
+  total_discrepancies: 2,
+  total_unregistered: 1,
+  completion_percentage: 80.0
+};
+
+const testExpectedAsset: VerificationExpectedAsset = {
+  id: 'exp-1',
+  company_id: 'company-1',
+  campaign_id: 'camp-1',
+  asset_id: 'asset-1',
+  asset_number: 'AST-000001',
+  category_id: 'cat-1',
+  category_name: 'Laptops',
+  serial_number: 'SN-001',
+  model: 'ThinkPad X1',
+  manufacturer: 'Lenovo',
+  expected_site_id: null,
+  site_name: null,
+  expected_location_id: null,
+  location_name: 'HQ Room 101',
+  expected_department_id: null,
+  department_name: 'IT',
+  expected_custodian_id: null,
+  expected_custodian_name: 'John Doe',
+  expected_condition: 'good',
+  expected_status: 'in_stock',
+  is_verified: false,
+  observation_id: null,
+  observation_found: null,
+  has_discrepancy: false,
+  discrepancy_types: [],
+  created_at: '2026-10-01T00:00:00Z'
+};
+
+const testObservation: VerificationObservation = {
+  id: 'obs-1',
+  company_id: 'company-1',
+  campaign_id: 'camp-1',
+  expected_asset_id: 'exp-1',
+  asset_id: 'asset-1',
+  asset_number: 'AST-000001',
+  is_found: true,
+  actual_site_id: null,
+  actual_site_name: null,
+  actual_location_id: null,
+  actual_location_name: null,
+  actual_department_id: null,
+  actual_custodian_id: null,
+  actual_custodian_name: null,
+  observed_condition: 'good',
+  verification_date: '2026-10-19',
+  verified_by_id: 'admin-1',
+  verified_by_name: 'Admin',
+  remarks: 'Found in good shape',
+  reference_notes: null,
+  created_at: '2026-10-19T00:00:00Z'
+};
+
+const testDiscrepancy: VerificationDiscrepancy = {
+  id: 'disc-1',
+  company_id: 'company-1',
+  campaign_id: 'camp-1',
+  campaign_reference: 'VER-2026-Q4',
+  observation_id: 'obs-1',
+  expected_asset_id: 'exp-1',
+  asset_id: 'asset-1',
+  asset_number: 'AST-000001',
+  discrepancy_type: 'location_mismatch',
+  status: 'pending',
+  expected_data: { location_name: 'HQ Room 101' },
+  observed_data: { actual_location_name: 'Server Room B' },
+  notes: 'Moved without transfer ticket',
+  resolution_action: null,
+  resolution_notes: null,
+  resolved_by_id: null,
+  resolved_by_name: null,
+  resolved_at: null,
+  created_at: '2026-10-19T00:00:00Z'
+};
+
+const testUnregisteredAsset: VerificationUnregisteredAsset = {
+  id: 'unreg-1',
+  company_id: 'company-1',
+  campaign_id: 'camp-1',
+  observation_id: null,
+  discrepancy_id: null,
+  serial_number: 'SN-UNREG-99',
+  description: 'Unrecorded Dell Display',
+  category_id: 'cat-1',
+  category_name: 'Displays',
+  site_id: null,
+  site_name: null,
+  location_id: null,
+  location_name: 'Floor 3',
+  custodian_id: null,
+  custodian_name: null,
+  observed_condition: 'good',
+  remarks: 'Discovered in storage room',
+  status: 'discovered',
+  registered_asset_id: null,
+  registered_asset_number: null,
+  created_at: '2026-10-19T00:00:00Z'
+};
+
+const testDashboardSummary: VerificationDashboardSummary = {
+  campaign_id: 'camp-1',
+  campaign_reference: 'VER-2026-Q4',
+  campaign_name: 'Q4 IT Verification',
+  status: 'in_progress',
+  start_date: '2026-10-01',
+  end_date: '2026-10-31',
+  total_expected: 10,
+  total_verified: 8,
+  total_unverified: 2,
+  total_missing: 1,
+  completion_percentage: 80.0,
+  discrepancies_by_type: { location_mismatch: 1 },
+  unregistered_count: 1,
+  pending_resolutions: 1,
+  resolved_resolutions: 0
 };

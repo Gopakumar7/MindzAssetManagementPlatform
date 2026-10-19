@@ -30,13 +30,27 @@ import {
   ProcurementSupplier,
   PurchaseOrder,
   RegistryService,
-  WarrantyExpiryReportItem
+  WarrantyExpiryReportItem,
+  VerificationCampaign,
+  VerificationCampaignCreate,
+  VerificationCampaignUpdate,
+  VerificationExpectedAsset,
+  VerificationObservation,
+  VerificationObservationCreate,
+  VerificationDiscrepancy,
+  VerificationDiscrepancyResolveRequest,
+  VerificationUnregisteredAsset,
+  VerificationUnregisteredAssetCreate,
+  VerificationUnregisteredAssetRegister,
+  VerificationDashboardSummary,
+  VerificationCampaignReportItem,
+  VerificationDiscrepancyReportItem
 } from '../../services/registry.service';
 import { AuthService } from '../../services/auth.service';
 
-type ViewName = 'dashboard' | 'assets' | 'reports' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company' | 'users-access' | 'procurement' | 'maintenance';
+type ViewName = 'dashboard' | 'assets' | 'reports' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company' | 'users-access' | 'procurement' | 'maintenance' | 'verification';
 type MasterKind = 'departments' | 'sites' | 'categories' | 'cost-centers';
-export type ReportType = 'asset-register' | 'asset-allocation' | 'warranty-expiry' | 'maintenance' | 'procurement';
+export type ReportType = 'asset-register' | 'asset-allocation' | 'warranty-expiry' | 'maintenance' | 'procurement' | 'verification-campaigns' | 'verification-discrepancies';
 
 /**
  * Serializes a single cell value for CSV export according to RFC-4180.
@@ -123,6 +137,84 @@ export class RegistryComponent implements OnInit {
   warrantyExpiryReport: WarrantyExpiryReportItem[] = [];
   maintenanceReport: MaintenanceReportItem[] = [];
   procurementReport: ProcurementReportItem[] = [];
+  verificationCampaignReport: VerificationCampaignReportItem[] = [];
+  verificationDiscrepancyReport: VerificationDiscrepancyReportItem[] = [];
+  reportDiscrepancyTypeFilter = '';
+  reportCampaignFilter = '';
+
+  allLocations: MasterRecord[] = [];
+
+  // Verification state
+  verificationCampaigns: VerificationCampaign[] = [];
+  selectedCampaign?: VerificationCampaign;
+  campaignDashboard?: VerificationDashboardSummary;
+  campaignExpectedAssets: VerificationExpectedAsset[] = [];
+  campaignDiscrepancies: VerificationDiscrepancy[] = [];
+  campaignUnregisteredAssets: VerificationUnregisteredAsset[] = [];
+  verificationLoading = false;
+  verificationSubView: 'expected' | 'discrepancies' | 'unregistered' = 'expected';
+  verificationStatusFilter = 'all';
+  verificationSearch = '';
+  expectedSearch = '';
+  expectedVerifiedFilter: boolean | undefined = undefined;
+  expectedCategoryFilter = '';
+  expectedLocationFilter = '';
+  discrepancyTypeFilter = 'all';
+  discrepancyStatusFilter = 'all';
+  unregisteredStatusFilter = 'all';
+
+  // Verification modals and forms
+  campaignCreateModalOpen = false;
+  campaignCreateForm: VerificationCampaignCreate = {
+    campaign_reference: '',
+    name: '',
+    description: '',
+    start_date: this.today(),
+    end_date: this.today(),
+    scope_category_ids: [],
+    scope_location_ids: []
+  };
+
+  observationModalOpen = false;
+  selectedExpectedAsset?: VerificationExpectedAsset;
+  observationForm: VerificationObservationCreate = {
+    is_found: true,
+    actual_location_id: '',
+    actual_custodian_id: '',
+    observed_condition: 'good',
+    remarks: '',
+    reference_notes: ''
+  };
+
+  resolveDiscrepancyModalOpen = false;
+  selectedDiscrepancy?: VerificationDiscrepancy;
+  resolveDiscrepancyForm: VerificationDiscrepancyResolveRequest = {
+    resolution_action: 'update_master',
+    resolution_notes: ''
+  };
+
+  unregisteredModalOpen = false;
+  unregisteredForm: VerificationUnregisteredAssetCreate = {
+    description: '',
+    category_id: '',
+    serial_number: '',
+    site_id: '',
+    location_id: '',
+    custodian_id: '',
+    observed_condition: 'good',
+    remarks: ''
+  };
+
+  registerUnregisteredModalOpen = false;
+  selectedUnregisteredAsset?: VerificationUnregisteredAsset;
+  registerUnregisteredForm: VerificationUnregisteredAssetRegister = {
+    asset_number: '',
+    cost_center_id: '',
+    responsible_department_id: '',
+    acquisition_cost: null,
+    acquisition_date: this.today(),
+    resolution_notes: ''
+  };
 
 
   departments: MasterRecord[] = [];
@@ -378,6 +470,15 @@ export class RegistryComponent implements OnInit {
       this.warrantyExpiryReport = [];
       this.maintenanceReport = [];
       this.procurementReport = [];
+      this.verificationCampaignReport = [];
+      this.verificationDiscrepancyReport = [];
+      this.verificationCampaigns = [];
+      this.selectedCampaign = undefined;
+      this.campaignDashboard = undefined;
+      this.campaignExpectedAssets = [];
+      this.campaignDiscrepancies = [];
+      this.campaignUnregisteredAssets = [];
+      this.verificationLoading = false;
     }
     this.companyId = id;
     this.company = this.companies.find((item) => item.id === id);
@@ -431,6 +532,8 @@ export class RegistryComponent implements OnInit {
           this.loadProcurement();
         } else if (this.activeView === 'maintenance') {
           this.loadMaintenance();
+        } else if (this.activeView === 'verification') {
+          this.loadVerification();
         }
         if (this.selectedSiteId) {
           this.loadLocations(this.selectedSiteId);
@@ -497,6 +600,9 @@ export class RegistryComponent implements OnInit {
     if (view === 'dashboard' && !this.can('dashboard.read')) {
       view = 'assets';
     }
+    if (view === 'verification' && !this.can('verification.read')) {
+      view = 'assets';
+    }
     this.activeView = view;
     this.errorMessage = '';
     this.successMessage = '';
@@ -512,6 +618,8 @@ export class RegistryComponent implements OnInit {
       this.loadProcurement();
     } else if (view === 'maintenance') {
       this.loadMaintenance();
+    } else if (view === 'verification') {
+      this.loadVerification();
     }
   }
 
@@ -1724,6 +1832,8 @@ export class RegistryComponent implements OnInit {
     this.reportSupplierFilter = '';
     this.reportCoverageStatusFilter = '';
     this.reportPriorityFilter = '';
+    this.reportDiscrepancyTypeFilter = '';
+    this.reportCampaignFilter = '';
     this.loadActiveReport();
   }
 
@@ -1818,6 +1928,39 @@ export class RegistryComponent implements OnInit {
           this.changeDetector.markForCheck();
         }
       });
+    } else if (this.activeReport === 'verification-campaigns') {
+      this.registry.reportVerificationCampaigns(this.companyId, {
+        status: this.reportStatusFilter || undefined,
+        search: this.reportSearch.trim() || undefined,
+      }).subscribe({
+        next: (items) => {
+          this.verificationCampaignReport = items;
+          this.reportsLoading = false;
+          this.changeDetector.markForCheck();
+        },
+        error: (err) => {
+          this.reportsLoading = false;
+          this.reportsError = err?.error?.detail || 'Failed to load verification campaigns report.';
+          this.changeDetector.markForCheck();
+        }
+      });
+    } else if (this.activeReport === 'verification-discrepancies') {
+      this.registry.reportVerificationDiscrepancies(this.companyId, {
+        campaign_id: this.reportCampaignFilter || undefined,
+        discrepancy_type: this.reportDiscrepancyTypeFilter || undefined,
+        status: this.reportStatusFilter || undefined,
+      }).subscribe({
+        next: (items) => {
+          this.verificationDiscrepancyReport = items;
+          this.reportsLoading = false;
+          this.changeDetector.markForCheck();
+        },
+        error: (err) => {
+          this.reportsLoading = false;
+          this.reportsError = err?.error?.detail || 'Failed to load verification discrepancies report.';
+          this.changeDetector.markForCheck();
+        }
+      });
     }
   }
 
@@ -1858,6 +2001,20 @@ export class RegistryComponent implements OnInit {
         item.order_number, item.supplier_name, item.ordered_date, item.order_status,
         item.total_ordered_quantity, item.total_received_quantity, item.total_outstanding_quantity,
         item.receipt_numbers.join('; ')
+      ]);
+    } else if (this.activeReport === 'verification-campaigns') {
+      headers = ['Campaign Ref', 'Name', 'Status', 'Start Date', 'End Date', 'Expected Assets', 'Verified Assets', 'Missing Assets', 'Discrepancies', 'Unregistered', 'Completion %', 'Created At', 'Completed At'];
+      rows = this.verificationCampaignReport.map(item => [
+        item.campaign_reference, item.campaign_name, item.status, item.start_date, item.end_date,
+        item.total_expected, item.total_verified, item.total_missing, item.discrepancy_count,
+        item.unregistered_count, item.completion_percentage, item.created_at, item.completed_at ?? ''
+      ]);
+    } else if (this.activeReport === 'verification-discrepancies') {
+      headers = ['Discrepancy ID', 'Campaign Ref', 'Asset Number', 'Discrepancy Type', 'Status', 'Expected Summary', 'Observed Summary', 'Resolution Action', 'Resolution Notes', 'Resolved By', 'Resolved At', 'Created At'];
+      rows = this.verificationDiscrepancyReport.map(item => [
+        item.discrepancy_id, item.campaign_reference, item.asset_number ?? '', item.discrepancy_type,
+        item.status, item.expected_summary ?? '', item.observed_summary ?? '', item.resolution_action ?? '',
+        item.resolution_notes ?? '', item.resolved_by_name ?? '', item.resolved_at ?? '', item.created_at
       ]);
     }
 
@@ -2034,6 +2191,8 @@ export class RegistryComponent implements OnInit {
     if (this.activeReport === 'warranty-expiry') return this.warrantyExpiryReport.length === 0;
     if (this.activeReport === 'maintenance') return this.maintenanceReport.length === 0;
     if (this.activeReport === 'procurement') return this.procurementReport.length === 0;
+    if (this.activeReport === 'verification-campaigns') return this.verificationCampaignReport.length === 0;
+    if (this.activeReport === 'verification-discrepancies') return this.verificationDiscrepancyReport.length === 0;
     return true;
   }
 
@@ -2046,7 +2205,430 @@ export class RegistryComponent implements OnInit {
     this.reportSupplierFilter = '';
     this.reportCoverageStatusFilter = '';
     this.reportPriorityFilter = '';
+    this.reportDiscrepancyTypeFilter = '';
+    this.reportCampaignFilter = '';
     this.loadActiveReport();
+  }
+
+  loadAllLocations(): void {
+    if (!this.companyId || !this.sites.length) return;
+    forkJoin(this.sites.map(s => this.registry.listLocations(this.companyId, s.id))).subscribe({
+      next: (results) => {
+        this.allLocations = results.flat();
+        this.changeDetector.markForCheck();
+      },
+      error: () => {}
+    });
+  }
+
+  loadVerification(): void {
+    if (!this.companyId || !this.can('verification.read')) return;
+    this.verificationLoading = true;
+    this.loadAllLocations();
+    if (!this.assignmentRecipients.length && this.can('asset.assignment.manage')) {
+      this.loadAssignmentRecipients();
+    }
+    this.registry.listVerificationCampaigns(this.companyId, {
+      status: this.verificationStatusFilter !== 'all' ? this.verificationStatusFilter : undefined,
+      search: this.verificationSearch.trim() || undefined
+    }).subscribe({
+      next: (campaigns) => {
+        this.verificationCampaigns = campaigns;
+        this.verificationLoading = false;
+        if (this.selectedCampaign) {
+          const updated = campaigns.find(c => c.id === this.selectedCampaign?.id);
+          if (updated) {
+            this.selectedCampaign = updated;
+            this.refreshSelectedCampaignData();
+          } else {
+            this.registry.getVerificationCampaign(this.companyId, this.selectedCampaign.id).subscribe({
+              next: (c) => {
+                this.selectedCampaign = c;
+                this.refreshSelectedCampaignData();
+              },
+              error: () => {
+                this.selectedCampaign = undefined;
+              }
+            });
+          }
+        }
+        this.changeDetector.markForCheck();
+      },
+      error: (err) => {
+        this.verificationLoading = false;
+        this.fail(err);
+      }
+    });
+  }
+
+  selectVerificationCampaign(campaign: VerificationCampaign): void {
+    this.selectedCampaign = campaign;
+    this.verificationSubView = 'expected';
+    this.expectedSearch = '';
+    this.expectedVerifiedFilter = undefined;
+    this.expectedCategoryFilter = '';
+    this.expectedLocationFilter = '';
+    this.discrepancyTypeFilter = 'all';
+    this.discrepancyStatusFilter = 'all';
+    this.unregisteredStatusFilter = 'all';
+    this.refreshSelectedCampaignData();
+  }
+
+  clearSelectedCampaign(): void {
+    this.selectedCampaign = undefined;
+    this.loadVerification();
+  }
+
+  refreshSelectedCampaignData(): void {
+    if (!this.companyId || !this.selectedCampaign) return;
+    const cid = this.companyId;
+    const campId = this.selectedCampaign.id;
+
+    this.registry.getVerificationDashboard(cid, campId).subscribe({
+      next: (summary) => {
+        this.campaignDashboard = summary;
+        this.changeDetector.markForCheck();
+      },
+      error: () => {}
+    });
+
+    this.loadExpectedAssets();
+    this.loadDiscrepancies();
+    this.loadUnregisteredAssets();
+  }
+
+  loadExpectedAssets(): void {
+    if (!this.companyId || !this.selectedCampaign) return;
+    this.registry.getVerificationExpectedAssets(this.companyId, this.selectedCampaign.id, {
+      search: this.expectedSearch.trim() || undefined,
+      verified: this.expectedVerifiedFilter,
+      category_id: this.expectedCategoryFilter || undefined,
+      location_id: this.expectedLocationFilter || undefined
+    }).subscribe({
+      next: (items) => {
+        this.campaignExpectedAssets = items;
+        this.changeDetector.markForCheck();
+      },
+      error: (err) => this.fail(err)
+    });
+  }
+
+  loadDiscrepancies(): void {
+    if (!this.companyId || !this.selectedCampaign) return;
+    this.registry.getVerificationDiscrepancies(this.companyId, this.selectedCampaign.id, {
+      discrepancy_type: this.discrepancyTypeFilter !== 'all' ? this.discrepancyTypeFilter : undefined,
+      status: this.discrepancyStatusFilter !== 'all' ? this.discrepancyStatusFilter : undefined
+    }).subscribe({
+      next: (items) => {
+        this.campaignDiscrepancies = items;
+        this.changeDetector.markForCheck();
+      },
+      error: (err) => this.fail(err)
+    });
+  }
+
+  loadUnregisteredAssets(): void {
+    if (!this.companyId || !this.selectedCampaign) return;
+    this.registry.getUnregisteredAssets(this.companyId, this.selectedCampaign.id, this.unregisteredStatusFilter !== 'all' ? this.unregisteredStatusFilter : undefined).subscribe({
+      next: (items) => {
+        this.campaignUnregisteredAssets = items;
+        this.changeDetector.markForCheck();
+      },
+      error: (err) => this.fail(err)
+    });
+  }
+
+  openCreateCampaignModal(): void {
+    this.campaignCreateForm = {
+      campaign_reference: '',
+      name: '',
+      description: '',
+      start_date: this.today(),
+      end_date: this.today(),
+      scope_category_ids: [],
+      scope_location_ids: []
+    };
+    this.campaignCreateModalOpen = true;
+  }
+
+  closeCreateCampaignModal(): void {
+    this.campaignCreateModalOpen = false;
+  }
+
+  submitCreateCampaign(): void {
+    if (!this.companyId || !this.campaignCreateForm.campaign_reference.trim() || !this.campaignCreateForm.name.trim()) return;
+    this.saving = true;
+    this.registry.createVerificationCampaign(this.companyId, {
+      ...this.campaignCreateForm,
+      campaign_reference: this.campaignCreateForm.campaign_reference.trim(),
+      name: this.campaignCreateForm.name.trim(),
+      scope_category_ids: this.campaignCreateForm.scope_category_ids?.length ? this.campaignCreateForm.scope_category_ids : null,
+      scope_location_ids: this.campaignCreateForm.scope_location_ids?.length ? this.campaignCreateForm.scope_location_ids : null
+    }).subscribe({
+      next: (campaign) => {
+        this.saving = false;
+        this.campaignCreateModalOpen = false;
+        this.successMessage = `Campaign "${campaign.name}" (${campaign.campaign_reference}) created successfully.`;
+        this.loadVerification();
+        this.selectVerificationCampaign(campaign);
+      },
+      error: (err) => {
+        this.saving = false;
+        this.fail(err);
+      }
+    });
+  }
+
+  transitionCampaignStatus(status: string): void {
+    if (!this.companyId || !this.selectedCampaign) return;
+    if (status === 'cancelled' && !window.confirm('Are you sure you want to cancel this verification campaign? This cannot be undone.')) {
+      return;
+    }
+    this.saving = true;
+    this.registry.transitionVerificationCampaignStatus(this.companyId, this.selectedCampaign.id, status).subscribe({
+      next: (updated) => {
+        this.saving = false;
+        this.selectedCampaign = updated;
+        this.successMessage = `Campaign status updated to ${this.formatStatus(status)}.`;
+        this.refreshSelectedCampaignData();
+        this.registry.listVerificationCampaigns(this.companyId).subscribe(list => {
+          this.verificationCampaigns = list;
+          this.changeDetector.markForCheck();
+        });
+      },
+      error: (err) => {
+        this.saving = false;
+        this.fail(err);
+      }
+    });
+  }
+
+  openRecordObservationModal(expectedAsset: VerificationExpectedAsset): void {
+    this.selectedExpectedAsset = expectedAsset;
+    this.observationForm = {
+      is_found: true,
+      actual_location_id: expectedAsset.expected_location_id || '',
+      actual_custodian_id: expectedAsset.expected_custodian_id || '',
+      observed_condition: expectedAsset.expected_condition || 'good',
+      remarks: '',
+      reference_notes: ''
+    };
+    this.observationModalOpen = true;
+  }
+
+  closeRecordObservationModal(): void {
+    this.observationModalOpen = false;
+    this.selectedExpectedAsset = undefined;
+  }
+
+  submitObservation(): void {
+    if (!this.companyId || !this.selectedCampaign || !this.selectedExpectedAsset) return;
+    this.saving = true;
+    this.registry.recordVerificationObservation(this.companyId, this.selectedCampaign.id, this.selectedExpectedAsset.id, {
+      ...this.observationForm,
+      actual_location_id: this.observationForm.is_found && this.observationForm.actual_location_id ? this.observationForm.actual_location_id : null,
+      actual_custodian_id: this.observationForm.is_found && this.observationForm.actual_custodian_id ? this.observationForm.actual_custodian_id : null,
+      verification_date: this.today()
+    }).subscribe({
+      next: () => {
+        this.saving = false;
+        this.observationModalOpen = false;
+        this.successMessage = `Observation recorded for asset ${this.selectedExpectedAsset?.asset_number}.`;
+        this.selectedExpectedAsset = undefined;
+        this.refreshSelectedCampaignData();
+      },
+      error: (err) => {
+        this.saving = false;
+        this.fail(err);
+      }
+    });
+  }
+
+  openResolveDiscrepancyModal(d: VerificationDiscrepancy): void {
+    this.selectedDiscrepancy = d;
+    this.resolveDiscrepancyForm = {
+      resolution_action: d.discrepancy_type === 'missing' ? 'mark_missing' : 'update_master',
+      resolution_notes: ''
+    };
+    this.resolveDiscrepancyModalOpen = true;
+  }
+
+  closeResolveDiscrepancyModal(): void {
+    this.resolveDiscrepancyModalOpen = false;
+    this.selectedDiscrepancy = undefined;
+  }
+
+  submitResolveDiscrepancy(): void {
+    if (!this.companyId || !this.selectedCampaign || !this.selectedDiscrepancy || !this.resolveDiscrepancyForm.resolution_notes.trim()) return;
+    this.saving = true;
+    this.registry.resolveVerificationDiscrepancy(this.companyId, this.selectedCampaign.id, this.selectedDiscrepancy.id, {
+      ...this.resolveDiscrepancyForm,
+      resolution_notes: this.resolveDiscrepancyForm.resolution_notes.trim()
+    }).subscribe({
+      next: () => {
+        this.saving = false;
+        const action = this.resolveDiscrepancyForm.resolution_action;
+        this.resolveDiscrepancyModalOpen = false;
+        this.successMessage = `Discrepancy resolved with action "${this.formatStatus(action)}".`;
+        this.selectedDiscrepancy = undefined;
+        this.refreshSelectedCampaignData();
+        if (action === 'update_master' || action === 'mark_missing') {
+          this.loadAssets();
+        }
+      },
+      error: (err) => {
+        this.saving = false;
+        this.fail(err);
+      }
+    });
+  }
+
+  openRecordUnregisteredModal(): void {
+    this.unregisteredForm = {
+      description: '',
+      category_id: this.categories[0]?.id || '',
+      serial_number: '',
+      site_id: this.sites[0]?.id || '',
+      location_id: '',
+      custodian_id: '',
+      observed_condition: 'good',
+      remarks: ''
+    };
+    this.unregisteredModalOpen = true;
+  }
+
+  closeRecordUnregisteredModal(): void {
+    this.unregisteredModalOpen = false;
+  }
+
+  submitRecordUnregistered(): void {
+    if (!this.companyId || !this.selectedCampaign || !this.unregisteredForm.description.trim() || !this.unregisteredForm.category_id) return;
+    this.saving = true;
+    this.registry.recordUnregisteredAsset(this.companyId, this.selectedCampaign.id, {
+      ...this.unregisteredForm,
+      description: this.unregisteredForm.description.trim(),
+      serial_number: this.unregisteredForm.serial_number?.trim() || null,
+      site_id: this.unregisteredForm.site_id || null,
+      location_id: this.unregisteredForm.location_id || null,
+      custodian_id: this.unregisteredForm.custodian_id || null,
+      remarks: this.unregisteredForm.remarks?.trim() || null
+    }).subscribe({
+      next: () => {
+        this.saving = false;
+        this.unregisteredModalOpen = false;
+        this.successMessage = `Unregistered asset discovery recorded.`;
+        this.refreshSelectedCampaignData();
+      },
+      error: (err) => {
+        this.saving = false;
+        this.fail(err);
+      }
+    });
+  }
+
+  openRegisterUnregisteredModal(u: VerificationUnregisteredAsset): void {
+    this.selectedUnregisteredAsset = u;
+    this.registerUnregisteredForm = {
+      asset_number: '',
+      cost_center_id: this.costCenters[0]?.id || '',
+      responsible_department_id: this.departments[0]?.id || '',
+      acquisition_cost: null,
+      acquisition_date: this.today(),
+      resolution_notes: `Registered from verification discovery in campaign ${this.selectedCampaign?.campaign_reference}`
+    };
+    this.registerUnregisteredModalOpen = true;
+  }
+
+  closeRegisterUnregisteredModal(): void {
+    this.registerUnregisteredModalOpen = false;
+    this.selectedUnregisteredAsset = undefined;
+  }
+
+  submitRegisterUnregistered(): void {
+    if (!this.companyId || !this.selectedCampaign || !this.selectedUnregisteredAsset || !this.registerUnregisteredForm.resolution_notes.trim()) return;
+    this.saving = true;
+    this.registry.registerUnregisteredAsset(this.companyId, this.selectedCampaign.id, this.selectedUnregisteredAsset.id, {
+      ...this.registerUnregisteredForm,
+      asset_number: this.registerUnregisteredForm.asset_number?.trim() || null,
+      cost_center_id: this.registerUnregisteredForm.cost_center_id || null,
+      responsible_department_id: this.registerUnregisteredForm.responsible_department_id || null,
+      acquisition_date: this.registerUnregisteredForm.acquisition_date || this.today(),
+      resolution_notes: this.registerUnregisteredForm.resolution_notes.trim()
+    }).subscribe({
+      next: (result) => {
+        this.saving = false;
+        this.registerUnregisteredModalOpen = false;
+        this.successMessage = `Asset registered as ${result.registered_asset_number}.`;
+        this.selectedUnregisteredAsset = undefined;
+        this.refreshSelectedCampaignData();
+        this.loadAssets();
+      },
+      error: (err) => {
+        this.saving = false;
+        this.fail(err);
+      }
+    });
+  }
+
+  isCategoryInScope(categoryId: string): boolean {
+    return (this.campaignCreateForm.scope_category_ids || []).includes(categoryId);
+  }
+
+  toggleCategoryScope(categoryId: string): void {
+    const list = this.campaignCreateForm.scope_category_ids ? [...this.campaignCreateForm.scope_category_ids] : [];
+    const idx = list.indexOf(categoryId);
+    if (idx > -1) {
+      list.splice(idx, 1);
+    } else {
+      list.push(categoryId);
+    }
+    this.campaignCreateForm.scope_category_ids = list;
+  }
+
+  isLocationInScope(locationId: string): boolean {
+    return (this.campaignCreateForm.scope_location_ids || []).includes(locationId);
+  }
+
+  toggleLocationScope(locationId: string): void {
+    const list = this.campaignCreateForm.scope_location_ids ? [...this.campaignCreateForm.scope_location_ids] : [];
+    const idx = list.indexOf(locationId);
+    if (idx > -1) {
+      list.splice(idx, 1);
+    } else {
+      list.push(locationId);
+    }
+    this.campaignCreateForm.scope_location_ids = list;
+  }
+
+  formatDiscrepancyType(type: string | undefined | null): string {
+    if (!type) return '—';
+    return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  formatDiscrepancyStatus(status: string | undefined | null): string {
+    return this.formatStatus(status);
+  }
+
+  discrepancyTypeBadgeClass(type: string): string {
+    switch (type) {
+      case 'missing': return 'status-cancelled';
+      case 'location_mismatch': return 'status-expiring_soon';
+      case 'custodian_mismatch': return 'status-assigned';
+      case 'condition_mismatch': return 'status-maintenance';
+      case 'unregistered_found': return 'status-active';
+      default: return 'status-in_stock';
+    }
+  }
+
+  campaignStatusBadgeClass(status: string): string {
+    switch (status) {
+      case 'draft': return 'status-in_stock';
+      case 'in_progress': return 'status-active';
+      case 'under_review': return 'status-expiring_soon';
+      case 'completed': return 'status-assigned';
+      case 'cancelled': return 'status-cancelled';
+      default: return 'status-in_stock';
+    }
   }
 
   private today(): string {

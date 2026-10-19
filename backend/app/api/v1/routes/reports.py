@@ -2,7 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, aliased
 
@@ -23,6 +23,11 @@ from app.models import (
     Site,
     Supplier,
     User,
+    VerificationCampaign,
+    VerificationDiscrepancy,
+    VerificationExpectedAsset,
+    VerificationObservation,
+    VerificationUnregisteredAsset,
 )
 from app.schemas import (
     AssetAllocationReportItem,
@@ -38,6 +43,8 @@ from app.schemas import (
     ProcurementSummaryMetric,
     RecentActivityMetric,
     SiteMetric,
+    VerificationCampaignReportItem,
+    VerificationDiscrepancyReportItem,
     WarrantyExpiryReportItem,
 )
 from app.security import CurrentActor, current_actor, require_permission
@@ -643,4 +650,181 @@ def report_procurement(
                 receipt_numbers=list(receipts),
             )
         )
+    return items
+
+
+@router.get(
+    '/reports/verification-campaigns',
+    response_model=list[VerificationCampaignReportItem],
+    dependencies=[Depends(require_permission('verification.read'))],
+)
+def get_verification_campaigns_report(
+    company_id: UUID,
+    status_filter: str | None = Query(None, alias='status'),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+    search: str | None = Query(None),
+    format: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    get_company(db, company_id)
+    query = select(VerificationCampaign).where(VerificationCampaign.company_id == company_id)
+    if status_filter:
+        query = query.where(VerificationCampaign.status == status_filter)
+    if start_date:
+        query = query.where(VerificationCampaign.start_date >= start_date)
+    if end_date:
+        query = query.where(VerificationCampaign.end_date <= end_date)
+    if search:
+        s = f'%{search.strip()}%'
+        query = query.where(
+            or_(
+                VerificationCampaign.campaign_reference.ilike(s),
+                VerificationCampaign.name.ilike(s),
+            )
+        )
+    query = query.order_by(VerificationCampaign.created_at.desc())
+    campaigns = db.scalars(query).all()
+
+    items = []
+    for c in campaigns:
+        total_exp = db.scalar(
+            select(func.count(VerificationExpectedAsset.id)).where(
+                VerificationExpectedAsset.company_id == company_id,
+                VerificationExpectedAsset.campaign_id == c.id,
+            )
+        ) or 0
+        total_ver = db.scalar(
+            select(func.count(VerificationObservation.id)).where(
+                VerificationObservation.company_id == company_id,
+                VerificationObservation.campaign_id == c.id,
+            )
+        ) or 0
+        total_miss = db.scalar(
+            select(func.count(VerificationObservation.id)).where(
+                VerificationObservation.company_id == company_id,
+                VerificationObservation.campaign_id == c.id,
+                VerificationObservation.is_found.is_(False),
+            )
+        ) or 0
+        total_disc = db.scalar(
+            select(func.count(VerificationDiscrepancy.id)).where(
+                VerificationDiscrepancy.company_id == company_id,
+                VerificationDiscrepancy.campaign_id == c.id,
+            )
+        ) or 0
+        total_unreg = db.scalar(
+            select(func.count(VerificationUnregisteredAsset.id)).where(
+                VerificationUnregisteredAsset.company_id == company_id,
+                VerificationUnregisteredAsset.campaign_id == c.id,
+            )
+        ) or 0
+        pct = round((total_ver / total_exp * 100.0), 1) if total_exp > 0 else 0.0
+
+        items.append(
+            VerificationCampaignReportItem(
+                campaign_id=c.id,
+                campaign_reference=c.campaign_reference,
+                campaign_name=c.name,
+                status=c.status,
+                start_date=c.start_date,
+                end_date=c.end_date,
+                total_expected=total_exp,
+                total_verified=total_ver,
+                total_missing=total_miss,
+                discrepancy_count=total_disc,
+                unregistered_count=total_unreg,
+                completion_percentage=pct,
+                created_at=c.created_at,
+                completed_at=c.completed_at,
+            )
+        )
+
+    if format == 'csv':
+        import io, csv
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(['Campaign Reference', 'Campaign Name', 'Status', 'Start Date', 'End Date', 'Expected Assets', 'Verified Assets', 'Missing Assets', 'Discrepancies', 'Unregistered Assets', 'Completion %'])
+        for item in items:
+            writer.writerow([
+                item.campaign_reference, item.campaign_name, item.status, item.start_date, item.end_date,
+                item.total_expected, item.total_verified, item.total_missing, item.discrepancy_count, item.unregistered_count, item.completion_percentage,
+            ])
+        return Response(content=buf.getvalue(), media_type='text/csv', headers={'Content-Disposition': 'attachment; filename="verification-campaigns.csv"'})
+
+    return items
+
+
+@router.get(
+    '/reports/verification-discrepancies',
+    response_model=list[VerificationDiscrepancyReportItem],
+    dependencies=[Depends(require_permission('verification.read'))],
+)
+def get_verification_discrepancies_report(
+    company_id: UUID,
+    campaign_id: UUID | None = Query(None),
+    discrepancy_type: str | None = Query(None),
+    status_filter: str | None = Query(None, alias='status'),
+    format: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    get_company(db, company_id)
+    query = (
+        select(
+            VerificationDiscrepancy,
+            VerificationCampaign.campaign_reference,
+            VerificationCampaign.name.label('campaign_name'),
+            Asset.asset_number,
+            User.email.label('resolved_by_name'),
+        )
+        .join(VerificationCampaign, VerificationCampaign.id == VerificationDiscrepancy.campaign_id)
+        .outerjoin(Asset, Asset.id == VerificationDiscrepancy.asset_id)
+        .outerjoin(User, User.id == VerificationDiscrepancy.resolved_by_id)
+        .where(VerificationDiscrepancy.company_id == company_id)
+    )
+    if campaign_id:
+        query = query.where(VerificationDiscrepancy.campaign_id == campaign_id)
+    if discrepancy_type:
+        query = query.where(VerificationDiscrepancy.discrepancy_type == discrepancy_type)
+    if status_filter:
+        query = query.where(VerificationDiscrepancy.status == status_filter)
+    query = query.order_by(VerificationDiscrepancy.created_at.desc())
+    rows = db.execute(query).all()
+
+    items = []
+    for r in rows:
+        d = r.VerificationDiscrepancy
+        exp_summary = str(d.expected_data) if d.expected_data else None
+        obs_summary = str(d.observed_data) if d.observed_data else None
+        items.append(
+            VerificationDiscrepancyReportItem(
+                discrepancy_id=d.id,
+                campaign_reference=r.campaign_reference,
+                campaign_name=r.campaign_name,
+                asset_number=r.asset_number,
+                discrepancy_type=d.discrepancy_type,
+                status=d.status,
+                expected_summary=exp_summary,
+                observed_summary=obs_summary,
+                notes=d.notes,
+                resolution_action=d.resolution_action,
+                resolution_notes=d.resolution_notes,
+                resolved_by_name=r.resolved_by_name,
+                resolved_at=d.resolved_at,
+                created_at=d.created_at,
+            )
+        )
+
+    if format == 'csv':
+        import io, csv
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(['Discrepancy ID', 'Campaign Reference', 'Asset Number', 'Type', 'Status', 'Resolution Action', 'Resolution Notes', 'Resolved By', 'Resolved At'])
+        for item in items:
+            writer.writerow([
+                str(item.discrepancy_id), item.campaign_reference, item.asset_number or '', item.discrepancy_type,
+                item.status, item.resolution_action or '', item.resolution_notes or '', item.resolved_by_name or '', item.resolved_at or '',
+            ])
+        return Response(content=buf.getvalue(), media_type='text/csv', headers={'Content-Disposition': 'attachment; filename="verification-discrepancies.csv"'})
+
     return items

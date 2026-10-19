@@ -2,9 +2,42 @@
 
 ## Current delivery
 
-**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, multi-line purchase orders and line-item receiving, warranty/AMC/maintenance requests, and Phase 5 executive dashboard and operational reports: implemented.** Verification status and remaining integration limitations are recorded below.
+**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, multi-line purchase orders and line-item receiving, warranty/AMC/maintenance requests, Phase 4 physical asset verification campaigns, and Phase 5 executive dashboard and operational reports: implemented.** Verification status and remaining integration limitations are recorded below.
 
 Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
+
+## Physical asset verification (2026-10-19)
+
+- Implemented a complete Physical Asset Verification module enabling organisations to verify the physical existence, location, custodian, and condition of registered assets through controlled campaigns.
+- Campaign management and lifecycle:
+  - Models added: `VerificationCampaign`, `VerificationExpectedAsset`, `VerificationObservation`, `VerificationDiscrepancy`, and `VerificationUnregisteredAsset`.
+  - Campaign reference, name, description, verification period (`start_date`, `end_date`), and multi-category / multi-location scoping.
+  - Lifecycle state machine: `draft` -> `in_progress` -> `under_review` -> `completed` (with `cancelled` permitted from non-completed states, and reopening permitted from review).
+  - Campaign start locks scope and captures a frozen snapshot of expected assets matching the campaign criteria, preventing scope manipulation after verification begins.
+- Physical observations and discrepancy detection:
+  - Verifiers record observed presence (`found`, `not_found`), actual location, actual custodian, condition (`excellent`, `good`, `fair`, `poor`, `damaged`), tag/barcode reference, and remarks.
+  - Duplicate observation protection prevents multiple conflicting entries for the same expected asset (HTTP 409).
+  - Automatic discrepancy generation for missing assets, location mismatches, custodian mismatches, and condition degradations without modifying master asset records.
+- Discrepancy resolution workflow:
+  - Controlled resolution actions: `update_master`, `keep_as_is`, `mark_missing`, `investigate`, `dismiss`.
+  - Resolution notes are strictly mandatory.
+  - Asset master records (location, custodian, condition, status) are updated ONLY upon explicit `update_master` resolution action.
+- In-field unregistered asset discovery:
+  - Verifiers can record previously unlisted physical assets discovered in the field (serial number, description, category, location, custodian, condition, remarks).
+  - Controlled registration action automatically promotes discovered assets into master asset inventory using company asset numbering rules, linking the asset to the campaign and preventing duplicate registrations (HTTP 409).
+- Reports, dashboard metrics, and CSV exports:
+  - Real-time campaign summary KPI metrics: expected count, verified count, unverified count, missing count, completion percentage, discrepancies by type, and unregistered asset count.
+  - Verification Campaigns report (`GET /reports/verification-campaigns`) with CSV export (`format=csv`).
+  - Verification Discrepancies report (`GET /reports/verification-discrepancies`) with CSV export (`format=csv`) and RFC-4180 formula injection sanitization.
+- RBAC, company multi-tenancy & audit logging:
+  - Added permissions `verification.read` and `verification.manage` seeded into `company_admin`, `asset_manager`, `technician`, `auditor`, and `read_only` roles.
+  - Strict company multi-tenancy with composite foreign keys and database check constraints.
+  - Comprehensive audit event logging (`verification_campaign_created`, `verification_campaign_started`, `verification_observation_recorded`, `verification_discrepancy_resolved`, `verification_unregistered_asset_recorded`, `verification_unregistered_asset_registered`, etc.).
+- Verification & Test Coverage:
+  - PostgreSQL backend pytest suite: **69 passed, 0 failed, 1 warning** in 71.71s (5 dedicated verification tests covering lifecycle transitions, snapshot freezing, observation duplicate protection, all discrepancy types, master asset updating on resolution, unregistered asset registration, reports, and RBAC / multi-tenant isolation).
+  - Frontend Angular Karma suite: **61 passed, 0 failed** (11 dedicated verification tests covering navigation, permission gating, campaign creation/selection, status transitions, observation recording, discrepancy resolution, unregistered asset discovery/registration, and report generation/CSV export).
+  - Alembic migration `20261019_physical_asset_verification.py` verified with `alembic upgrade head`, `alembic downgrade -1`, and `alembic check` (**zero schema drift**).
+  - Production build: `ng build` succeeded cleanly with **0 errors**.
 
 ## Multi-line purchase orders and line-item goods receipt (2026-10-19)
 

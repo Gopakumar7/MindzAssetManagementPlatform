@@ -25,6 +25,8 @@ _PERMISSIONS = {
     'asset.history.read': 'Read asset history',
     'audit.read': 'Read security and business audit events',
     'dashboard.read': 'Read executive dashboard and key metrics',
+    'verification.read': 'Read company physical asset verification campaigns and discrepancies',
+    'verification.manage': 'Manage company physical asset verification campaigns, observations, and resolutions',
 }
 
 _ROLE_PERMISSIONS = {
@@ -35,25 +37,27 @@ _ROLE_PERMISSIONS = {
         'asset.update', 'asset.usage.manage', 'asset.history.read', 'audit.read',
         'asset.assignment.manage', 'procurement.read', 'procurement.manage',
         'maintenance.read', 'maintenance.manage', 'dashboard.read',
+        'verification.read', 'verification.manage',
     },
     ('company', 'asset_manager'): {
         'company.read', 'organization.read', 'organization.manage', 'asset.read',
         'asset.create', 'asset.update', 'asset.usage.manage', 'asset.assignment.manage',
         'asset.history.read', 'procurement.read', 'procurement.manage',
         'maintenance.read', 'maintenance.manage', 'dashboard.read',
+        'verification.read', 'verification.manage',
     },
     ('company', 'it_support'): {
         'company.read', 'organization.read', 'asset.read', 'asset.update',
         'asset.usage.manage', 'asset.history.read', 'maintenance.read',
-        'maintenance.manage',
+        'maintenance.manage', 'verification.read',
     },
     ('company', 'auditor'): {
         'company.read', 'organization.read', 'asset.read', 'asset.history.read', 'audit.read',
-        'procurement.read', 'maintenance.read', 'dashboard.read',
+        'procurement.read', 'maintenance.read', 'dashboard.read', 'verification.read',
     },
     ('company', 'read_only_user'): {
         'company.read', 'organization.read', 'asset.read', 'asset.history.read', 'procurement.read',
-        'maintenance.read',
+        'maintenance.read', 'verification.read',
     },
 }
 

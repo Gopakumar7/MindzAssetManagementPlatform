@@ -861,3 +861,241 @@ class ProcurementReportItem(BaseModel):
     lines: list[ProcurementReportLineItem]
     receipt_numbers: list[str]
 
+
+class VerificationCampaignCreate(BaseModel):
+    campaign_reference: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=160)
+    description: str | None = None
+    start_date: date
+    end_date: date
+    scope_category_ids: list[UUID] | None = None
+    scope_location_ids: list[UUID] | None = None
+
+
+class VerificationCampaignUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    scope_category_ids: list[UUID] | None = None
+    scope_location_ids: list[UUID] | None = None
+
+
+class VerificationCampaignStatusTransition(BaseModel):
+    status: str = Field(pattern=r'^(in_progress|under_review|completed|cancelled)$')
+    notes: str | None = None
+
+
+class VerificationCampaignRead(Record):
+    id: UUID
+    company_id: UUID
+    campaign_reference: str
+    name: str
+    description: str | None = None
+    status: str
+    start_date: date
+    end_date: date
+    scope_category_ids: list[UUID] | None = None
+    scope_location_ids: list[UUID] | None = None
+    created_by_id: UUID
+    created_by_name: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    closed_by_id: UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+    total_expected: int = 0
+    total_verified: int = 0
+    total_unverified: int = 0
+    total_missing: int = 0
+    total_discrepancies: int = 0
+    total_unregistered: int = 0
+    completion_percentage: float = 0.0
+
+
+class VerificationExpectedAssetRead(Record):
+    id: UUID
+    company_id: UUID
+    campaign_id: UUID
+    asset_id: UUID
+    asset_number: str
+    category_id: UUID
+    category_name: str | None = None
+    serial_number: str | None = None
+    model: str | None = None
+    manufacturer: str | None = None
+    expected_site_id: UUID | None = None
+    site_name: str | None = None
+    expected_location_id: UUID | None = None
+    location_name: str | None = None
+    expected_department_id: UUID | None = None
+    department_name: str | None = None
+    expected_custodian_id: UUID | None = None
+    expected_custodian_name: str | None = None
+    expected_condition: str | None = None
+    expected_status: str
+    is_verified: bool = False
+    observation_id: UUID | None = None
+    observation_found: bool | None = None
+    has_discrepancy: bool = False
+    discrepancy_types: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class VerificationObservationCreate(BaseModel):
+    is_found: bool = True
+    actual_location_id: UUID | None = None
+    actual_custodian_id: UUID | None = None
+    observed_condition: str = Field(default='good', max_length=32)
+    verification_date: date | None = None
+    remarks: str | None = None
+    reference_notes: str | None = None
+
+
+class VerificationObservationRead(Record):
+    id: UUID
+    company_id: UUID
+    campaign_id: UUID
+    expected_asset_id: UUID | None = None
+    asset_id: UUID | None = None
+    asset_number: str | None = None
+    is_found: bool
+    actual_site_id: UUID | None = None
+    actual_site_name: str | None = None
+    actual_location_id: UUID | None = None
+    actual_location_name: str | None = None
+    actual_department_id: UUID | None = None
+    actual_custodian_id: UUID | None = None
+    actual_custodian_name: str | None = None
+    observed_condition: str
+    verification_date: date
+    verified_by_id: UUID
+    verified_by_name: str | None = None
+    remarks: str | None = None
+    reference_notes: str | None = None
+    created_at: datetime
+
+
+class VerificationDiscrepancyResolveRequest(BaseModel):
+    resolution_action: str = Field(pattern=r'^(update_master|register_asset|mark_missing|dismiss|no_change)$')
+    resolution_notes: str = Field(min_length=1, max_length=500)
+
+
+class VerificationDiscrepancyRead(Record):
+    id: UUID
+    company_id: UUID
+    campaign_id: UUID
+    campaign_reference: str | None = None
+    observation_id: UUID | None = None
+    expected_asset_id: UUID | None = None
+    asset_id: UUID | None = None
+    asset_number: str | None = None
+    discrepancy_type: str
+    status: str
+    expected_data: dict | None = None
+    observed_data: dict | None = None
+    notes: str | None = None
+    resolution_action: str | None = None
+    resolution_notes: str | None = None
+    resolved_by_id: UUID | None = None
+    resolved_by_name: str | None = None
+    resolved_at: datetime | None = None
+    created_at: datetime
+
+
+class VerificationUnregisteredAssetCreate(BaseModel):
+    description: str = Field(min_length=1, max_length=200)
+    category_id: UUID
+    serial_number: str | None = None
+    site_id: UUID | None = None
+    location_id: UUID | None = None
+    custodian_id: UUID | None = None
+    observed_condition: str | None = 'good'
+    remarks: str | None = None
+
+
+class VerificationUnregisteredAssetRegister(BaseModel):
+    asset_number: str | None = None
+    cost_center_id: UUID | None = None
+    responsible_department_id: UUID | None = None
+    acquisition_cost: Decimal | None = None
+    acquisition_date: date | None = None
+    resolution_notes: str = Field(default='Registered from verification finding', min_length=1)
+
+
+class VerificationUnregisteredAssetRead(Record):
+    id: UUID
+    company_id: UUID
+    campaign_id: UUID
+    observation_id: UUID | None = None
+    discrepancy_id: UUID | None = None
+    serial_number: str | None = None
+    description: str
+    category_id: UUID
+    category_name: str | None = None
+    site_id: UUID | None = None
+    site_name: str | None = None
+    location_id: UUID | None = None
+    location_name: str | None = None
+    custodian_id: UUID | None = None
+    custodian_name: str | None = None
+    observed_condition: str | None = None
+    remarks: str | None = None
+    status: str
+    registered_asset_id: UUID | None = None
+    registered_asset_number: str | None = None
+    created_at: datetime
+
+
+class VerificationDashboardSummary(BaseModel):
+    campaign_id: UUID
+    campaign_reference: str
+    campaign_name: str
+    status: str
+    start_date: date
+    end_date: date
+    total_expected: int
+    total_verified: int
+    total_unverified: int
+    total_missing: int
+    completion_percentage: float
+    discrepancies_by_type: dict[str, int]
+    unregistered_count: int
+    pending_resolutions: int
+    resolved_resolutions: int
+
+
+class VerificationCampaignReportItem(BaseModel):
+    campaign_id: UUID
+    campaign_reference: str
+    campaign_name: str
+    status: str
+    start_date: date
+    end_date: date
+    total_expected: int
+    total_verified: int
+    total_missing: int
+    discrepancy_count: int
+    unregistered_count: int
+    completion_percentage: float
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
+class VerificationDiscrepancyReportItem(BaseModel):
+    discrepancy_id: UUID
+    campaign_reference: str
+    campaign_name: str
+    asset_number: str | None = None
+    discrepancy_type: str
+    status: str
+    expected_summary: str | None = None
+    observed_summary: str | None = None
+    notes: str | None = None
+    resolution_action: str | None = None
+    resolution_notes: str | None = None
+    resolved_by_name: str | None = None
+    resolved_at: datetime | None = None
+    created_at: datetime
+
+
