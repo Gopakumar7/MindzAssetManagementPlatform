@@ -1079,6 +1079,33 @@ export class RegistryService {
       resolution_notes: resolutionNotes
     });
   }
+
+  getLastAlertJob(companyId: string): Observable<ScheduledJobExecution | null> {
+    return this.http.get<ScheduledJobExecution | null>(`${this.base}/companies/${companyId}/alerts/last-job`);
+  }
+
+  getNotifications(status?: string, companyId?: string): Observable<InAppNotification[]> {
+    let params = new HttpParams();
+    if (status) params = params.set('status', status);
+    if (companyId) params = params.set('company_id', companyId);
+    return this.http.get<InAppNotification[]>(`${this.base}/notifications`, { params });
+  }
+
+  getUnreadNotificationCount(companyId?: string): Observable<NotificationUnreadCount> {
+    let params = new HttpParams();
+    if (companyId) params = params.set('company_id', companyId);
+    return this.http.get<NotificationUnreadCount>(`${this.base}/notifications/unread-count`, { params });
+  }
+
+  markNotificationRead(notificationId: string): Observable<InAppNotification> {
+    return this.http.post<InAppNotification>(`${this.base}/notifications/${notificationId}/read`, {});
+  }
+
+  markAllNotificationsRead(companyId?: string): Observable<NotificationUnreadCount> {
+    let params = new HttpParams();
+    if (companyId) params = params.set('company_id', companyId);
+    return this.http.post<NotificationUnreadCount>(`${this.base}/notifications/mark-all-read`, {}, { params });
+  }
 }
 
 
@@ -1498,6 +1525,44 @@ export interface AlertSyncResponse {
   updated_count: number;
   auto_resolved_count: number;
   active_count: number;
+}
+
+export interface ScheduledJobExecution {
+  id: string;
+  job_name: string;
+  status: 'running' | 'completed' | 'failed';
+  started_at: string;
+  last_heartbeat_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+  total_companies_processed: number;
+  alerts_created: number;
+  alerts_updated: number;
+  alerts_auto_resolved: number;
+  error_message: string | null;
+  node_id: string | null;
+  created_at: string;
+}
+
+export interface InAppNotification {
+  id: string;
+  company_id: string | null;
+  recipient_user_id: string;
+  notification_type: string;
+  title: string;
+  message: string;
+  severity: 'critical' | 'warning' | 'info';
+  entity_type: string | null;
+  entity_id: string | null;
+  target_route: string | null;
+  status: 'unread' | 'read' | 'archived';
+  read_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationUnreadCount {
+  unread_count: number;
 }
 
 

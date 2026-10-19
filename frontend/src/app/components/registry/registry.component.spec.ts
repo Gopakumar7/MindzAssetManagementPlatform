@@ -33,7 +33,10 @@ import {
   FinancialDashboardMetric,
   AssetAlert,
   AssetAlertSummary,
-  AlertSyncResponse
+  AlertSyncResponse,
+  InAppNotification,
+  NotificationUnreadCount,
+  ScheduledJobExecution
 } from '../../services/registry.service';
 
 import { RegistryComponent, serializeCsvCell } from './registry.component';
@@ -155,8 +158,19 @@ describe('RegistryComponent user access navigation', () => {
       'acknowledgeAlert',
       'assignAlert',
       'resolveAlert',
-      'dismissAlert'
+      'dismissAlert',
+      'getLastAlertJob',
+      'getNotifications',
+      'getUnreadNotificationCount',
+      'markNotificationRead',
+      'markAllNotificationsRead'
     ]);
+
+    registry.getLastAlertJob.and.returnValue(of(null));
+    registry.getNotifications.and.returnValue(of([]));
+    registry.getUnreadNotificationCount.and.returnValue(of({ unread_count: 0 }));
+    registry.markNotificationRead.and.returnValue(of({} as any));
+    registry.markAllNotificationsRead.and.returnValue(of({ unread_count: 0 }));
 
     registry.companies.and.returnValue(of([company]));
     registry.listMaster.and.returnValue(of([]));
@@ -1666,8 +1680,19 @@ describe('RegistryComponent Physical Asset Verification', () => {
       'acknowledgeAlert',
       'assignAlert',
       'resolveAlert',
-      'dismissAlert'
+      'dismissAlert',
+      'getLastAlertJob',
+      'getNotifications',
+      'getUnreadNotificationCount',
+      'markNotificationRead',
+      'markAllNotificationsRead'
     ]);
+
+    registry.getLastAlertJob.and.returnValue(of(null));
+    registry.getNotifications.and.returnValue(of([]));
+    registry.getUnreadNotificationCount.and.returnValue(of({ unread_count: 0 }));
+    registry.markNotificationRead.and.returnValue(of({} as any));
+    registry.markAllNotificationsRead.and.returnValue(of({ unread_count: 0 }));
 
     registry.companies.and.returnValue(of([company]));
     registry.listMaster.and.returnValue(of([]));
@@ -2391,8 +2416,19 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
       'acknowledgeAlert',
       'assignAlert',
       'resolveAlert',
-      'dismissAlert'
+      'dismissAlert',
+      'getLastAlertJob',
+      'getNotifications',
+      'getUnreadNotificationCount',
+      'markNotificationRead',
+      'markAllNotificationsRead'
     ]);
+
+    registry.getLastAlertJob.and.returnValue(of(null));
+    registry.getNotifications.and.returnValue(of([]));
+    registry.getUnreadNotificationCount.and.returnValue(of({ unread_count: 0 }));
+    registry.markNotificationRead.and.returnValue(of({} as any));
+    registry.markAllNotificationsRead.and.returnValue(of({ unread_count: 0 }));
 
     registry.companies.and.returnValue(of([company]));
     registry.listMaster.and.returnValue(of([]));
@@ -2754,8 +2790,19 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       'acknowledgeAlert',
       'assignAlert',
       'resolveAlert',
-      'dismissAlert'
+      'dismissAlert',
+      'getLastAlertJob',
+      'getNotifications',
+      'getUnreadNotificationCount',
+      'markNotificationRead',
+      'markAllNotificationsRead'
     ]);
+
+    registry.getLastAlertJob.and.returnValue(of(null));
+    registry.getNotifications.and.returnValue(of([]));
+    registry.getUnreadNotificationCount.and.returnValue(of({ unread_count: 0 }));
+    registry.markNotificationRead.and.returnValue(of({} as any));
+    registry.markAllNotificationsRead.and.returnValue(of({ unread_count: 0 }));
 
     registry.companies.and.returnValue(of([company]));
     registry.listMaster.and.returnValue(of([]));
@@ -2968,6 +3015,172 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
     expect(component.formatAlertType('approaching_eol')).toBe('Approaching End of Life');
     expect(component.formatAlertType('purchase_order_overdue')).toBe('PO Delivery Overdue');
     expect(component.formatAlertType('custom_type')).toBe('custom type');
+  });
+
+  describe('Scheduled Automation and Notifications', () => {
+    const mockNotifications: InAppNotification[] = [
+      {
+        id: 'notif-1',
+        company_id: 'company-1',
+        recipient_user_id: 'user-1',
+        notification_type: 'alert_critical',
+        title: 'Critical Warranty Expiry: AST-001',
+        message: 'Warranty contract expired 10 days ago',
+        severity: 'critical',
+        entity_type: 'asset_alert',
+        entity_id: 'alert-1',
+        target_route: 'alerts',
+        status: 'unread',
+        read_at: null,
+        created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        updated_at: new Date(Date.now() - 5 * 60 * 1000).toISOString()
+      },
+      {
+        id: 'notif-2',
+        company_id: 'company-1',
+        recipient_user_id: 'user-1',
+        notification_type: 'alert_assigned',
+        title: 'Alert Assigned: PO Overdue',
+        message: 'You have been assigned to handle this alert',
+        severity: 'warning',
+        entity_type: 'asset_alert',
+        entity_id: 'alert-2',
+        target_route: 'procurement',
+        status: 'read',
+        read_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        created_at: new Date(Date.now() - 120 * 60 * 1000).toISOString(),
+        updated_at: new Date(Date.now() - 60 * 60 * 1000).toISOString()
+      }
+    ];
+
+    it('should load unread notification count on initialization', () => {
+      registry.getUnreadNotificationCount.and.returnValue(of({ unread_count: 3 }));
+      component.loadNotificationCount();
+      expect(component.unreadNotificationCount).toBe(3);
+      expect(registry.getUnreadNotificationCount).toHaveBeenCalledWith('company-1');
+    });
+
+    it('should toggle notification panel and fetch notifications', () => {
+      registry.getNotifications.and.returnValue(of(mockNotifications));
+      expect(component.showNotificationPanel).toBeFalse();
+
+      component.toggleNotificationPanel();
+      expect(component.showNotificationPanel).toBeTrue();
+      expect(component.notifications.length).toBe(2);
+      expect(component.unreadNotificationCount).toBe(1);
+
+      component.toggleNotificationPanel();
+      expect(component.showNotificationPanel).toBeFalse();
+    });
+
+    it('should filter notifications by unread vs all', () => {
+      component.notifications = [...mockNotifications];
+      component.setNotificationFilter('unread');
+      expect(component.filteredNotifications.length).toBe(1);
+      expect(component.filteredNotifications[0].id).toBe('notif-1');
+
+      component.setNotificationFilter('all');
+      expect(component.filteredNotifications.length).toBe(2);
+    });
+
+    it('should mark notification as read and decrement unread counter', () => {
+      const targetNotif = { ...mockNotifications[0] };
+      component.notifications = [targetNotif];
+      component.unreadNotificationCount = 1;
+
+      registry.markNotificationRead.and.returnValue(
+        of({ ...targetNotif, status: 'read', read_at: '2026-10-19T21:00:00Z' })
+      );
+
+      component.markNotificationAsRead(targetNotif);
+      expect(registry.markNotificationRead).toHaveBeenCalledWith(targetNotif.id);
+      expect(targetNotif.status).toBe('read');
+      expect(targetNotif.read_at).toBe('2026-10-19T21:00:00Z');
+      expect(component.unreadNotificationCount).toBe(0);
+    });
+
+    it('should mark all notifications as read', () => {
+      component.notifications = [
+        { ...mockNotifications[0], status: 'unread' },
+        { ...mockNotifications[1], status: 'unread' }
+      ];
+      component.unreadNotificationCount = 2;
+
+      registry.markAllNotificationsRead.and.returnValue(of({ unread_count: 0 }));
+
+      component.markAllNotificationsRead();
+      expect(registry.markAllNotificationsRead).toHaveBeenCalledWith('company-1');
+      expect(component.unreadNotificationCount).toBe(0);
+      expect(component.notifications.every((n) => n.status === 'read')).toBeTrue();
+    });
+
+    it('should navigate to target route without altering or resolving underlying alert', () => {
+      component.showNotificationPanel = true;
+      component.goToNotificationTarget(mockNotifications[0]);
+
+      expect(component.showNotificationPanel).toBeFalse();
+      expect(component.activeView).toBe('alerts');
+      expect(registry.resolveAlert).not.toHaveBeenCalled();
+      expect(registry.acknowledgeAlert).not.toHaveBeenCalled();
+      expect(registry.dismissAlert).not.toHaveBeenCalled();
+
+      // Navigation to assets
+      component.goToNotificationTarget({ ...mockNotifications[0], target_route: 'assets' });
+      expect(component.activeView).toBe('assets');
+
+      // Navigation to procurement
+      component.goToNotificationTarget({ ...mockNotifications[0], target_route: 'procurement' });
+      expect(component.activeView).toBe('procurement');
+
+      // Navigation to maintenance
+      component.goToNotificationTarget({ ...mockNotifications[0], target_route: 'maintenance' });
+      expect(component.activeView).toBe('maintenance');
+
+      // Navigation to verification
+      component.goToNotificationTarget({ ...mockNotifications[0], target_route: 'verification' });
+      expect(component.activeView).toBe('verification');
+    });
+
+    it('should load and record last scheduled job execution', () => {
+      const mockJob: ScheduledJobExecution = {
+        id: 'job-exec-1',
+        job_name: 'alert_lifecycle_sync',
+        status: 'completed',
+        started_at: '2026-10-19T20:00:00Z',
+        last_heartbeat_at: '2026-10-19T20:01:00Z',
+        completed_at: '2026-10-19T20:01:05Z',
+        duration_ms: 65000,
+        total_companies_processed: 3,
+        alerts_created: 2,
+        alerts_updated: 5,
+        alerts_auto_resolved: 1,
+        error_message: null,
+        node_id: 'prod-worker-1',
+        created_at: '2026-10-19T20:00:00Z'
+      };
+
+      registry.getLastAlertJob.and.returnValue(of(mockJob));
+      component.loadLastAlertJob();
+
+      expect(registry.getLastAlertJob).toHaveBeenCalledWith('company-1');
+      expect(component.lastScheduledJob).toEqual(mockJob);
+      expect(component.lastScheduledJob?.status).toBe('completed');
+      expect(component.lastScheduledJob?.total_companies_processed).toBe(3);
+    });
+
+    it('should format relative timestamps accurately', () => {
+      expect(component.formatTimeAgo(null)).toBe('');
+      expect(component.formatTimeAgo(new Date().toISOString())).toBe('just now');
+
+      const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      expect(component.formatTimeAgo(fiveMinsAgo)).toBe('5m ago');
+
+      const twoHoursAgo = new Date(Date.now() - 2 * 3600 * 1000).toISOString();
+      expect(component.formatTimeAgo(twoHoursAgo)).toBe('2h ago');
+
+      const threeDaysAgo = new Date(Date.now() - 3 * 86400 * 1000).toISOString();
+      expect(component.formatTimeAgo(threeDaysAgo)).toBe('3d ago');
+    });
   });
 });
 

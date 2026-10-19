@@ -58,7 +58,10 @@ import {
   FinancialDashboardMetric,
   AssetAlert,
   AssetAlertSummary,
-  AlertSyncResponse
+  AlertSyncResponse,
+  InAppNotification,
+  NotificationUnreadCount,
+  ScheduledJobExecution
 } from '../../services/registry.service';
 import { AuthService } from '../../services/auth.service';
 
@@ -333,6 +336,14 @@ export class RegistryComponent implements OnInit {
   alertResolutionReason: string = 'manual_resolution';
   alertActionLoading = false;
 
+  // Notifications & Scheduler state
+  lastScheduledJob: ScheduledJobExecution | null = null;
+  showNotificationPanel = false;
+  notifications: InAppNotification[] = [];
+  unreadNotificationCount = 0;
+  notificationsLoading = false;
+  notificationFilter: 'unread' | 'all' = 'unread';
+
   serviceContracts: AssetServiceContract[] = [];
   contractsLoading = false;
   maintenanceRequests: MaintenanceRequest[] = [];
@@ -463,6 +474,7 @@ export class RegistryComponent implements OnInit {
   ) {}
 
   ngOnInit(): void {
+    this.loadNotificationCount();
     this.loading = true;
     this.registry.companies().subscribe({
       next: (companies) => {
@@ -641,6 +653,7 @@ export class RegistryComponent implements OnInit {
         if (this.can('alerts.read')) {
           this.loadAlertSummary();
         }
+        this.loadNotificationCount();
         if (this.selectedSiteId) {
           this.loadLocations(this.selectedSiteId);
         }
@@ -3112,6 +3125,7 @@ export class RegistryComponent implements OnInit {
     if (!this.companyId) return;
     this.alertsLoading = true;
     this.alertsError = null;
+    this.loadLastAlertJob();
     const filters = {
       status: this.alertStatusFilter || undefined,
       severity: this.alertSeverityFilter || undefined,
@@ -3293,6 +3307,123 @@ export class RegistryComponent implements OnInit {
       case 'purchase_order_overdue': return 'PO Delivery Overdue';
       default: return (type || '').replace(/_/g, ' ');
     }
+  }
+
+  get filteredNotifications(): InAppNotification[] {
+    if (this.notificationFilter === 'unread') {
+      return this.notifications.filter(n => n.status === 'unread');
+    }
+    return this.notifications;
+  }
+
+  loadNotificationCount(): void {
+    this.registry.getUnreadNotificationCount(this.companyId || undefined).subscribe({
+      next: (res) => {
+        this.unreadNotificationCount = res.unread_count;
+        this.changeDetector.markForCheck();
+      },
+      error: () => {}
+    });
+  }
+
+  loadNotifications(): void {
+    this.notificationsLoading = true;
+    this.registry.getNotifications(undefined, this.companyId || undefined).subscribe({
+      next: (items) => {
+        this.notifications = items;
+        this.unreadNotificationCount = items.filter(n => n.status === 'unread').length;
+        this.notificationsLoading = false;
+        this.changeDetector.markForCheck();
+      },
+      error: () => {
+        this.notificationsLoading = false;
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  toggleNotificationPanel(): void {
+    this.showNotificationPanel = !this.showNotificationPanel;
+    if (this.showNotificationPanel) {
+      this.loadNotifications();
+    }
+  }
+
+  setNotificationFilter(filter: 'unread' | 'all'): void {
+    this.notificationFilter = filter;
+    this.changeDetector.markForCheck();
+  }
+
+  markNotificationAsRead(notif: InAppNotification): void {
+    this.registry.markNotificationRead(notif.id).subscribe({
+      next: (updated) => {
+        notif.status = 'read';
+        notif.read_at = updated.read_at;
+        this.unreadNotificationCount = Math.max(0, this.unreadNotificationCount - 1);
+        this.changeDetector.markForCheck();
+      },
+      error: () => {}
+    });
+  }
+
+  markAllNotificationsRead(): void {
+    this.registry.markAllNotificationsRead(this.companyId || undefined).subscribe({
+      next: () => {
+        this.notifications.forEach(n => {
+          if (n.status === 'unread') {
+            n.status = 'read';
+            n.read_at = new Date().toISOString();
+          }
+        });
+        this.unreadNotificationCount = 0;
+        this.changeDetector.markForCheck();
+      },
+      error: () => {}
+    });
+  }
+
+  goToNotificationTarget(notif: InAppNotification): void {
+    this.showNotificationPanel = false;
+    const target = notif.target_route?.toLowerCase();
+    if (target === 'alerts') {
+      this.setView('alerts');
+    } else if (target === 'assets') {
+      this.setView('assets');
+    } else if (target === 'procurement') {
+      this.setView('procurement');
+    } else if (target === 'maintenance') {
+      this.setView('maintenance');
+    } else if (target === 'verification') {
+      this.setView('verification');
+    } else {
+      this.setView('alerts');
+    }
+  }
+
+  loadLastAlertJob(): void {
+    if (!this.companyId || !this.can('alerts.read')) return;
+    this.registry.getLastAlertJob(this.companyId).subscribe({
+      next: (job) => {
+        this.lastScheduledJob = job;
+        this.changeDetector.markForCheck();
+      },
+      error: () => {}
+    });
+  }
+
+  formatTimeAgo(dateStr: string | null): string {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
+    if (diffSec < 60) return 'just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
   }
 
   private today(): string {

@@ -322,6 +322,29 @@ Phases 0 through 6 domain models and business state machines.
 ### Conditions before proceeding
 - Alert rule thresholds and severity mappings are agreed with business stakeholders
 
+## Phase 8 — Scheduled automation and durable notifications
+
+### Status (2026-10-19)
+Implemented and verified against PostgreSQL and Angular suites. Periodic background alert evaluation engine (`app.scheduler`) running with PostgreSQL advisory locks (`SCHEDULER_ADVISORY_LOCK_ID`) ensuring multi-instance mutual exclusion, heartbeat lease recovery (`ALERT_JOB_LEASE_EXPIRY_SECONDS`), and full execution metrics in `scheduled_job_executions`. Durable database-backed notifications (`notifications`) and delivery attempts (`notification_deliveries`) decoupled from alert reconciliation with stable deduplication keys (`dedup_key`). In-app notification feed with header bell counter, unread/read filters, and mark-read controls. Extensible delivery service supporting capture mode, console logging, and SMTP with bounded retries. Full backend suite: 91 passed, 0 failed; frontend Karma suite: 87 passed, 0 failed.
+
+### Objective
+Provide reliable, scheduled background evaluation and durable multi-channel notifications to alert operators and administrators without introducing external message brokers.
+
+### Scope included
+- Periodic alert evaluation loop via FastAPI lifespan context manager
+- PostgreSQL advisory lock mutual exclusion for multi-container deployments
+- Stale runner recovery using heartbeat leases rather than fixed arbitrary timeouts
+- Durable in-app notification records and unread badge counters
+- Dedup keys ensuring idempotent notifications and anti-resurrection
+- Email delivery abstraction with in-memory capture queue and SMTP bounded retries
+- User-scoped notification management APIs (`notifications.read`, `notifications.manage`)
+- Header notification bell and flyout notification feed in Angular frontend
+- Scheduled job execution history banner in Action Centre
+
+### Scope deliberately excluded
+- Heavy external queueing infrastructure (Celery, RabbitMQ, Redis)
+- Arbitrary unauthenticated trigger endpoints (scheduler runs automatically or via authenticated sync)
+
 ## Overall release strategy
 
 The first usable release should focus on a practical subset of the full product scope:

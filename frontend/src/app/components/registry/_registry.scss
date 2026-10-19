@@ -1542,15 +1542,333 @@ footer a { color: #1d4ed8; }
 }
 
 
-@media (max-width: 640px) {
-  .workspace { padding: 0.8rem; }
-  .app-header { align-items: flex-start; flex-direction: column; }
-  .kpi-grid { grid-template-columns: 1fr; }
-  .donut-and-legend { flex-direction: column; align-items: center; }
-  .dashboard-header-right { width: 100%; justify-content: space-between; }
-  .activity-top-row { flex-direction: column; align-items: flex-start; gap: 0.25rem; }
-  .activity-timestamp { margin-left: 0; }
-  .form-grid, .filter-grid, .compact { grid-template-columns: 1fr 1fr; }
-  .inline-form { grid-template-columns: 1fr; }
-  footer { flex-direction: column; }
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.notification-bell-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.bell-btn {
+  position: relative;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #334155;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+    border-color: #94a3b8;
+  }
+
+  .bell-icon {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+.bell-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.notification-flyout {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 380px;
+  max-width: 90vw;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  max-height: 520px;
+  overflow: hidden;
+  animation: flyoutSlideIn 0.18s ease-out;
+}
+
+@keyframes flyoutSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.flyout-header {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fafc;
+}
+
+.flyout-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+
+  h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #0f172a;
+  }
+}
+
+.flyout-filters {
+  display: flex;
+  background: #e2e8f0;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+
+  .btn-filter {
+    background: transparent;
+    border: none;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 4px;
+    color: #64748b;
+    cursor: pointer;
+    font-weight: 600;
+
+    &.active {
+      background: #ffffff;
+      color: #0f172a;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    }
+  }
+}
+
+.btn-mark-all {
+  background: transparent;
+  border: none;
+  color: #2563eb;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.flyout-body {
+  overflow-y: auto;
+  max-height: 440px;
+  padding: 0.5rem;
+}
+
+.notif-empty {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.notif-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.notif-item {
+  display: flex;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  overflow: hidden;
+  transition: background 0.15s ease;
+
+  &.is-unread {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+  }
+
+  &:hover {
+    border-color: #94a3b8;
+  }
+}
+
+.notif-severity-stripe {
+  width: 4px;
+  flex-shrink: 0;
+
+  &.stripe-critical {
+    background: #dc2626;
+  }
+  &.stripe-warning {
+    background: #f59e0b;
+  }
+  &.stripe-info {
+    background: #3b82f6;
+  }
+}
+
+.notif-details {
+  flex: 1;
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.notif-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  .notif-date {
+    font-size: 0.72rem;
+    color: #94a3b8;
+  }
+}
+
+.notif-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.notif-text {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #475569;
+  line-height: 1.35;
+}
+
+.notif-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+
+  .notif-target-btn {
+    font-size: 0.75rem;
+    color: #2563eb;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    padding: 0.15rem 0.35rem;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  .btn-read {
+    font-size: 0.72rem;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    border-radius: 4px;
+    color: #475569;
+    cursor: pointer;
+
+    &:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+  }
+}
+
+.scheduled-job-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 1rem;
+  margin-bottom: 1rem;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: #166534;
+  gap: 0.5rem;
+
+  &.banner-failed {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
+  }
+}
+
+.job-banner-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  .status-indicator-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+
+    &.dot-completed {
+      background: #16a34a;
+    }
+    &.dot-failed {
+      background: #dc2626;
+    }
+    &.dot-running {
+      background: #3b82f6;
+    }
+  }
+
+  .job-time {
+    color: #64748b;
+    font-size: 0.78rem;
+  }
+}
+
+.job-banner-stats {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #475569;
+  font-size: 0.8rem;
+}
+
+.job-banner-error {
+  width: 100%;
+  color: #dc2626;
+  font-size: 0.78rem;
+  padding-top: 0.25rem;
 }

@@ -1334,4 +1334,63 @@ class AlertSyncResponse(BaseModel):
     active_count: int
 
 
+class ScheduledJobExecutionRead(BaseModel):
+    id: UUID
+    job_name: str
+    status: str
+    started_at: datetime
+    last_heartbeat_at: datetime
+    completed_at: datetime | None = None
+    duration_ms: int | None = None
+    total_companies_processed: int = 0
+    alerts_created: int = 0
+    alerts_updated: int = 0
+    alerts_auto_resolved: int = 0
+    error_message: str | None = None
+    node_id: str | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class NotificationRead(BaseModel):
+    id: UUID
+    company_id: UUID | None = None
+    recipient_user_id: UUID
+    notification_type: str
+    title: str
+    message: str
+    severity: str
+    entity_type: str | None = None
+    entity_id: UUID | None = None
+    target_route: str | None = None
+    status: str
+    read_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class NotificationUnreadCount(BaseModel):
+    unread_count: int
+
+
+class NotificationDeliveryRead(BaseModel):
+    id: UUID
+    notification_id: UUID
+    channel: str
+    recipient_address: str
+    status: str
+    attempts: int
+    last_attempt_at: datetime | None = None
+    sent_at: datetime | None = None
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+
 

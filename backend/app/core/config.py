@@ -17,6 +17,23 @@ class Settings(BaseSettings):
     log_level: str = Field(default='INFO', alias='LOG_LEVEL')
     cookie_secure_setting: bool | None = Field(default=None, alias='COOKIE_SECURE')
 
+    # Alert Schedule and Automation
+    alert_schedule_enabled: bool = Field(default=True, alias='ALERT_SCHEDULE_ENABLED')
+    alert_schedule_interval_seconds: int = Field(default=3600, alias='ALERT_SCHEDULE_INTERVAL_SECONDS')
+    alert_schedule_startup_delay_seconds: int = Field(default=15, alias='ALERT_SCHEDULE_STARTUP_DELAY_SECONDS')
+    alert_job_heartbeat_interval_seconds: int = Field(default=60, alias='ALERT_JOB_HEARTBEAT_INTERVAL_SECONDS')
+    alert_job_lease_expiry_seconds: int = Field(default=300, alias='ALERT_JOB_LEASE_EXPIRY_SECONDS')
+
+    # Notifications and Email Delivery
+    notification_email_enabled: bool = Field(default=False, alias='NOTIFICATION_EMAIL_ENABLED')
+    notification_email_mode: str = Field(default='capture', alias='NOTIFICATION_EMAIL_MODE')
+    smtp_host: str | None = Field(default=None, alias='SMTP_HOST')
+    smtp_port: int = Field(default=587, alias='SMTP_PORT')
+    smtp_username: str | None = Field(default=None, alias='SMTP_USERNAME')
+    smtp_password: str | None = Field(default=None, alias='SMTP_PASSWORD')
+    smtp_use_tls: bool = Field(default=True, alias='SMTP_USE_TLS')
+    email_from: str = Field(default='alerts@mindzen.invalid', alias='EMAIL_FROM')
+
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / '.env',
         env_file_encoding='utf-8',

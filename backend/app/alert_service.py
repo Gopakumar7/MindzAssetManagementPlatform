@@ -633,6 +633,8 @@ def assign_alert(
 
     db.commit()
     db.refresh(alert)
+    from app.notification_service import NotificationService
+    NotificationService.notify_alert_assigned(db, alert)
     return _alert_to_read(db, alert)
 
 

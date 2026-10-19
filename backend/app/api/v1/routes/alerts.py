@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.alert_service import (
@@ -13,6 +14,7 @@ from app.alert_service import (
     sync_company_alerts,
 )
 from app.database import get_db
+from app.models import ScheduledJobExecution
 from app.schemas import (
     AlertAcknowledgeRequest,
     AlertAssignRequest,
@@ -21,6 +23,7 @@ from app.schemas import (
     AlertSyncResponse,
     AssetAlertRead,
     AssetAlertSummary,
+    ScheduledJobExecutionRead,
 )
 from app.security import CurrentActor, current_actor, require_permission
 from app.services import get_company
@@ -74,6 +77,24 @@ def get_company_alert_summary(
 ):
     get_company(db, company_id)
     return get_alert_summary(db=db, company_id=company_id)
+
+
+@router.get(
+    '/last-job',
+    response_model=ScheduledJobExecutionRead | None,
+    dependencies=[Depends(require_permission('alerts.read'))],
+)
+def get_last_alert_job(
+    company_id: UUID,
+    db: Session = Depends(get_db),
+):
+    get_company(db, company_id)
+    return db.scalar(
+        select(ScheduledJobExecution)
+        .where(ScheduledJobExecution.job_name == 'alert_lifecycle_sync')
+        .order_by(ScheduledJobExecution.started_at.desc())
+        .limit(1)
+    )
 
 
 @router.post(

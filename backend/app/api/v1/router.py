@@ -7,6 +7,7 @@ from app.api.v1.routes import (
     finance,
     health,
     maintenance,
+    notifications,
     organization,
     procurement,
     reports,
@@ -26,5 +27,6 @@ router.include_router(reports.router)
 router.include_router(verification.router)
 router.include_router(finance.router)
 router.include_router(alerts.router)
+router.include_router(notifications.router)
 
 

@@ -31,6 +31,8 @@ _PERMISSIONS = {
     'finance.manage': 'Manage company asset financial profiles, depreciation entries, and disposals',
     'alerts.read': 'Read company lifecycle alerts and action centre',
     'alerts.manage': 'Acknowledge, assign, dismiss, and resolve company lifecycle alerts',
+    'notifications.read': 'Read personal in-app notifications and delivery status',
+    'notifications.manage': 'Mark notifications as read or archive them',
 }
 
 _ROLE_PERMISSIONS = {
@@ -44,6 +46,7 @@ _ROLE_PERMISSIONS = {
         'verification.read', 'verification.manage',
         'finance.read', 'finance.manage',
         'alerts.read', 'alerts.manage',
+        'notifications.read', 'notifications.manage',
     },
     ('company', 'asset_manager'): {
         'company.read', 'organization.read', 'organization.manage', 'asset.read',
@@ -53,21 +56,25 @@ _ROLE_PERMISSIONS = {
         'verification.read', 'verification.manage',
         'finance.read', 'finance.manage',
         'alerts.read', 'alerts.manage',
+        'notifications.read', 'notifications.manage',
     },
     ('company', 'it_support'): {
         'company.read', 'organization.read', 'asset.read', 'asset.update',
         'asset.usage.manage', 'asset.history.read', 'maintenance.read',
         'maintenance.manage', 'verification.read',
         'alerts.read', 'alerts.manage',
+        'notifications.read', 'notifications.manage',
     },
     ('company', 'auditor'): {
         'company.read', 'organization.read', 'asset.read', 'asset.history.read', 'audit.read',
         'procurement.read', 'maintenance.read', 'dashboard.read', 'verification.read',
         'finance.read', 'alerts.read',
+        'notifications.read', 'notifications.manage',
     },
     ('company', 'read_only_user'): {
         'company.read', 'organization.read', 'asset.read', 'asset.history.read', 'procurement.read',
         'maintenance.read', 'verification.read', 'finance.read', 'alerts.read',
+        'notifications.read', 'notifications.manage',
     },
 }
 

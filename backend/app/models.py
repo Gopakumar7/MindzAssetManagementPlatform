@@ -986,3 +986,78 @@ class AssetAlert(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
+class ScheduledJobExecution(Base):
+    __tablename__ = 'scheduled_job_executions'
+    __table_args__ = (
+        CheckConstraint("status IN ('running', 'completed', 'failed')", name='ck_scheduled_job_executions_status'),
+        Index('ix_scheduled_job_executions_name_started', 'job_name', 'started_at'),
+        Index('ix_scheduled_job_executions_status', 'status'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    job_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default='running')
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    total_companies_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    alerts_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    alerts_updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    alerts_auto_resolved: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    node_id: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class Notification(Base):
+    __tablename__ = 'notifications'
+    __table_args__ = (
+        CheckConstraint("severity IN ('critical', 'warning', 'info')", name='ck_notifications_severity'),
+        CheckConstraint("status IN ('unread', 'read', 'archived')", name='ck_notifications_status'),
+        UniqueConstraint('dedup_key', name='uq_notifications_dedup_key'),
+        Index('ix_notifications_recipient_status', 'recipient_user_id', 'status'),
+        Index('ix_notifications_company_created', 'company_id', 'created_at'),
+        Index('ix_notifications_entity', 'entity_type', 'entity_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='CASCADE'), index=True)
+    recipient_user_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    notification_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default='info')
+    entity_type: Mapped[str | None] = mapped_column(String(64))
+    entity_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    target_route: Mapped[str | None] = mapped_column(String(200))
+    dedup_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default='unread')
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class NotificationDelivery(Base):
+    __tablename__ = 'notification_deliveries'
+    __table_args__ = (
+        CheckConstraint("channel IN ('email', 'webhook', 'sms')", name='ck_notification_deliveries_channel'),
+        CheckConstraint("status IN ('pending', 'sent', 'failed')", name='ck_notification_deliveries_status'),
+        Index('ix_notification_deliveries_notification_id', 'notification_id'),
+        Index('ix_notification_deliveries_status', 'status'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    notification_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('notifications.id', ondelete='CASCADE'), nullable=False)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False, default='email')
+    recipient_address: Mapped[str] = mapped_column(String(320), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default='pending')
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+

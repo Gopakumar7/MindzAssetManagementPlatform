@@ -2,9 +2,43 @@
 
 ## Current delivery
 
-**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, multi-line purchase orders and line-item receiving, warranty/AMC/maintenance requests, Phase 4 physical asset verification campaigns, Phase 5 asset financial lifecycle management, and Phase 6 asset lifecycle alerts and action centre (authoritative rule evaluation engine, lifecycle states, anti-resurrection, auto-resolution, Action Centre UI, and company-isolated RBAC): implemented.** Verification status and remaining integration limitations are recorded below.
+**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, multi-line purchase orders and line-item receiving, warranty/AMC/maintenance requests, Phase 4 physical asset verification campaigns, Phase 5 asset financial lifecycle management, Phase 6 asset lifecycle alerts and action centre, and Phase 7 scheduled automation and durable notifications (PostgreSQL advisory lock scheduler, lease recovery, in-app notification feed, and captured email delivery): implemented.** Verification status and remaining integration limitations are recorded below.
 
 Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
+
+## Scheduled automation and durable notifications (2026-10-19)
+
+- Implemented periodic background alert evaluation and durable multi-channel notifications decoupled from alert reconciliation without adding external message brokers.
+- Multi-Instance Scheduled Evaluation Engine (`app.scheduler`):
+  - Distributed mutual exclusion across application processes and containers using a dedicated PostgreSQL advisory lock (`SCHEDULER_ADVISORY_LOCK_ID = 882349172635412984`) held on an independent engine connection and guaranteed to release on normal completion, errors, or shutdown.
+  - Stale job execution recovery via heartbeat lease (`ALERT_JOB_LEASE_EXPIRY_SECONDS = 300`, `ALERT_JOB_HEARTBEAT_INTERVAL_SECONDS = 60`): cleanly detects crashed or abandoned runner instances without invalidating legitimate long runs.
+  - Complete execution history tracking in `scheduled_job_executions` (started/completed timestamps, duration in ms, companies processed, alerts created/updated/auto-resolved, node hostname, and sanitized error summaries).
+  - Configurable periodic loop integrated with FastAPI lifespan context manager (`ALERT_SCHEDULE_ENABLED`, `ALERT_SCHEDULE_INTERVAL_SECONDS`, `ALERT_SCHEDULE_STARTUP_DELAY_SECONDS`).
+  - Authenticated scoping endpoint `GET /companies/{company_id}/alerts/last-job` exposing last execution status and metrics.
+- Durable Notifications & Delivery Abstraction (`app.notification_service`):
+  - Database-backed tables: `notifications` (in-app user feed) and `notification_deliveries` (outbound delivery attempts).
+  - Triggers supported:
+    - `alert_critical`: newly generated or unhandled critical alerts.
+    - `alert_assigned`: alert assignment to a specific team member.
+    - `alert_severity_escalated`: warning alerts escalating to critical.
+    - `job_failed`: fatal background evaluation failures notifying system administrators.
+  - Stable deduplication keys (`dedup_key` unique constraint) guaranteeing database-level idempotency regardless of retry frequency or manual reads.
+  - Decoupled from alert reconciliation: delivery or notification failures never roll back or corrupt alert evaluations.
+  - Outbound email delivery modes: `capture` (thread-safe test mailbox `CapturedEmailMailbox` for test inspection), `console` (stdout logging), and `smtp` with bounded retries (up to 3 attempts) and sanitized error reporting.
+- Recipient Routing & RBAC:
+  - Added permissions `notifications.read` and `notifications.manage` mapped to all company roles and system administrator.
+  - User-scoped API endpoints (`GET /notifications`, `GET /notifications/unread-count`, `POST /notifications/{id}/read`, `POST /notifications/mark-all-read`) with strict ownership checks.
+  - Marking a notification as read strictly preserves the underlying business alert status without acknowledging, resolving, or dismissing it.
+- Frontend In-App Notification Feed & Action Centre Banner:
+  - Header notification bell with live unread badge counter.
+  - Flyout notification panel with Unread / All filter tabs, relative timestamps, severity indicators, and "Mark as read" / "Mark all read" controls.
+  - Direct entity navigation links (`goToNotificationTarget`) switching views without resolving underlying alerts.
+  - Action Centre scheduled automation status banner displaying last evaluation status, relative timestamp, runtime duration, and alert throughput.
+- Verification & Test Coverage:
+  - Backend pytest suite: **91 passed, 0 failed, 1 warning** against PostgreSQL (`mindzen_test`) with 9 dedicated scheduler and notification test scenarios covering advisory lock concurrency, error lock release, stale lease recovery, email capture, anti-resurrection deduplication, alert assignment, job failure, and API user isolation.
+  - Frontend Angular Karma suite: **87 passed, 0 failed** in headless Chromium with 8 dedicated notification and scheduler tests covering unread counter, panel toggle, unread/all filters, mark as read, mark all read, target navigation, and last-job status display.
+  - Database schema: Alembic migration `20261019_notifications_sched.py` verified at head with zero schema drift.
+  - Production build: `ng build` succeeded cleanly with **0 errors**.
 
 ## Asset lifecycle alerts and action centre (2026-10-19)
 

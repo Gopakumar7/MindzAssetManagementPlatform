@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 import logging
 from uuid import UUID, uuid4
 
@@ -9,9 +11,29 @@ from fastapi.responses import JSONResponse
 from app.api.v1.router import router as api_router
 from app.core.config import settings
 from app.core.logging_config import configure_logging
+from app.database import engine
+from app.scheduler import run_scheduler_loop
 
 configure_logging()
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    stop_event = asyncio.Event()
+    scheduler_task = None
+    if settings.alert_schedule_enabled:
+        scheduler_task = asyncio.create_task(run_scheduler_loop(engine, stop_event))
+    try:
+        yield
+    finally:
+        if scheduler_task is not None:
+            stop_event.set()
+            try:
+                await asyncio.wait_for(scheduler_task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+
 
 app = FastAPI(
     title=settings.app_title,
@@ -20,6 +42,7 @@ app = FastAPI(
     openapi_url='/openapi.json' if settings.app_env.casefold() in {'development', 'dev'} else None,
     docs_url='/docs' if settings.app_env.casefold() in {'development', 'dev'} else None,
     redoc_url='/redoc' if settings.app_env.casefold() in {'development', 'dev'} else None,
+    lifespan=lifespan,
 )
 
 app.add_middleware(

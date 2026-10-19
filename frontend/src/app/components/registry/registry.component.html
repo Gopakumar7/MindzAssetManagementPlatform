@@ -4,17 +4,91 @@
       <p class="eyebrow">MindZen · ALCM / ITAM</p>
       <h1>Asset workspace</h1>
     </div>
-    @if (companies.length) {
-      <div class="company-picker">
-        <label for="company-choice">Company scope</label>
-        <select id="company-choice" [ngModel]="companyId" (ngModelChange)="selectCompany($event)" name="company">
-          @for (item of companies; track item) {
-            <option [value]="item.id">{{ item.name }} ({{ item.code }})</option>
+    <div class="header-right">
+      @if (companies.length) {
+        <div class="company-picker">
+          <label for="company-choice">Company scope</label>
+          <select id="company-choice" [ngModel]="companyId" (ngModelChange)="selectCompany($event)" name="company">
+            @for (item of companies; track item) {
+              <option [value]="item.id">{{ item.name }} ({{ item.code }})</option>
+            }
+          </select>
+          <span class="scope-note">Company-scoped data</span>
+        </div>
+      }
+
+      <div class="notification-bell-wrapper">
+        <button
+          type="button"
+          class="bell-btn"
+          (click)="toggleNotificationPanel()"
+          [attr.aria-expanded]="showNotificationPanel"
+          title="Notifications"
+          aria-label="In-app notifications"
+        >
+          <svg class="bell-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+          @if (unreadNotificationCount > 0) {
+            <span class="bell-badge">{{ unreadNotificationCount > 99 ? '99+' : unreadNotificationCount }}</span>
           }
-        </select>
-        <span class="scope-note">Company-scoped data</span>
+        </button>
+
+        @if (showNotificationPanel) {
+          <div class="notification-flyout">
+            <div class="flyout-header">
+              <div class="flyout-title-row">
+                <h3>Notifications</h3>
+                <div class="flyout-filters">
+                  <button type="button" class="btn-filter" [class.active]="notificationFilter === 'unread'" (click)="setNotificationFilter('unread')">Unread</button>
+                  <button type="button" class="btn-filter" [class.active]="notificationFilter === 'all'" (click)="setNotificationFilter('all')">All</button>
+                </div>
+              </div>
+              @if (unreadNotificationCount > 0) {
+                <button type="button" class="btn-mark-all" (click)="markAllNotificationsRead()">Mark all read</button>
+              }
+            </div>
+
+            <div class="flyout-body">
+              @if (notificationsLoading) {
+                <div class="notif-empty">Loading notifications…</div>
+              } @else if (filteredNotifications.length === 0) {
+                <div class="notif-empty">No {{ notificationFilter === 'unread' ? 'unread ' : '' }}notifications</div>
+              } @else {
+                <div class="notif-feed">
+                  @for (notif of filteredNotifications; track notif.id) {
+                    <div class="notif-item" [class.is-unread]="notif.status === 'unread'">
+                      <div class="notif-severity-stripe" [class]="'stripe-' + notif.severity"></div>
+                      <div class="notif-details">
+                        <div class="notif-meta-row">
+                          <span class="badge" [class]="'badge-' + notif.severity">{{ notif.severity | uppercase }}</span>
+                          <span class="notif-date">{{ formatTimeAgo(notif.created_at) }}</span>
+                        </div>
+                        <h4 class="notif-title">{{ notif.title }}</h4>
+                        <p class="notif-text">{{ notif.message }}</p>
+                        <div class="notif-card-actions">
+                          @if (notif.target_route) {
+                            <button type="button" class="link-btn notif-target-btn" (click)="goToNotificationTarget(notif)">
+                              View in {{ notif.target_route }}
+                            </button>
+                          }
+                          @if (notif.status === 'unread') {
+                            <button type="button" class="btn-read" (click)="markNotificationAsRead(notif)">
+                              Mark as read
+                            </button>
+                          }
+                        </div>
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        }
       </div>
-    }
+    </div>
   </header>
 
   @if (errorMessage) {
@@ -2536,6 +2610,38 @@
       <div class="notice error" role="alert">
         {{ alertsError }}
         <button type="button" class="secondary" style="margin-left: 1rem;" (click)="loadAlerts()">Retry</button>
+      </div>
+    }
+
+    @if (lastScheduledJob) {
+      <div class="scheduled-job-banner" [class.banner-failed]="lastScheduledJob.status === 'failed'">
+        <div class="job-banner-status">
+          <span class="status-indicator-dot" [class]="'dot-' + lastScheduledJob.status"></span>
+          <strong>Scheduled Evaluation:</strong>
+          <span class="badge" [class]="'badge-' + (lastScheduledJob.status === 'completed' ? 'info' : 'critical')">
+            {{ lastScheduledJob.status | uppercase }}
+          </span>
+          <span class="job-time">
+            Last evaluated {{ formatTimeAgo(lastScheduledJob.completed_at || lastScheduledJob.started_at) }}
+            @if (lastScheduledJob.duration_ms !== null) {
+              ({{ lastScheduledJob.duration_ms }}ms)
+            }
+          </span>
+        </div>
+        <div class="job-banner-stats">
+          <span>{{ lastScheduledJob.total_companies_processed }} companies evaluated</span>
+          <span>·</span>
+          <span><strong>{{ lastScheduledJob.alerts_created }}</strong> created</span>
+          <span>·</span>
+          <span><strong>{{ lastScheduledJob.alerts_updated }}</strong> updated</span>
+          <span>·</span>
+          <span><strong>{{ lastScheduledJob.alerts_auto_resolved }}</strong> auto-resolved</span>
+        </div>
+        @if (lastScheduledJob.error_message) {
+          <div class="job-banner-error">
+            <span>Failure: {{ lastScheduledJob.error_message }}</span>
+          </div>
+        }
       </div>
     }
 
