@@ -156,6 +156,13 @@ export interface PurchaseOrderLine {
   description: string;
   quantity_ordered: number;
   unit_cost: string;
+  discount?: string;
+  tax_rate?: string;
+  tax_amount?: string;
+  line_subtotal?: string;
+  line_total?: string;
+  quantity_received?: number;
+  quantity_remaining?: number;
 }
 
 export interface PurchaseOrder {
@@ -169,6 +176,11 @@ export interface PurchaseOrder {
   notes: string | null;
   created_at: string;
   lines: PurchaseOrderLine[];
+  total_quantity?: number;
+  subtotal?: string;
+  total_discount?: string;
+  total_tax?: string;
+  total_amount?: string;
 }
 
 export interface GoodsReceiptAsset {
@@ -645,15 +657,49 @@ export class RegistryService {
     return this.http.get<PurchaseOrder[]>(`${this.base}/companies/${companyId}/purchase-orders`);
   }
 
+  getPurchaseOrder(companyId: string, orderId: string): Observable<PurchaseOrder> {
+    return this.http.get<PurchaseOrder>(`${this.base}/companies/${companyId}/purchase-orders/${orderId}`);
+  }
+
   createPurchaseOrder(companyId: string, payload: {
     supplier_id: string;
     order_number: string;
     ordered_date: string;
     expected_date: string | null;
     notes: string;
-    lines: Array<{ category_id: string; description: string; quantity_ordered: number; unit_cost: number }>;
+    lines: Array<{
+      category_id: string;
+      description: string;
+      quantity_ordered: number;
+      unit_cost: number;
+      discount?: number;
+      tax_rate?: number;
+      tax_amount?: number;
+    }>;
   }): Observable<PurchaseOrder> {
     return this.http.post<PurchaseOrder>(`${this.base}/companies/${companyId}/purchase-orders`, payload);
+  }
+
+  updatePurchaseOrder(companyId: string, orderId: string, payload: {
+    supplier_id?: string;
+    order_number?: string;
+    ordered_date?: string;
+    expected_date?: string | null;
+    notes?: string | null;
+    lines: Array<{
+      category_id: string;
+      description: string;
+      quantity_ordered: number;
+      unit_cost: number;
+      discount?: number;
+      tax_rate?: number;
+      tax_amount?: number;
+    }>;
+  }): Observable<PurchaseOrder> {
+    return this.http.put<PurchaseOrder>(
+      `${this.base}/companies/${companyId}/purchase-orders/${orderId}`,
+      payload
+    );
   }
 
   goodsReceipts(companyId: string): Observable<GoodsReceipt[]> {

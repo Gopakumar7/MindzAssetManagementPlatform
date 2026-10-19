@@ -2,9 +2,32 @@
 
 ## Current delivery
 
-**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, bounded procurement/receiving, warranty/AMC/maintenance requests, and Phase 5 executive dashboard and operational reports: implemented.** Verification status and remaining integration limitations are recorded below.
+**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, multi-line purchase orders and line-item receiving, warranty/AMC/maintenance requests, and Phase 5 executive dashboard and operational reports: implemented.** Verification status and remaining integration limitations are recorded below.
 
 Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
+
+## Multi-line purchase orders and line-item goods receipt (2026-10-19)
+
+- Enhanced procurement module to support multiple line items per Purchase Order (PO), supporting distinct asset categories per line item.
+- Authoritative backend monetary calculations:
+  - Validated line item fields: description, category ID, positive quantity, non-negative unit cost, optional discount, tax rate, and tax amount.
+  - Authoritative calculation of `line_subtotal` and `line_total` per line item, and aggregate `total_quantity`, `subtotal`, `total_discount`, `total_tax`, and `total_amount` for the purchase order using decimal-safe arithmetic.
+  - Endpoints added: `GET /companies/{company_id}/purchase-orders/{purchase_order_id}` and `PUT` / `PATCH` update endpoints for open purchase orders.
+  - Modification guards: only open purchase orders without existing goods receipts may be edited. Atomic line item update with `purchase_order_updated` audit logging.
+- Line-item goods receipt workflow:
+  - Supported partial and multi-line receipts against individual PO lines with remaining quantity tracking (`quantity_ordered - quantity_received`).
+  - Strict prevention of over-receipt per line item (HTTP 422).
+  - Purchase order status updates atomically from `open` to `partially_received` and only transitions to `received` once all lines are fully received.
+  - Preserved links between individual goods receipt lines, purchase order lines, and generated in-stock asset records with vendor references and serial numbers.
+- Angular user experience:
+  - Dynamic multi-line purchase order form allowing users to add, edit, and remove line items before saving.
+  - Real-time client-side calculation of line totals and purchase order summary card (Total Quantity, Subtotal, Total Discount, Total Tax, and Order Total).
+  - Support for reopening existing open POs into edit mode with full line item preservation, cancel edit action, and in-place updates.
+  - Goods receipt dropdown automatically selects remaining quantity for the chosen line item and prevents over-receipt submission.
+- Verification & Test Coverage:
+  - Backend pytest suite: **60 passed, 3 skipped** (PostgreSQL concurrency tests skip on SQLite). All 6 procurement tests passing, covering multi-line creation with 3 different categories, authoritative totals, line additions/removals/edits, partial deliveries across multiple receipts, remaining quantities, and over-receipt rejection.
+  - Frontend Angular Karma suite: **50 passed, 0 failed** (increased from 42 tests), covering line additions, deletions, line item validation errors, live calculated totals, multi-category creation, reopening open POs for edit, and line-level receipt auto-fill and over-receipt prevention.
+  - Production build: `ng build` succeeded cleanly with 0 errors.
 
 ## Executive dashboard and operational reports (2026-10-15)
 

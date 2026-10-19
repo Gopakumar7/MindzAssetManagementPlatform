@@ -63,9 +63,11 @@ describe('RegistryComponent user access navigation', () => {
       'listLocations',
       'suppliers',
       'purchaseOrders',
+      'getPurchaseOrder',
       'goodsReceipts',
       'createSupplier',
       'createPurchaseOrder',
+      'updatePurchaseOrder',
       'receiveGoods',
       'serviceContracts',
       'createServiceContract',
@@ -95,7 +97,11 @@ describe('RegistryComponent user access navigation', () => {
     registry.listLocations.and.returnValue(of([]));
     registry.suppliers.and.returnValue(of([]));
     registry.purchaseOrders.and.returnValue(of([]));
+    registry.getPurchaseOrder.and.returnValue(of({} as any));
     registry.goodsReceipts.and.returnValue(of([]));
+    registry.createSupplier.and.returnValue(of({} as any));
+    registry.createPurchaseOrder.and.returnValue(of({} as any));
+    registry.updatePurchaseOrder.and.returnValue(of({} as any));
     registry.serviceContracts.and.returnValue(of([]));
     registry.maintenanceUsers.and.returnValue(of([]));
     registry.maintenanceRequests.and.returnValue(of([]));
@@ -901,6 +907,501 @@ describe('RegistryComponent user access navigation', () => {
     expect(csv).toContain('"IT ""Dept""\nFloor 2"');
     // 4. Numeric value is preserved
     expect(csv).toContain('"1500.5"');
+  });
+
+  it('calculates line subtotals, line totals, and overall PO summary totals dynamically', () => {
+    const component = fixture.componentInstance;
+    component.purchaseOrderForm = {
+      supplier_id: 'sup-1',
+      order_number: 'PO-CALC-1',
+      ordered_date: '2026-10-19',
+      expected_date: '2026-10-25',
+      notes: 'Multi-line calculation test',
+      lines: [
+        {
+          category_id: 'cat-1',
+          description: 'Laptops',
+          quantity_ordered: 3,
+          unit_cost: 1000,
+          discount: 100,
+          tax_rate: 10,
+          tax_amount: 50
+        },
+        {
+          category_id: 'cat-2',
+          description: 'Monitors',
+          quantity_ordered: 2,
+          unit_cost: 500,
+          discount: 0,
+          tax_rate: 18,
+          tax_amount: 100
+        }
+      ]
+    };
+
+    const line0 = component.purchaseOrderForm.lines[0];
+    const line1 = component.purchaseOrderForm.lines[1];
+
+    expect(component.poLineSubtotal(line0)).toBe(3000);
+    expect(component.poLineTotal(line0)).toBe(2950);
+
+    expect(component.poLineSubtotal(line1)).toBe(1000);
+    expect(component.poLineTotal(line1)).toBe(1100);
+
+    expect(component.poTotalQuantity).toBe(5);
+    expect(component.poSubtotal).toBe(4000);
+    expect(component.poTotalDiscount).toBe(100);
+    expect(component.poTotalTax).toBe(150);
+    expect(component.poTotalAmount).toBe(4050);
+  });
+
+  it('supports adding, editing, and removing PO lines while enforcing at least one line', () => {
+    const component = fixture.componentInstance;
+    expect(component.purchaseOrderForm.lines.length).toBe(1);
+
+    component.addPoLine();
+    expect(component.purchaseOrderForm.lines.length).toBe(2);
+
+    component.addPoLine();
+    expect(component.purchaseOrderForm.lines.length).toBe(3);
+
+    // Remove middle line
+    component.removePoLine(1);
+    expect(component.purchaseOrderForm.lines.length).toBe(2);
+
+    // Remove first line
+    component.removePoLine(0);
+    expect(component.purchaseOrderForm.lines.length).toBe(1);
+
+    // Attempting to remove the last remaining line must do nothing
+    component.removePoLine(0);
+    expect(component.purchaseOrderForm.lines.length).toBe(1);
+  });
+
+  it('validates each line item in a multi-line PO before dispatching createPurchaseOrder', () => {
+    permissions = new Set(['company.read', 'asset.read', 'procurement.read', 'procurement.manage']);
+    const component = fixture.componentInstance;
+    component.suppliers = [{ id: 'sup-1', company_id: company.id, code: 'SUP1', name: 'Supplier 1', is_active: true, email: null, phone: null, notes: null, created_at: '' }];
+    component.categories = [
+      { id: 'cat-1', company_id: company.id, code: 'CAT1', name: 'Laptops', is_active: true },
+      { id: 'cat-2', company_id: company.id, code: 'CAT2', name: 'Monitors', is_active: true }
+    ];
+
+    component.purchaseOrderForm.supplier_id = 'sup-1';
+    component.purchaseOrderForm.order_number = 'PO-VAL-MULTI';
+    component.purchaseOrderForm.ordered_date = '2026-10-19';
+
+    // Line 1 is valid
+    component.purchaseOrderForm.lines[0] = {
+      category_id: 'cat-1',
+      description: 'Valid Laptop',
+      quantity_ordered: 2,
+      unit_cost: 1000,
+      discount: 0,
+      tax_rate: 0,
+      tax_amount: 0
+    };
+
+    // Add invalid Line 2 (missing category)
+    component.addPoLine();
+    component.purchaseOrderForm.lines[1] = {
+      category_id: '',
+      description: 'Missing Category',
+      quantity_ordered: 1,
+      unit_cost: 100,
+      discount: 0,
+      tax_rate: 0,
+      tax_amount: 0
+    };
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Please choose an asset category for line #2.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+
+    // Line 2 missing description
+    component.purchaseOrderForm.lines[1].category_id = 'cat-2';
+    component.purchaseOrderForm.lines[1].description = '   ';
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Please enter an item description for line #2.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+
+    // Line 2 non-positive quantity
+    component.purchaseOrderForm.lines[1].description = 'Valid Description';
+    component.purchaseOrderForm.lines[1].quantity_ordered = 0;
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Quantity ordered for line #2 must be greater than zero.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+
+    // Line 2 negative unit cost
+    component.purchaseOrderForm.lines[1].quantity_ordered = 3;
+    component.purchaseOrderForm.lines[1].unit_cost = -10;
+    component.createPurchaseOrder();
+    expect(component.errorMessage).toBe('Unit cost for line #2 must be zero or a positive amount.');
+    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
+  });
+
+  it('creates a purchase order with multiple lines belonging to distinct asset categories', () => {
+    permissions = new Set(['company.read', 'asset.read', 'procurement.read', 'procurement.manage']);
+    const component = fixture.componentInstance;
+    component.suppliers = [{ id: 'sup-1', company_id: company.id, code: 'SUP1', name: 'Supplier 1', is_active: true, email: null, phone: null, notes: null, created_at: '' }];
+    component.categories = [
+      { id: 'cat-1', company_id: company.id, code: 'CAT1', name: 'Laptops', is_active: true },
+      { id: 'cat-2', company_id: company.id, code: 'CAT2', name: 'Monitors', is_active: true },
+      { id: 'cat-3', company_id: company.id, code: 'CAT3', name: 'Peripherals', is_active: true }
+    ];
+
+    component.purchaseOrderForm.supplier_id = 'sup-1';
+    component.purchaseOrderForm.order_number = 'PO-MULTI-001';
+    component.purchaseOrderForm.ordered_date = '2026-10-19';
+    component.purchaseOrderForm.expected_date = '2026-10-30';
+    component.purchaseOrderForm.lines = [
+      { category_id: 'cat-1', description: 'Dell Latitude', quantity_ordered: 5, unit_cost: 1200, discount: 50, tax_rate: 10, tax_amount: 115 },
+      { category_id: 'cat-2', description: 'Dell 27-inch 4K', quantity_ordered: 10, unit_cost: 350, discount: 0, tax_rate: 10, tax_amount: 350 },
+      { category_id: 'cat-3', description: 'USB-C Docks', quantity_ordered: 5, unit_cost: 150, discount: 25, tax_rate: 10, tax_amount: 72.5 }
+    ];
+
+    const createdOrder: PurchaseOrder = {
+      id: 'po-101',
+      company_id: company.id,
+      supplier_id: 'sup-1',
+      order_number: 'PO-MULTI-001',
+      ordered_date: '2026-10-19',
+      expected_date: '2026-10-30',
+      status: 'open',
+      notes: null,
+      created_at: '2026-10-19T00:00:00Z',
+      total_quantity: 20,
+      subtotal: '10250.00',
+      total_amount: '10712.50',
+      lines: [
+        {
+          id: 'line-1',
+          company_id: company.id,
+          purchase_order_id: 'po-101',
+          category_id: 'cat-1',
+          description: 'Dell Latitude',
+          quantity_ordered: 5,
+          unit_cost: '1200.00',
+          quantity_received: 0,
+          quantity_remaining: 5,
+          discount: '50.00',
+          tax_rate: '10.00',
+          tax_amount: '115.00',
+          line_subtotal: '6000.00',
+          line_total: '6065.00'
+        },
+        {
+          id: 'line-2',
+          company_id: company.id,
+          purchase_order_id: 'po-101',
+          category_id: 'cat-2',
+          description: 'Dell 27-inch 4K',
+          quantity_ordered: 10,
+          unit_cost: '350.00',
+          quantity_received: 0,
+          quantity_remaining: 10,
+          discount: '0.00',
+          tax_rate: '10.00',
+          tax_amount: '350.00',
+          line_subtotal: '3500.00',
+          line_total: '3850.00'
+        },
+        {
+          id: 'line-3',
+          company_id: company.id,
+          purchase_order_id: 'po-101',
+          category_id: 'cat-3',
+          description: 'USB-C Docks',
+          quantity_ordered: 5,
+          unit_cost: '150.00',
+          quantity_received: 0,
+          quantity_remaining: 5,
+          discount: '25.00',
+          tax_rate: '10.00',
+          tax_amount: '72.50',
+          line_subtotal: '750.00',
+          line_total: '797.50'
+        }
+      ]
+    };
+    registry.createPurchaseOrder.and.returnValue(of(createdOrder));
+
+    component.createPurchaseOrder();
+
+    expect(registry.createPurchaseOrder).toHaveBeenCalledWith(
+      company.id,
+      jasmine.objectContaining({
+        order_number: 'PO-MULTI-001',
+        supplier_id: 'sup-1',
+        lines: jasmine.arrayContaining([
+          jasmine.objectContaining({ category_id: 'cat-1', description: 'Dell Latitude', quantity_ordered: 5, unit_cost: 1200 }),
+          jasmine.objectContaining({ category_id: 'cat-2', description: 'Dell 27-inch 4K', quantity_ordered: 10, unit_cost: 350 }),
+          jasmine.objectContaining({ category_id: 'cat-3', description: 'USB-C Docks', quantity_ordered: 5, unit_cost: 150 })
+        ])
+      })
+    );
+    expect(component.purchaseOrders[0]).toEqual(createdOrder);
+    expect(component.successMessage).toContain('Purchase order PO-MULTI-001 created.');
+    expect(component.purchaseOrderForm.order_number).toBe('');
+    expect(component.purchaseOrderForm.lines.length).toBe(1);
+  });
+
+  it('reopens an existing open PO for editing, modifies lines, and saves via updatePurchaseOrder', () => {
+    permissions = new Set(['company.read', 'asset.read', 'procurement.read', 'procurement.manage']);
+    const component = fixture.componentInstance;
+    component.suppliers = [{ id: 'sup-1', company_id: company.id, code: 'SUP1', name: 'Supplier 1', is_active: true, email: null, phone: null, notes: null, created_at: '' }];
+    component.categories = [
+      { id: 'cat-1', company_id: company.id, code: 'CAT1', name: 'Laptops', is_active: true },
+      { id: 'cat-2', company_id: company.id, code: 'CAT2', name: 'Monitors', is_active: true }
+    ];
+
+    const existingOrder: PurchaseOrder = {
+      id: 'po-edit-1',
+      company_id: company.id,
+      supplier_id: 'sup-1',
+      order_number: 'PO-EDIT-1',
+      ordered_date: '2026-10-15',
+      expected_date: '2026-10-25',
+      status: 'open',
+      notes: 'Initial PO note',
+      created_at: '2026-10-15T00:00:00Z',
+      lines: [
+        {
+          id: 'line-e1',
+          company_id: company.id,
+          purchase_order_id: 'po-edit-1',
+          category_id: 'cat-1',
+          description: 'Original Laptop line',
+          quantity_ordered: 2,
+          unit_cost: '1000.00',
+          quantity_received: 0,
+          quantity_remaining: 2,
+          discount: '0.00',
+          tax_rate: '0.00',
+          tax_amount: '0.00',
+          line_subtotal: '2000.00',
+          line_total: '2000.00'
+        }
+      ]
+    };
+    component.purchaseOrders = [existingOrder];
+
+    expect(component.canEditOrder(existingOrder)).toBeTrue();
+
+    // Start editing
+    component.editPurchaseOrder(existingOrder);
+    expect(component.editingPurchaseOrderId).toBe('po-edit-1');
+    expect(component.purchaseOrderForm.order_number).toBe('PO-EDIT-1');
+    expect(component.purchaseOrderForm.lines.length).toBe(1);
+    expect(component.purchaseOrderForm.lines[0].description).toBe('Original Laptop line');
+
+    // Add a second line
+    component.addPoLine();
+    component.purchaseOrderForm.lines[1] = {
+      category_id: 'cat-2',
+      description: 'Added Monitor line',
+      quantity_ordered: 4,
+      unit_cost: 300,
+      discount: 0,
+      tax_rate: 0,
+      tax_amount: 0
+    };
+
+    const updatedOrder: PurchaseOrder = {
+      ...existingOrder,
+      lines: [
+        existingOrder.lines[0],
+        {
+          id: 'line-e2',
+          company_id: company.id,
+          purchase_order_id: 'po-edit-1',
+          category_id: 'cat-2',
+          description: 'Added Monitor line',
+          quantity_ordered: 4,
+          unit_cost: '300.00',
+          quantity_received: 0,
+          quantity_remaining: 4,
+          discount: '0.00',
+          tax_rate: '0.00',
+          tax_amount: '0.00',
+          line_subtotal: '1200.00',
+          line_total: '1200.00'
+        }
+      ]
+    };
+    registry.updatePurchaseOrder.and.returnValue(of(updatedOrder));
+
+    component.createPurchaseOrder();
+
+    expect(registry.updatePurchaseOrder).toHaveBeenCalledWith(
+      company.id,
+      'po-edit-1',
+      jasmine.objectContaining({
+        order_number: 'PO-EDIT-1',
+        lines: jasmine.arrayContaining([
+          jasmine.objectContaining({ category_id: 'cat-1', description: 'Original Laptop line' }),
+          jasmine.objectContaining({ category_id: 'cat-2', description: 'Added Monitor line', quantity_ordered: 4 })
+        ])
+      })
+    );
+    expect(component.editingPurchaseOrderId).toBe('');
+    expect(component.successMessage).toContain('Purchase order PO-EDIT-1 updated.');
+    expect(component.purchaseOrders[0].lines.length).toBe(2);
+  });
+
+  it('cancels PO edit and clears form when cancelPoEdit is invoked', () => {
+    const component = fixture.componentInstance;
+    component.editingPurchaseOrderId = 'po-edit-99';
+    component.purchaseOrderForm.order_number = 'PO-TEMP';
+
+    component.cancelPoEdit();
+
+    expect(component.editingPurchaseOrderId).toBe('');
+    expect(component.purchaseOrderForm.order_number).toBe('');
+    expect(component.purchaseOrderForm.lines.length).toBe(1);
+  });
+
+  it('prevents editing POs that are received or have existing goods receipts', () => {
+    permissions = new Set(['company.read', 'asset.read', 'procurement.read', 'procurement.manage']);
+    const component = fixture.componentInstance;
+
+    const receivedOrder: PurchaseOrder = {
+      id: 'po-rcvd',
+      company_id: company.id,
+      supplier_id: 'sup-1',
+      order_number: 'PO-RCVD',
+      ordered_date: '2026-10-10',
+      expected_date: null,
+      status: 'received',
+      notes: null,
+      created_at: '',
+      lines: []
+    };
+    expect(component.canEditOrder(receivedOrder)).toBeFalse();
+
+    const openOrderWithReceipt: PurchaseOrder = {
+      id: 'po-has-grn',
+      company_id: company.id,
+      supplier_id: 'sup-1',
+      order_number: 'PO-HAS-GRN',
+      ordered_date: '2026-10-10',
+      expected_date: null,
+      status: 'open',
+      notes: null,
+      created_at: '',
+      lines: []
+    };
+    component.goodsReceipts = [
+      {
+        id: 'grn-1',
+        company_id: company.id,
+        purchase_order_id: 'po-has-grn',
+        receipt_number: 'GRN-001',
+        received_date: '2026-10-15',
+        delivery_reference: null,
+        notes: null,
+        created_at: '',
+        lines: []
+      }
+    ];
+    expect(component.canEditOrder(openOrderWithReceipt)).toBeFalse();
+  });
+
+  it('auto-populates remaining quantity on line change and rejects over-receipt in goods receipt form', () => {
+    permissions = new Set(['company.read', 'asset.read', 'procurement.read', 'procurement.manage']);
+    const component = fixture.componentInstance;
+
+    const po: PurchaseOrder = {
+      id: 'po-rcv-test',
+      company_id: company.id,
+      supplier_id: 'sup-1',
+      order_number: 'PO-RCV-01',
+      ordered_date: '2026-10-15',
+      expected_date: null,
+      status: 'partially_received',
+      notes: null,
+      created_at: '',
+      lines: [
+        {
+          id: 'line-alpha',
+          company_id: company.id,
+          purchase_order_id: 'po-rcv-test',
+          category_id: 'cat-1',
+          description: 'Laptops',
+          quantity_ordered: 10,
+          unit_cost: '1000.00',
+          quantity_received: 4,
+          quantity_remaining: 6,
+          discount: '0.00',
+          tax_rate: '0.00',
+          tax_amount: '0.00',
+          line_subtotal: '10000.00',
+          line_total: '10000.00'
+        },
+        {
+          id: 'line-beta',
+          company_id: company.id,
+          purchase_order_id: 'po-rcv-test',
+          category_id: 'cat-2',
+          description: 'Monitors',
+          quantity_ordered: 5,
+          unit_cost: '300.00',
+          quantity_received: 0,
+          quantity_remaining: 5,
+          discount: '0.00',
+          tax_rate: '0.00',
+          tax_amount: '0.00',
+          line_subtotal: '1500.00',
+          line_total: '1500.00'
+        }
+      ]
+    };
+    component.purchaseOrders = [po];
+    // Record existing receipt for line-alpha of 4 units
+    component.goodsReceipts = [
+      {
+        id: 'grn-p1',
+        company_id: company.id,
+        purchase_order_id: 'po-rcv-test',
+        receipt_number: 'GRN-001',
+        received_date: '2026-10-16',
+        delivery_reference: null,
+        notes: null,
+        created_at: '',
+        lines: [
+          {
+            id: 'grn-l1',
+            purchase_order_line_id: 'line-alpha',
+            quantity_received: 4,
+            quantity_rejected: 0,
+            discrepancy_notes: null,
+            assets: []
+          }
+        ]
+      }
+    ];
+
+    // Select this purchase order for receipt
+    component.selectReceiptOrder('po-rcv-test');
+    expect(component.goodsReceiptForm.purchase_order_line_id).toBe('line-alpha');
+    // Remaining for line-alpha: 10 - 4 = 6
+    expect(component.goodsReceiptForm.quantity_received).toBe(6);
+
+    // Switch to line-beta
+    component.onReceiptLineChange('line-beta');
+    expect(component.goodsReceiptForm.purchase_order_line_id).toBe('line-beta');
+    // Remaining for line-beta: 5 - 0 = 5
+    expect(component.goodsReceiptForm.quantity_received).toBe(5);
+
+    // Attempt over-receipt for line-beta (trying to receive 6 when only 5 remaining)
+    component.goodsReceiptForm.receipt_number = 'GRN-002';
+    component.goodsReceiptForm.quantity_received = 6;
+    component.goodsReceiptForm.quantity_rejected = 0;
+    component.createGoodsReceipt();
+
+    expect(component.errorMessage).toBe(
+      'Received quantity must not exceed the remaining ordered quantity, and rejected quantity must not exceed received quantity.'
+    );
+    expect(registry.receiveGoods).not.toHaveBeenCalled();
   });
 });
 

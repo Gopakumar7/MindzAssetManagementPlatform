@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -24,6 +24,7 @@ from app.schemas import (
     PurchaseOrderCreate,
     PurchaseOrderLineRead,
     PurchaseOrderRead,
+    PurchaseOrderUpdate,
     ReceivedAssetRead,
     SupplierCreate,
     SupplierRead,
@@ -48,12 +49,34 @@ def order_read(db: Session, order: PurchaseOrder) -> PurchaseOrderRead:
         .where(PurchaseOrderLine.company_id == order.company_id, PurchaseOrderLine.purchase_order_id == order.id)
         .order_by(PurchaseOrderLine.id)
     ).all()
+    read_lines = []
+    for line in lines:
+        received_qty = db.scalar(
+            select(func.coalesce(func.sum(GoodsReceiptLine.quantity_received), 0)).where(
+                GoodsReceiptLine.company_id == order.company_id,
+                GoodsReceiptLine.purchase_order_line_id == line.id,
+            )
+        ) or 0
+        remaining_qty = max(0, line.quantity_ordered - received_qty)
+        read_lines.append(
+            PurchaseOrderLineRead(
+                id=line.id,
+                company_id=line.company_id,
+                purchase_order_id=line.purchase_order_id,
+                category_id=line.category_id,
+                description=line.description,
+                quantity_ordered=line.quantity_ordered,
+                unit_cost=line.unit_cost,
+                quantity_received=received_qty,
+                quantity_remaining=remaining_qty,
+            )
+        )
     return PurchaseOrderRead(
         **{key: getattr(order, key) for key in (
             'id', 'company_id', 'supplier_id', 'order_number', 'status',
             'ordered_date', 'expected_date', 'notes', 'created_at',
         )},
-        lines=[PurchaseOrderLineRead.model_validate(line) for line in lines],
+        lines=read_lines,
     )
 
 
@@ -155,10 +178,160 @@ def create_purchase_order(
     db.add(order)
     db.flush()
     for line in payload.lines:
-        db.add(PurchaseOrderLine(company_id=company_id, purchase_order_id=order.id, **line.model_dump()))
+        db.add(PurchaseOrderLine(
+            company_id=company_id,
+            purchase_order_id=order.id,
+            category_id=line.category_id,
+            description=line.description,
+            quantity_ordered=line.quantity_ordered,
+            unit_cost=line.unit_cost,
+        ))
     record_security_event(
         db,
         action='purchase_order_created',
+        entity_type='PurchaseOrder',
+        entity_id=str(order.id),
+        actor_id=actor.user.id,
+        company_id=company_id,
+        changes={
+            'supplier_id': str(supplier.id),
+            'order_number': order.order_number,
+            'ordered_date': str(order.ordered_date),
+            'lines': [{
+                'category_id': str(line.category_id),
+                'description': line.description,
+                'quantity_ordered': line.quantity_ordered,
+                'unit_cost': str(line.unit_cost),
+            } for line in payload.lines],
+        },
+    )
+    commit(db)
+    db.refresh(order)
+    return order_read(db, order)
+
+
+@router.get(
+    '/purchase-orders/{purchase_order_id}',
+    response_model=PurchaseOrderRead,
+    dependencies=[Depends(require_permission('procurement.read'))],
+)
+def get_purchase_order(company_id: UUID, purchase_order_id: UUID, db: Session = Depends(get_db)):
+    get_company(db, company_id)
+    order = db.scalar(
+        select(PurchaseOrder).where(
+            PurchaseOrder.company_id == company_id,
+            PurchaseOrder.id == purchase_order_id,
+        )
+    )
+    if order is None:
+        raise HTTPException(status_code=404, detail='Purchase order not found')
+    return order_read(db, order)
+
+
+@router.put(
+    '/purchase-orders/{purchase_order_id}',
+    response_model=PurchaseOrderRead,
+    dependencies=[Depends(require_permission('procurement.manage'))],
+)
+@router.patch(
+    '/purchase-orders/{purchase_order_id}',
+    response_model=PurchaseOrderRead,
+    dependencies=[Depends(require_permission('procurement.manage'))],
+)
+def update_purchase_order(
+    company_id: UUID,
+    purchase_order_id: UUID,
+    payload: PurchaseOrderUpdate,
+    db: Session = Depends(get_db),
+    actor: CurrentActor = Depends(require_permission('procurement.manage')),
+):
+    get_company(db, company_id, active=True)
+    order = db.scalar(
+        select(PurchaseOrder)
+        .where(PurchaseOrder.company_id == company_id, PurchaseOrder.id == purchase_order_id)
+        .with_for_update()
+    )
+    if order is None:
+        raise HTTPException(status_code=404, detail='Purchase order not found')
+    if order.status != 'open':
+        raise HTTPException(
+            status_code=409,
+            detail=f'Cannot edit purchase order in "{order.status}" status; only open purchase orders may be modified',
+        )
+
+    has_receipts = db.scalar(
+        select(func.count(GoodsReceipt.id)).where(
+            GoodsReceipt.company_id == company_id,
+            GoodsReceipt.purchase_order_id == order.id,
+        )
+    )
+    if has_receipts:
+        raise HTTPException(
+            status_code=409,
+            detail='Cannot edit purchase order because goods have already been received against it',
+        )
+
+    supplier_id = payload.supplier_id or order.supplier_id
+    supplier = db.scalar(select(Supplier).where(
+        Supplier.company_id == company_id,
+        Supplier.id == supplier_id,
+        Supplier.is_active.is_(True),
+    ))
+    if supplier is None:
+        raise HTTPException(status_code=422, detail='Supplier must be active in this company')
+
+    category_ids = {line.category_id for line in payload.lines}
+    categories = set(db.scalars(select(AssetCategory.id).where(
+        AssetCategory.company_id == company_id,
+        AssetCategory.id.in_(category_ids),
+        AssetCategory.is_active.is_(True),
+    )).all())
+    if categories != category_ids:
+        raise HTTPException(status_code=422, detail='Every purchase-order category must be active in this company')
+
+    new_order_number = payload.order_number.strip() if payload.order_number else order.order_number
+    if new_order_number != order.order_number:
+        existing = db.scalar(select(PurchaseOrder.id).where(
+            PurchaseOrder.company_id == company_id,
+            PurchaseOrder.order_number == new_order_number,
+            PurchaseOrder.id != order.id,
+        ))
+        if existing:
+            raise HTTPException(status_code=409, detail=f'Order number "{new_order_number}" already exists in this company')
+
+    new_ordered_date = payload.ordered_date or order.ordered_date
+    new_expected_date = payload.expected_date if payload.expected_date is not None else order.expected_date
+    if new_expected_date and new_expected_date < new_ordered_date:
+        raise HTTPException(status_code=422, detail='expected_date must be on or after ordered_date')
+
+    order.supplier_id = supplier.id
+    order.order_number = new_order_number
+    order.ordered_date = new_ordered_date
+    order.expected_date = new_expected_date
+    if payload.notes is not None:
+        order.notes = payload.notes
+
+    db.execute(
+        delete(PurchaseOrderLine).where(
+            PurchaseOrderLine.company_id == company_id,
+            PurchaseOrderLine.purchase_order_id == order.id,
+        )
+    )
+    db.flush()
+
+    for line in payload.lines:
+        db.add(PurchaseOrderLine(
+            company_id=company_id,
+            purchase_order_id=order.id,
+            category_id=line.category_id,
+            description=line.description,
+            quantity_ordered=line.quantity_ordered,
+            unit_cost=line.unit_cost,
+        ))
+
+    record_security_event(
+        db,
+        action='purchase_order_updated',
         entity_type='PurchaseOrder',
         entity_id=str(order.id),
         actor_id=actor.user.id,

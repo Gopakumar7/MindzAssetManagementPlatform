@@ -1083,7 +1083,7 @@
           <div class="form-actions"><button class="primary" type="submit" [disabled]="saving">Save supplier</button></div>
         </form>
         <form class="form-grid procurement-form" (ngSubmit)="createPurchaseOrder()">
-          <h3 class="wide">Create purchase order</h3>
+          <h3 class="wide">{{ editingPurchaseOrderId ? 'Edit purchase order (' + purchaseOrderForm.order_number + ')' : 'Create purchase order' }}</h3>
           <label>Supplier
             <select name="poSupplier" [(ngModel)]="purchaseOrderForm.supplier_id" required>
               <option value="">Choose supplier</option>
@@ -1095,20 +1095,97 @@
           <label>Order number<input name="poNumber" [(ngModel)]="purchaseOrderForm.order_number" required maxlength="64"></label>
           <label>Order date<input type="date" name="poDate" [(ngModel)]="purchaseOrderForm.ordered_date" required></label>
           <label>Expected date<input type="date" name="poExpected" [(ngModel)]="purchaseOrderForm.expected_date"></label>
-          <label>Asset category
-            <select name="poCategory" [(ngModel)]="purchaseOrderForm.category_id" required>
-              <option value="">Choose category</option>
-              @for (category of activeCategories; track category.id) {
-                <option [value]="category.id">{{ category.name }}</option>
-              }
-            </select>
-          </label>
-          <label>Item description<input name="poDescription" [(ngModel)]="purchaseOrderForm.description" required maxlength="300"></label>
-          <label>Quantity<input type="number" name="poQuantity" [(ngModel)]="purchaseOrderForm.quantity_ordered" required min="1" max="10000"></label>
-          <label>Unit cost<input type="number" name="poCost" [(ngModel)]="purchaseOrderForm.unit_cost" required min="0" step="0.01"></label>
           <label class="wide">Notes<textarea name="poNotes" [(ngModel)]="purchaseOrderForm.notes" rows="2"></textarea></label>
-          <div class="form-actions"><button class="primary" type="submit" [disabled]="saving">Create order</button>
-            <span class="muted">This form creates one order line; multiple lines are supported by the API.</span>
+
+          <div class="wide po-lines-section">
+            <div class="po-lines-header">
+              <h4>Order line items ({{ purchaseOrderForm.lines?.length || 0 }})</h4>
+              <button type="button" class="secondary small-btn" (click)="addPoLine()">+ Add line item</button>
+            </div>
+            <div class="table-wrap po-lines-table-wrap">
+              <table class="po-lines-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Asset Category *</th>
+                    <th>Item Description *</th>
+                    <th>Qty *</th>
+                    <th>Unit Cost ($) *</th>
+                    <th>Line Total</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (line of purchaseOrderForm.lines; track $index; let i = $index) {
+                    <tr>
+                      <td class="line-index">{{ i + 1 }}</td>
+                      <td>
+                        <select [name]="'poLineCategory_' + i" [(ngModel)]="line.category_id" required>
+                          <option value="">Choose category</option>
+                          @for (cat of activeCategories; track cat.id) {
+                            <option [value]="cat.id">{{ cat.name }}</option>
+                          }
+                        </select>
+                      </td>
+                      <td>
+                        <input [name]="'poLineDesc_' + i" [(ngModel)]="line.description" required maxlength="300" placeholder="Product or item description">
+                      </td>
+                      <td>
+                        <input type="number" [name]="'poLineQty_' + i" [(ngModel)]="line.quantity_ordered" required min="1" max="10000" style="width: 80px;">
+                      </td>
+                      <td>
+                        <input type="number" [name]="'poLineCost_' + i" [(ngModel)]="line.unit_cost" required min="0" step="0.01" style="width: 100px;">
+                      </td>
+                      <td class="line-total-cell">
+                        ${{ poLineTotal(line) | number:'1.2-2' }}
+                      </td>
+                      <td class="line-actions">
+                        @if (purchaseOrderForm.lines.length > 1) {
+                          <button type="button" class="link-button danger-text" (click)="removePoLine(i)">Remove</button>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+
+            <!-- PO Totals Summary Card -->
+            <div class="po-totals-card">
+              <div class="po-total-row">
+                <span class="total-label">Total Quantity:</span>
+                <span class="total-value">{{ poTotalQuantity }}</span>
+              </div>
+              <div class="po-total-row">
+                <span class="total-label">Subtotal:</span>
+                <span class="total-value">${{ poSubtotal | number:'1.2-2' }}</span>
+              </div>
+              @if (poTotalDiscount > 0) {
+                <div class="po-total-row">
+                  <span class="total-label">Total Discount:</span>
+                  <span class="total-value discount-val">-${{ poTotalDiscount | number:'1.2-2' }}</span>
+                </div>
+              }
+              @if (poTotalTax > 0) {
+                <div class="po-total-row">
+                  <span class="total-label">Total Tax:</span>
+                  <span class="total-value">+${{ poTotalTax | number:'1.2-2' }}</span>
+                </div>
+              }
+              <div class="po-total-row grand-total">
+                <span class="total-label">Purchase Order Total:</span>
+                <span class="total-value grand-val">${{ poTotalAmount | number:'1.2-2' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-actions wide">
+            <button class="primary" type="submit" [disabled]="saving">
+              {{ editingPurchaseOrderId ? 'Update purchase order' : 'Create order' }}
+            </button>
+            @if (editingPurchaseOrderId) {
+              <button class="secondary" type="button" (click)="cancelPoEdit()">Cancel edit</button>
+            }
           </div>
         </form>
       </div>
@@ -1125,7 +1202,7 @@
           </select>
         </label>
         <label>Order line
-          <select name="receiptLine" [(ngModel)]="goodsReceiptForm.purchase_order_line_id" required>
+          <select name="receiptLine" [(ngModel)]="goodsReceiptForm.purchase_order_line_id" (ngModelChange)="onReceiptLineChange($event)" required>
             <option value="">Choose line</option>
             @for (line of selectedPurchaseOrder?.lines ?? []; track line.id) {
               <option [value]="line.id" [disabled]="remainingToReceive(line.id) === 0">{{ line.description }} ({{ remainingToReceive(line.id) }} remaining)</option>
@@ -1148,15 +1225,34 @@
     <h3>Purchase orders</h3>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Order</th><th>Supplier</th><th>Ordered</th><th>Status</th><th>Items</th></tr></thead>
+        <thead><tr><th>Order</th><th>Supplier</th><th>Ordered</th><th>Status</th><th>Items</th><th>Total</th><th></th></tr></thead>
         <tbody>
           @for (order of purchaseOrders; track order.id) {
-            <tr><td>{{ order.order_number }}</td><td>{{ supplierName(order.supplier_id) }}</td><td>{{ order.ordered_date }}</td><td><span class="status-pill">{{ order.status }}</span></td>
-              <td>@for (line of order.lines; track line.id) { <div>{{ line.description }} — {{ line.quantity_ordered }} × {{ line.unit_cost }}</div> }</td>
+            <tr>
+              <td><strong>{{ order.order_number }}</strong></td>
+              <td>{{ supplierName(order.supplier_id) }}</td>
+              <td>{{ order.ordered_date }}</td>
+              <td><span class="status-pill status-{{ order.status }}">{{ order.status }}</span></td>
+              <td>
+                @for (line of order.lines; track line.id) {
+                  <div class="po-line-summary">
+                    {{ line.description }} ({{ categoryName(line.category_id) }}) — {{ line.quantity_ordered }} × ${{ line.unit_cost | number:'1.2-2' }}
+                    @if (line.quantity_remaining !== undefined && line.quantity_remaining !== line.quantity_ordered) {
+                      <span class="muted">({{ line.quantity_remaining }} remaining)</span>
+                    }
+                  </div>
+                }
+              </td>
+              <td><strong>${{ (order.total_amount || 0) | number:'1.2-2' }}</strong></td>
+              <td class="actions">
+                @if (canEditOrder(order)) {
+                  <button type="button" class="link-button" (click)="editPurchaseOrder(order)">Edit order</button>
+                }
+              </td>
             </tr>
           }
           @if (!purchaseOrders.length) {
-            <tr><td colspan="5" class="empty">No purchase orders recorded for this company.</td></tr>
+            <tr><td colspan="7" class="empty">No purchase orders recorded for this company.</td></tr>
           }
         </tbody>
       </table>

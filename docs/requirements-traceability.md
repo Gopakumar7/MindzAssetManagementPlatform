@@ -27,10 +27,12 @@ This document maps the prompt's major capability areas to the proposed module st
 - Proposed module
   - `procurement`
 - Delivery status
-  - Bounded supplier → purchase order → goods receipt workflow implemented; requisitions, quotations, approval routing, and formal inspections remain deferred
+  - Multi-line purchase order support and line-level goods receipt workflow implemented; single PO supports multiple line items with distinct asset categories, dynamic calculation of authoritative totals, reopening/editing open POs, partial deliveries per line, and remaining quantity enforcement; requisitions, quotations, approval routing, and formal inspections remain deferred
 - Principal acceptance checks
-  - Company-scoped suppliers, purchase orders, and line items can be created and read
-  - Partial receipts and rejected quantities/discrepancy notes are retained
+  - Company-scoped suppliers, multi-line purchase orders, and line items can be created, read, and edited while open
+  - Multiple asset categories can be configured in the same purchase order
+  - Authoritative PO totals (total quantity, subtotal, discount, tax, final amount) and line totals are validated and calculated with decimal safety
+  - Partial receipts against individual PO lines and rejected quantities/discrepancy notes are retained
   - Accepted received quantities create in-stock assets atomically, with receipt-line traceability
   - Over-receipt and cross-company supplier/category references are rejected
 - Additional detail needed

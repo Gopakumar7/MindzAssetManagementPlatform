@@ -356,6 +356,9 @@ class PurchaseOrderLineCreate(BaseModel):
     description: str = Field(min_length=1, max_length=300)
     quantity_ordered: int = Field(gt=0, le=10000)
     unit_cost: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+    discount: Decimal = Field(default=Decimal('0.00'), ge=0, max_digits=14, decimal_places=2)
+    tax_rate: Decimal = Field(default=Decimal('0.00'), ge=0, max_digits=6, decimal_places=2)
+    tax_amount: Decimal = Field(default=Decimal('0.00'), ge=0, max_digits=14, decimal_places=2)
 
 
 class PurchaseOrderCreate(BaseModel):
@@ -373,6 +376,21 @@ class PurchaseOrderCreate(BaseModel):
         return self
 
 
+class PurchaseOrderUpdate(BaseModel):
+    supplier_id: UUID | None = None
+    order_number: str | None = Field(default=None, min_length=1, max_length=64)
+    ordered_date: date | None = None
+    expected_date: date | None = None
+    notes: str | None = None
+    lines: list[PurchaseOrderLineCreate] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode='after')
+    def validate_expected_date(self):
+        if self.expected_date and self.ordered_date and self.expected_date < self.ordered_date:
+            raise ValueError('expected_date must be on or after ordered_date')
+        return self
+
+
 class PurchaseOrderLineRead(Record):
     id: UUID
     company_id: UUID
@@ -381,6 +399,26 @@ class PurchaseOrderLineRead(Record):
     description: str
     quantity_ordered: int
     unit_cost: Decimal
+    discount: Decimal = Decimal('0.00')
+    tax_rate: Decimal = Decimal('0.00')
+    tax_amount: Decimal = Decimal('0.00')
+    line_subtotal: Decimal | None = None
+    line_total: Decimal | None = None
+    quantity_received: int = 0
+    quantity_remaining: int = 0
+
+    @model_validator(mode='after')
+    def compute_line_totals(self):
+        cost = Decimal(str(self.unit_cost)).quantize(Decimal('0.01'))
+        if self.line_subtotal is None:
+            self.line_subtotal = (cost * self.quantity_ordered).quantize(Decimal('0.01'))
+        if self.line_total is None:
+            disc = Decimal(str(self.discount or Decimal('0.00'))).quantize(Decimal('0.01'))
+            tax = Decimal(str(self.tax_amount or Decimal('0.00'))).quantize(Decimal('0.01'))
+            self.line_total = max(Decimal('0.00'), (self.line_subtotal - disc + tax).quantize(Decimal('0.01')))
+        if self.quantity_remaining == 0 and self.quantity_received == 0:
+            self.quantity_remaining = self.quantity_ordered
+        return self
 
 
 class PurchaseOrderRead(Record):
@@ -390,10 +428,25 @@ class PurchaseOrderRead(Record):
     order_number: str
     status: str
     ordered_date: date
-    expected_date: date | None
-    notes: str | None
+    expected_date: date | None = None
+    notes: str | None = None
     created_at: datetime
     lines: list[PurchaseOrderLineRead]
+    total_quantity: int = 0
+    subtotal: Decimal = Decimal('0.00')
+    total_discount: Decimal = Decimal('0.00')
+    total_tax: Decimal = Decimal('0.00')
+    total_amount: Decimal = Decimal('0.00')
+
+    @model_validator(mode='after')
+    def compute_po_totals(self):
+        if self.lines:
+            self.total_quantity = sum(line.quantity_ordered for line in self.lines)
+            self.subtotal = sum(line.line_subtotal or Decimal('0.00') for line in self.lines).quantize(Decimal('0.01'))
+            self.total_discount = sum(line.discount or Decimal('0.00') for line in self.lines).quantize(Decimal('0.01'))
+            self.total_tax = sum(line.tax_amount or Decimal('0.00') for line in self.lines).quantize(Decimal('0.01'))
+            self.total_amount = max(Decimal('0.00'), (self.subtotal - self.total_discount + self.total_tax).quantize(Decimal('0.01')))
+        return self
 
 
 class GoodsReceiptLineCreate(BaseModel):

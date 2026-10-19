@@ -190,17 +190,22 @@ export class RegistryComponent implements OnInit {
     notes: ''
   };
   supplierForm = { code: '', name: '', email: '', phone: '', notes: '' };
-  purchaseOrderForm = {
-    supplier_id: '',
-    order_number: '',
-    ordered_date: this.today(),
-    expected_date: '',
-    notes: '',
-    category_id: '',
-    description: '',
-    quantity_ordered: 1,
-    unit_cost: 0
-  };
+  editingPurchaseOrderId = '';
+  private _purchaseOrderForm: any = this.initPurchaseOrderForm();
+  get purchaseOrderForm(): any {
+    return this._purchaseOrderForm;
+  }
+  set purchaseOrderForm(val: any) {
+    if (!val) {
+      this._purchaseOrderForm = this.initPurchaseOrderForm();
+      return;
+    }
+    if (val.lines && Object.getOwnPropertyDescriptor(val, 'category_id')?.get) {
+      this._purchaseOrderForm = val;
+      return;
+    }
+    this._purchaseOrderForm = this.initPurchaseOrderForm(val);
+  }
   goodsReceiptForm = {
     purchase_order_id: '',
     purchase_order_line_id: '',
@@ -758,6 +763,170 @@ export class RegistryComponent implements OnInit {
     });
   }
 
+  initPurchaseOrderForm(initial?: any): any {
+    const today = this.today();
+    const rawLines = initial?.lines;
+    const lines: Array<{
+      category_id: string;
+      description: string;
+      quantity_ordered: number;
+      unit_cost: number;
+      discount: number;
+      tax_rate: number;
+      tax_amount: number;
+    }> = Array.isArray(rawLines) && rawLines.length > 0
+      ? rawLines.map((l: any) => ({
+          category_id: l.category_id || '',
+          description: l.description || '',
+          quantity_ordered: l.quantity_ordered !== undefined ? Number(l.quantity_ordered) : 1,
+          unit_cost: l.unit_cost !== undefined ? Number(l.unit_cost) : 0,
+          discount: l.discount !== undefined ? Number(l.discount) : 0,
+          tax_rate: l.tax_rate !== undefined ? Number(l.tax_rate) : 0,
+          tax_amount: l.tax_amount !== undefined ? Number(l.tax_amount) : 0,
+        }))
+      : [{
+          category_id: initial?.category_id || '',
+          description: initial?.description || '',
+          quantity_ordered: initial?.quantity_ordered !== undefined ? Number(initial.quantity_ordered) : 1,
+          unit_cost: initial?.unit_cost !== undefined ? Number(initial.unit_cost) : 0,
+          discount: 0,
+          tax_rate: 0,
+          tax_amount: 0,
+        }];
+
+    const target: any = {
+      supplier_id: initial?.supplier_id || '',
+      order_number: initial?.order_number || '',
+      ordered_date: initial?.ordered_date || today,
+      expected_date: initial?.expected_date || '',
+      notes: initial?.notes || '',
+      lines
+    };
+
+    Object.defineProperties(target, {
+      category_id: {
+        get() { return this.lines[0]?.category_id ?? ''; },
+        set(v: string) { if (this.lines[0]) this.lines[0].category_id = v; },
+        enumerable: true,
+        configurable: true
+      },
+      description: {
+        get() { return this.lines[0]?.description ?? ''; },
+        set(v: string) { if (this.lines[0]) this.lines[0].description = v; },
+        enumerable: true,
+        configurable: true
+      },
+      quantity_ordered: {
+        get() { return this.lines[0]?.quantity_ordered ?? 1; },
+        set(v: number) { if (this.lines[0]) this.lines[0].quantity_ordered = Number(v); },
+        enumerable: true,
+        configurable: true
+      },
+      unit_cost: {
+        get() { return this.lines[0]?.unit_cost ?? 0; },
+        set(v: number) { if (this.lines[0]) this.lines[0].unit_cost = Number(v); },
+        enumerable: true,
+        configurable: true
+      }
+    });
+
+    return target;
+  }
+
+  addPoLine(): void {
+    if (!this.purchaseOrderForm.lines) {
+      this.purchaseOrderForm.lines = [];
+    }
+    this.purchaseOrderForm.lines.push({
+      category_id: '',
+      description: '',
+      quantity_ordered: 1,
+      unit_cost: 0,
+      discount: 0,
+      tax_rate: 0,
+      tax_amount: 0,
+    });
+    this.changeDetector.markForCheck();
+  }
+
+  removePoLine(index: number): void {
+    if (!this.purchaseOrderForm.lines || this.purchaseOrderForm.lines.length <= 1) return;
+    this.purchaseOrderForm.lines.splice(index, 1);
+    this.changeDetector.markForCheck();
+  }
+
+  poLineSubtotal(line: any): number {
+    const qty = Number(line?.quantity_ordered) || 0;
+    const cost = Number(line?.unit_cost) || 0;
+    return Number((qty * cost).toFixed(2));
+  }
+
+  poLineTotal(line: any): number {
+    const subtotal = this.poLineSubtotal(line);
+    const disc = Number(line?.discount) || 0;
+    const tax = Number(line?.tax_amount) || 0;
+    return Math.max(0, Number((subtotal - disc + tax).toFixed(2)));
+  }
+
+  get poTotalQuantity(): number {
+    return (this.purchaseOrderForm?.lines || []).reduce((acc: number, l: any) => acc + (Number(l.quantity_ordered) || 0), 0);
+  }
+
+  get poSubtotal(): number {
+    return Number((this.purchaseOrderForm?.lines || []).reduce((acc: number, l: any) => acc + this.poLineSubtotal(l), 0).toFixed(2));
+  }
+
+  get poTotalDiscount(): number {
+    return Number((this.purchaseOrderForm?.lines || []).reduce((acc: number, l: any) => acc + (Number(l.discount) || 0), 0).toFixed(2));
+  }
+
+  get poTotalTax(): number {
+    return Number((this.purchaseOrderForm?.lines || []).reduce((acc: number, l: any) => acc + (Number(l.tax_amount) || 0), 0).toFixed(2));
+  }
+
+  get poTotalAmount(): number {
+    return Math.max(0, Number((this.poSubtotal - this.poTotalDiscount + this.poTotalTax).toFixed(2)));
+  }
+
+  canEditOrder(order: PurchaseOrder): boolean {
+    return order.status === 'open' && this.can('procurement.manage') && !this.orderHasReceipts(order.id);
+  }
+
+  orderHasReceipts(orderId: string): boolean {
+    return this.goodsReceipts.some((r) => r.purchase_order_id === orderId);
+  }
+
+  editPurchaseOrder(order: PurchaseOrder): void {
+    if (!this.canEditOrder(order)) return;
+    this.editingPurchaseOrderId = order.id;
+    this.purchaseOrderForm = {
+      supplier_id: order.supplier_id,
+      order_number: order.order_number,
+      ordered_date: order.ordered_date,
+      expected_date: order.expected_date || '',
+      notes: order.notes || '',
+      lines: (order.lines || []).map((line) => ({
+        category_id: line.category_id,
+        description: line.description,
+        quantity_ordered: line.quantity_ordered,
+        unit_cost: Number(line.unit_cost) || 0,
+        discount: Number(line.discount) || 0,
+        tax_rate: Number(line.tax_rate) || 0,
+        tax_amount: Number(line.tax_amount) || 0,
+      }))
+    };
+    this.errorMessage = '';
+    this.successMessage = '';
+    this.changeDetector.markForCheck();
+  }
+
+  cancelPoEdit(): void {
+    this.editingPurchaseOrderId = '';
+    this.purchaseOrderForm = this.initPurchaseOrderForm();
+    this.errorMessage = '';
+    this.changeDetector.markForCheck();
+  }
+
   createPurchaseOrder(): void {
     if (!this.companyId || this.saving || !this.can('procurement.manage')) return;
     if (!this.suppliers.length) {
@@ -775,7 +944,7 @@ export class RegistryComponent implements OnInit {
       this.changeDetector.markForCheck();
       return;
     }
-    if (!this.purchaseOrderForm.order_number.trim()) {
+    if (!this.purchaseOrderForm.order_number?.trim()) {
       this.errorMessage = 'Please enter an order number.';
       this.changeDetector.markForCheck();
       return;
@@ -790,64 +959,102 @@ export class RegistryComponent implements OnInit {
       this.changeDetector.markForCheck();
       return;
     }
-    if (!this.purchaseOrderForm.category_id) {
-      this.errorMessage = 'Please choose an asset category for the item.';
+
+    const lines = this.purchaseOrderForm.lines || [];
+    if (lines.length === 0) {
+      this.errorMessage = 'Please add at least one line item.';
       this.changeDetector.markForCheck();
       return;
     }
-    if (!this.purchaseOrderForm.description.trim()) {
-      this.errorMessage = 'Please enter an item description.';
-      this.changeDetector.markForCheck();
-      return;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.category_id) {
+        this.errorMessage = i === 0
+          ? 'Please choose an asset category for the item.'
+          : `Please choose an asset category for line #${i + 1}.`;
+        this.changeDetector.markForCheck();
+        return;
+      }
+      if (!line.description?.trim()) {
+        this.errorMessage = i === 0
+          ? 'Please enter an item description.'
+          : `Please enter an item description for line #${i + 1}.`;
+        this.changeDetector.markForCheck();
+        return;
+      }
+      const qty = Number(line.quantity_ordered);
+      if (!qty || qty <= 0) {
+        this.errorMessage = i === 0
+          ? 'Quantity ordered must be greater than zero.'
+          : `Quantity ordered for line #${i + 1} must be greater than zero.`;
+        this.changeDetector.markForCheck();
+        return;
+      }
+      const cost = Number(line.unit_cost);
+      if (isNaN(cost) || cost < 0) {
+        this.errorMessage = i === 0
+          ? 'Unit cost must be zero or a positive amount.'
+          : `Unit cost for line #${i + 1} must be zero or a positive amount.`;
+        this.changeDetector.markForCheck();
+        return;
+      }
     }
-    const qty = Number(this.purchaseOrderForm.quantity_ordered);
-    if (!qty || qty <= 0) {
-      this.errorMessage = 'Quantity ordered must be greater than zero.';
-      this.changeDetector.markForCheck();
-      return;
-    }
-    const cost = Number(this.purchaseOrderForm.unit_cost);
-    if (isNaN(cost) || cost < 0) {
-      this.errorMessage = 'Unit cost must be zero or a positive amount.';
-      this.changeDetector.markForCheck();
-      return;
-    }
+
     this.errorMessage = '';
     this.saving = true;
     this.changeDetector.markForCheck();
-    this.registry.createPurchaseOrder(this.companyId, {
+
+    const payload = {
       supplier_id: this.purchaseOrderForm.supplier_id,
       order_number: this.purchaseOrderForm.order_number.trim(),
       ordered_date: this.purchaseOrderForm.ordered_date,
       expected_date: this.purchaseOrderForm.expected_date || null,
-      notes: this.purchaseOrderForm.notes,
-      lines: [{
-        category_id: this.purchaseOrderForm.category_id,
-        description: this.purchaseOrderForm.description.trim(),
-        quantity_ordered: qty,
-        unit_cost: cost
-      }]
-    }).subscribe({
-      next: (order) => {
-        this.purchaseOrders = [order, ...this.purchaseOrders];
-        this.purchaseOrderForm = {
-          supplier_id: '',
-          order_number: '',
-          ordered_date: this.today(),
-          expected_date: '',
-          notes: '',
-          category_id: '',
-          description: '',
-          quantity_ordered: 1,
-          unit_cost: 0
-        };
-        this.saving = false;
-        this.successMessage = `Purchase order ${order.order_number} created.`;
-        this.errorMessage = '';
-        this.changeDetector.markForCheck();
-      },
-      error: (error) => this.fail(error)
-    });
+      notes: this.purchaseOrderForm.notes || '',
+      lines: lines.map((l: any) => ({
+        category_id: l.category_id,
+        description: l.description.trim(),
+        quantity_ordered: Number(l.quantity_ordered),
+        unit_cost: Number(l.unit_cost),
+        discount: Number(l.discount) || 0,
+        tax_rate: Number(l.tax_rate) || 0,
+        tax_amount: Number(l.tax_amount) || 0,
+      }))
+    };
+
+    if (this.editingPurchaseOrderId) {
+      this.registry.updatePurchaseOrder(this.companyId, this.editingPurchaseOrderId, payload).subscribe({
+        next: (order) => {
+          const index = this.purchaseOrders.findIndex((item) => item.id === order.id);
+          if (index >= 0) {
+            this.purchaseOrders[index] = order;
+          }
+          this.editingPurchaseOrderId = '';
+          this.purchaseOrderForm = this.initPurchaseOrderForm();
+          this.saving = false;
+          this.successMessage = `Purchase order ${order.order_number} updated.`;
+          this.errorMessage = '';
+          this.changeDetector.markForCheck();
+        },
+        error: (error) => this.fail(error)
+      });
+    } else {
+      this.registry.createPurchaseOrder(this.companyId, payload).subscribe({
+        next: (order) => {
+          this.purchaseOrders = [order, ...this.purchaseOrders];
+          this.purchaseOrderForm = this.initPurchaseOrderForm();
+          this.saving = false;
+          this.successMessage = `Purchase order ${order.order_number} created.`;
+          this.errorMessage = '';
+          this.changeDetector.markForCheck();
+        },
+        error: (error) => this.fail(error)
+      });
+    }
+  }
+
+  savePurchaseOrder(): void {
+    this.createPurchaseOrder();
   }
 
   createGoodsReceipt(): void {
@@ -882,15 +1089,17 @@ export class RegistryComponent implements OnInit {
         this.goodsReceipts = [receipt, ...this.goodsReceipts];
         const index = this.purchaseOrders.findIndex((order) => order.id === receipt.purchase_order_id);
         if (index >= 0) {
+          const po = this.purchaseOrders[index];
+          const allReceived = po.lines.every((orderLine) =>
+            this.remainingInOrder(
+              po.id,
+              orderLine.id,
+              orderLine.quantity_ordered
+            ) === 0
+          );
           this.purchaseOrders[index] = {
-            ...this.purchaseOrders[index],
-            status: this.purchaseOrders[index].lines.every((orderLine) =>
-              this.remainingInOrder(
-                this.purchaseOrders[index].id,
-                orderLine.id,
-                orderLine.quantity_ordered
-              ) === 0
-            ) ? 'received' : 'partially_received'
+            ...po,
+            status: allReceived ? 'received' : 'partially_received'
           };
         }
         this.goodsReceiptForm = {
@@ -907,6 +1116,7 @@ export class RegistryComponent implements OnInit {
         this.saving = false;
         this.successMessage = `Receipt ${receipt.receipt_number} recorded; ${receipt.lines.flatMap((item) => item.assets).length} asset(s) registered.`;
         this.errorMessage = '';
+        this.changeDetector.markForCheck();
       },
       error: (error) => this.fail(error)
     });
@@ -920,6 +1130,16 @@ export class RegistryComponent implements OnInit {
     );
     this.goodsReceiptForm.purchase_order_line_id = firstLine?.id ?? '';
     this.goodsReceiptForm.quantity_received = firstLine ? Math.max(1, this.remainingToReceive(firstLine.id)) : 1;
+    this.changeDetector.markForCheck();
+  }
+
+  onReceiptLineChange(lineId: string): void {
+    this.goodsReceiptForm.purchase_order_line_id = lineId;
+    if (lineId) {
+      const rem = this.remainingToReceive(lineId);
+      this.goodsReceiptForm.quantity_received = rem > 0 ? rem : 1;
+    }
+    this.changeDetector.markForCheck();
   }
 
   supplierName(supplierId: string): string {

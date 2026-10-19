@@ -747,6 +747,131 @@ footer a { color: #1d4ed8; }
   }
 }
 
+/* Multi-line Purchase Order Form & Totals */
+.po-lines-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  padding: 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+
+  .po-lines-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    h4 {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .small-btn {
+      padding: 0.35rem 0.75rem;
+      font-size: 0.82rem;
+    }
+  }
+
+  .po-lines-table-wrap {
+    overflow-x: auto;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+  }
+
+  .po-lines-table {
+    width: 100%;
+    margin-bottom: 0;
+
+    th, td {
+      padding: 0.5rem 0.6rem;
+      vertical-align: middle;
+      font-size: 0.85rem;
+    }
+
+    input, select {
+      margin-bottom: 0;
+      padding: 0.35rem 0.5rem;
+      font-size: 0.85rem;
+    }
+
+    .line-index {
+      font-weight: 600;
+      color: #64748b;
+      width: 28px;
+      text-align: center;
+    }
+
+    .line-total-cell {
+      font-weight: 600;
+      color: #0f172a;
+      white-space: nowrap;
+      text-align: right;
+    }
+
+    .line-actions {
+      text-align: center;
+      width: 60px;
+    }
+  }
+
+  .po-totals-card {
+    align-self: flex-end;
+    width: 100%;
+    max-width: 320px;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+
+    .po-total-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      color: #475569;
+
+      .total-value {
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      .discount-val {
+        color: #16a34a;
+      }
+
+      &.grand-total {
+        margin-top: 0.4rem;
+        padding-top: 0.4rem;
+        border-top: 1px solid #e2e8f0;
+        font-size: 0.95rem;
+        font-weight: 700;
+
+        .total-label {
+          color: #0f172a;
+        }
+
+        .grand-val {
+          color: #2563eb;
+          font-size: 1.05rem;
+        }
+      }
+    }
+  }
+}
+
+.po-line-summary {
+  font-size: 0.84rem;
+  line-height: 1.35;
+  margin-bottom: 0.2rem;
+}
+
 @media (max-width: 900px) {
   .dashboard-sections { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
