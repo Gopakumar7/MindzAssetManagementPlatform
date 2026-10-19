@@ -1,8 +1,10 @@
 from fastapi import APIRouter
 
 from app.api.v1.routes import (
+    alerts,
     assets,
     auth,
+    finance,
     health,
     maintenance,
     organization,
@@ -10,7 +12,6 @@ from app.api.v1.routes import (
     reports,
     security_admin,
     verification,
-    finance,
 )
 
 router = APIRouter()
@@ -24,4 +25,6 @@ router.include_router(maintenance.router)
 router.include_router(reports.router)
 router.include_router(verification.router)
 router.include_router(finance.router)
+router.include_router(alerts.router)
+
 

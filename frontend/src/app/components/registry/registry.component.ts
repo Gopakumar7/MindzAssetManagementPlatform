@@ -55,11 +55,14 @@ import {
   AssetDisposalCreate,
   AssetDepreciationReportItem,
   AssetDisposalReportItem,
-  FinancialDashboardMetric
+  FinancialDashboardMetric,
+  AssetAlert,
+  AssetAlertSummary,
+  AlertSyncResponse
 } from '../../services/registry.service';
 import { AuthService } from '../../services/auth.service';
 
-type ViewName = 'dashboard' | 'assets' | 'reports' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company' | 'users-access' | 'procurement' | 'maintenance' | 'verification';
+type ViewName = 'dashboard' | 'alerts' | 'assets' | 'reports' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company' | 'users-access' | 'procurement' | 'maintenance' | 'verification';
 type MasterKind = 'departments' | 'sites' | 'categories' | 'cost-centers';
 export type ReportType = 'asset-register' | 'asset-allocation' | 'warranty-expiry' | 'maintenance' | 'procurement' | 'verification-campaigns' | 'verification-discrepancies' | 'asset-depreciation' | 'asset-disposals';
 
@@ -310,12 +313,33 @@ export class RegistryComponent implements OnInit {
   purchaseOrders: PurchaseOrder[] = [];
   goodsReceipts: GoodsReceipt[] = [];
   procurementLoading = false;
+  // Alert & Action Centre state
+  alerts: AssetAlert[] = [];
+  alertSummary: AssetAlertSummary | null = null;
+  alertsLoading = false;
+  alertsSyncing = false;
+  alertsError: string | null = null;
+  alertStatusFilter: string = 'open';
+  alertSeverityFilter: string = '';
+  alertTypeFilter: string = '';
+  alertSearchQuery: string = '';
+  alertAssignees: AssignmentRecipient[] = [];
+
+  // Action Centre modals
+  activeAlertModal: 'acknowledge' | 'assign' | 'resolve' | 'dismiss' | null = null;
+  currentAlert: AssetAlert | null = null;
+  alertNotes = '';
+  alertAssigneeId = '';
+  alertResolutionReason: string = 'manual_resolution';
+  alertActionLoading = false;
+
   serviceContracts: AssetServiceContract[] = [];
   contractsLoading = false;
   maintenanceRequests: MaintenanceRequest[] = [];
   maintenanceAssets: Asset[] = [];
   maintenanceUsers: AssignmentRecipient[] = [];
   maintenanceLoading = false;
+
   selectedMaintenanceRequest?: MaintenanceRequest;
   maintenanceFilters: { asset_id: string; status: MaintenanceStatus | '' } = { asset_id: '', status: '' };
   maintenanceCreateForm = {
@@ -550,7 +574,13 @@ export class RegistryComponent implements OnInit {
       this.financialDashboard = undefined;
       this.assetDepreciationReport = [];
       this.assetDisposalReport = [];
+      this.alerts = [];
+      this.alertSummary = null;
+      this.alertsLoading = false;
+      this.alertsSyncing = false;
+      this.alertsError = null;
     }
+
     this.companyId = id;
     this.company = this.companies.find((item) => item.id === id);
     this.creatingCompany = this.companies.length === 0;
@@ -605,11 +635,17 @@ export class RegistryComponent implements OnInit {
           this.loadMaintenance();
         } else if (this.activeView === 'verification') {
           this.loadVerification();
+        } else if (this.activeView === 'alerts') {
+          this.loadAlerts();
+        }
+        if (this.can('alerts.read')) {
+          this.loadAlertSummary();
         }
         if (this.selectedSiteId) {
           this.loadLocations(this.selectedSiteId);
         }
       },
+
       error: (error) => this.fail(error)
     });
   }
@@ -674,6 +710,9 @@ export class RegistryComponent implements OnInit {
     if (view === 'verification' && !this.can('verification.read')) {
       view = 'assets';
     }
+    if (view === 'alerts' && !this.can('alerts.read')) {
+      view = 'assets';
+    }
     this.activeView = view;
     this.errorMessage = '';
     this.successMessage = '';
@@ -691,8 +730,11 @@ export class RegistryComponent implements OnInit {
       this.loadMaintenance();
     } else if (view === 'verification') {
       this.loadVerification();
+    } else if (view === 'alerts') {
+      this.loadAlerts();
     }
   }
+
 
 
   get selectedPurchaseOrder(): PurchaseOrder | undefined {
@@ -3066,7 +3108,195 @@ export class RegistryComponent implements OnInit {
     });
   }
 
+  loadAlerts(autoSync = false): void {
+    if (!this.companyId) return;
+    this.alertsLoading = true;
+    this.alertsError = null;
+    const filters = {
+      status: this.alertStatusFilter || undefined,
+      severity: this.alertSeverityFilter || undefined,
+      alert_type: this.alertTypeFilter || undefined,
+      search: this.alertSearchQuery || undefined,
+      auto_sync: autoSync
+    };
+    forkJoin({
+      alerts: this.registry.listAlerts(this.companyId, filters),
+      summary: this.registry.getAlertSummary(this.companyId)
+    }).subscribe({
+      next: ({ alerts, summary }) => {
+        this.alerts = alerts;
+        this.alertSummary = summary;
+        this.alertsLoading = false;
+        this.changeDetector.markForCheck();
+      },
+      error: (err) => {
+        this.alertsError = err?.error?.detail || 'Failed to load alerts';
+        this.alertsLoading = false;
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  loadAlertSummary(): void {
+    if (!this.companyId || !this.can('alerts.read')) return;
+    this.registry.getAlertSummary(this.companyId).subscribe({
+      next: (summary) => {
+        this.alertSummary = summary;
+        this.changeDetector.markForCheck();
+      },
+      error: () => {}
+    });
+  }
+
+  syncAlertsNow(): void {
+    if (!this.companyId || this.alertsSyncing) return;
+    this.alertsSyncing = true;
+    this.alertsError = null;
+    this.registry.syncAlerts(this.companyId).subscribe({
+      next: (res) => {
+        this.alertsSyncing = false;
+        this.successMessage = `Alert evaluation complete: ${res.created_count} created, ${res.updated_count} updated, ${res.auto_resolved_count} auto-resolved. Active: ${res.active_count}`;
+        this.loadAlerts();
+        this.changeDetector.markForCheck();
+      },
+      error: (err) => {
+        this.alertsSyncing = false;
+        this.alertsError = err?.error?.detail || 'Failed to sync alerts';
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  openAlertModal(modal: 'acknowledge' | 'assign' | 'resolve' | 'dismiss', alert: AssetAlert): void {
+    this.activeAlertModal = modal;
+    this.currentAlert = alert;
+    this.alertNotes = '';
+    this.alertAssigneeId = alert.responsible_user_id || '';
+    this.alertResolutionReason = 'manual_resolution';
+    if (modal === 'assign' && (!this.alertAssignees || !this.alertAssignees.length) && this.companyId) {
+      this.registry.assignmentRecipients(this.companyId).subscribe({
+        next: (users) => {
+          this.alertAssignees = users;
+          this.changeDetector.markForCheck();
+        }
+      });
+    }
+  }
+
+  closeAlertModal(): void {
+    this.activeAlertModal = null;
+    this.currentAlert = null;
+    this.alertNotes = '';
+    this.alertAssigneeId = '';
+    this.alertActionLoading = false;
+  }
+
+  submitAlertAcknowledge(): void {
+    if (!this.companyId || !this.currentAlert) return;
+    this.alertActionLoading = true;
+    this.registry.acknowledgeAlert(this.companyId, this.currentAlert.id, this.alertNotes).subscribe({
+      next: (updated) => {
+        this.alertActionLoading = false;
+        this.successMessage = `Alert '${updated.title}' acknowledged.`;
+        this.closeAlertModal();
+        this.loadAlerts();
+      },
+      error: (err) => {
+        this.alertActionLoading = false;
+        this.errorMessage = err?.error?.detail || 'Failed to acknowledge alert';
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  submitAlertAssign(): void {
+    if (!this.companyId || !this.currentAlert || !this.alertAssigneeId) return;
+    this.alertActionLoading = true;
+    this.registry.assignAlert(this.companyId, this.currentAlert.id, this.alertAssigneeId).subscribe({
+      next: (updated) => {
+        this.alertActionLoading = false;
+        this.successMessage = `Alert '${updated.title}' assigned.`;
+        this.closeAlertModal();
+        this.loadAlerts();
+      },
+      error: (err) => {
+        this.alertActionLoading = false;
+        this.errorMessage = err?.error?.detail || 'Failed to assign alert';
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  submitAlertResolve(): void {
+    if (!this.companyId || !this.currentAlert) return;
+    this.alertActionLoading = true;
+    this.registry.resolveAlert(this.companyId, this.currentAlert.id, this.alertNotes, this.alertResolutionReason).subscribe({
+      next: (updated) => {
+        this.alertActionLoading = false;
+        this.successMessage = `Alert '${updated.title}' resolved.`;
+        this.closeAlertModal();
+        this.loadAlerts();
+      },
+      error: (err) => {
+        this.alertActionLoading = false;
+        this.errorMessage = err?.error?.detail || 'Failed to resolve alert';
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  submitAlertDismiss(): void {
+    if (!this.companyId || !this.currentAlert) return;
+    this.alertActionLoading = true;
+    this.registry.dismissAlert(this.companyId, this.currentAlert.id, this.alertNotes).subscribe({
+      next: (updated) => {
+        this.alertActionLoading = false;
+        this.successMessage = `Alert '${updated.title}' dismissed.`;
+        this.closeAlertModal();
+        this.loadAlerts();
+      },
+      error: (err) => {
+        this.alertActionLoading = false;
+        this.errorMessage = err?.error?.detail || 'Failed to dismiss alert';
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  goToAlertTarget(alert: AssetAlert): void {
+    if (!alert.target_route) return;
+    if (alert.target_route === 'assets') {
+      this.setView('assets');
+      if (alert.asset_id && this.companyId) {
+        this.registry.getAsset(this.companyId, alert.asset_id).subscribe({
+          next: (asset) => this.openAsset(asset)
+        });
+      }
+    } else if (alert.target_route === 'maintenance') {
+      this.setView('maintenance');
+    } else if (alert.target_route === 'verification') {
+      this.setView('verification');
+    } else if (alert.target_route === 'procurement') {
+      this.setView('procurement');
+    }
+  }
+
+  formatAlertType(type: string): string {
+    switch (type) {
+      case 'warranty_expiry': return 'Warranty Expiry';
+      case 'amc_expiry': return 'AMC Expiry';
+      case 'maintenance_overdue': return 'Maintenance SLA';
+      case 'verification_discrepancy': return 'Physical Discrepancy';
+      case 'verification_campaign_due': return 'Campaign Deadline';
+      case 'fully_depreciated_in_use': return 'Fully Depreciated In Service';
+      case 'approaching_eol': return 'Approaching End of Life';
+      case 'purchase_order_overdue': return 'PO Delivery Overdue';
+      default: return (type || '').replace(/_/g, ' ');
+    }
+  }
+
   private today(): string {
+
 
     const now = new Date();
     const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);

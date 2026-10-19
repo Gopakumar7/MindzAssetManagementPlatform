@@ -241,3 +241,35 @@ These items should be treated as open questions until clarified, not as assumpti
 | Maintenance request report | Service requests with reference, asset number, priority, status, requester, assignee, reported date, completion date, repair cost, and diagnosis/resolution notes | Backend filter and aggregation tests; Angular unit test |
 | Procurement & receiving report | Purchase order tracking with supplier, order number, status, ordered/received/rejected/outstanding quantities, and linked goods receipt notes | Backend tests verify line calculations and GRN references; Angular unit test |
 | CSV export & client interactions | Client-side RFC-4180 CSV export for all operational reports, loading/empty/error states, retry controls, and tenant isolation | 21 Angular unit tests passed in headless Chromium; live container verification |
+
+## 17. Physical asset verification (Phase 4)
+
+| Requirement | Implemented behavior | Verification |
+| --- | --- | --- |
+| Campaign lifecycle | Multi-status state machine (`draft` -> `in_progress` -> `under_review` -> `completed` / `cancelled`); scope criteria frozen upon start | Backend pytest suite (`test_verification.py`), state transition guards |
+| Physical observations | Verifiers record found/not-found, actual location, actual custodian, condition, tag, and remarks; duplicate observation rejection | Backend test verifies observation immutability and duplicate rejection |
+| Discrepancy detection & resolution | Auto-generated discrepancies for missing, location, custodian, and condition mismatches; resolution actions (`update_master`, `keep_as_is`, `mark_missing`, `investigate`, `dismiss`) with mandatory notes; updates master records only on explicit approval | Backend tests verify all 4 discrepancy types and master asset updating |
+| In-field unregistered discovery | Discover and record unlisted assets; register into master inventory with company numbering rules | Backend test verifies promotion to master asset and duplicate registration guard |
+| Reporting & export | Campaign summary metrics, verification reports, and RFC-4180 CSV export with formula injection sanitization | 11 Angular unit tests passed in headless Chromium |
+
+## 18. Asset financial lifecycle management (Phase 5)
+
+| Requirement | Implemented behavior | Verification |
+| --- | --- | --- |
+| Asset financial profile | Capitalised cost, currency, straight-line depreciation method, useful life in months, residual value, depreciation start date, accumulated depreciation, net book value, and financial status | PostgreSQL API tests verify boundary conditions and rounding rules |
+| Depreciation calculation & posting | Authoritative monthly straight-line engine with Python `Decimal` and `ROUND_HALF_UP`; full-month convention; row-level locking for single-asset and batch postings; unique constraint on `(company_id, asset_id, period)` | Multi-threaded PostgreSQL concurrency integration test verifying 0 duplicate postings |
+| Historical integrity & prospective adjustments | Direct mutation of historical capitalised cost/life blocked once entries exist (HTTP 409); authorised prospective adjustments recompute forward while retaining past entries | Backend integration test verifies historical preservation and recomputed projections |
+| Disposal & cutoff | Disposal workflow recording date, method, reason, sale proceeds, and notes; transactional NBV and gain/loss calculation; custodian return guard; post-disposal depreciation blocked | Backend test verifies active assignment guard, cutoff enforcement, and gain/loss |
+| Financial dashboard & reports | Executive KPI metrics (capitalised cost, accumulated depreciation, current NBV, EOL count, fully depreciated count, gain/loss); filterable depreciation and disposal reports with CSV export | 8 Angular unit tests; backend pytest integration test |
+
+## 19. Asset lifecycle alerts and action centre (Phase 6)
+
+| Requirement | Implemented behavior | Verification |
+| --- | --- | --- |
+| Rule evaluation engine | Company-scoped backend service evaluating 8 lifecycle rules: warranty expiry, AMC expiry, maintenance overdue SLAs, verification discrepancies, campaign deadlines, fully depreciated in-use assets, approaching EOL, and overdue PO deliveries | Backend pytest suite (`test_alerts.py`), rule threshold tests |
+| Missing date handling | Adheres strictly to persisted data; assignment return alerts omitted as assignments lack artificial expected return dates | Code audit and domain model inspection |
+| Idempotency & uniqueness | Partial unique index on active alerts `(company_id, alert_type, entity_type, entity_id)` where `status IN ('open', 'acknowledged')` | Idempotency integration tests with repetitive sync operations |
+| Auto-resolution & anti-resurrection | Auto-resolves active alerts when source conditions clear (`source_resolved`); operator-resolved and dismissed alerts are remembered to prevent resurrection | Backend lifecycle test verifies auto-resolution and anti-resurrection |
+| Action Centre workspace UI | Dedicated tab with critical/warning badge, KPI cards (`open`, `acknowledged`, `resolved`), multi-field filter bar (status, severity, type, search), and direct entity routing | 10 Angular unit tests passed in headless Chromium |
+| Operational action workflows | Modals for Acknowledge (with notes), Assign (to team member), Resolve (with mandatory reason and notes), and Dismiss (with acceptance reason) | Angular unit tests cover all 4 modal submission workflows |
+| RBAC & company isolation | Multi-tenant company isolation; permissions `alerts.read` and `alerts.manage` mapped into existing roles; unauthorized cross-company access returns 404 | Multi-tenant isolation test verifying cross-company 404 and role gating |

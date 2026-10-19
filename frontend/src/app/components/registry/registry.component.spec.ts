@@ -30,9 +30,32 @@ import {
   BatchDepreciationResult,
   AssetDepreciationReportItem,
   AssetDisposalReportItem,
-  FinancialDashboardMetric
+  FinancialDashboardMetric,
+  AssetAlert,
+  AssetAlertSummary,
+  AlertSyncResponse
 } from '../../services/registry.service';
+
 import { RegistryComponent, serializeCsvCell } from './registry.component';
+
+const defaultAlertSummary: AssetAlertSummary = {
+  total_open: 0,
+  total_acknowledged: 0,
+  total_resolved: 0,
+  total_dismissed: 0,
+  critical_count: 0,
+  warning_count: 0,
+  info_count: 0,
+  by_type: {}
+};
+
+const defaultAlertSyncResponse: AlertSyncResponse = {
+  synced: true,
+  created_count: 0,
+  updated_count: 0,
+  auto_resolved_count: 0,
+  active_count: 0
+};
 
 describe('RegistryComponent user access navigation', () => {
   let fixture: ComponentFixture<RegistryComponent>;
@@ -59,7 +82,7 @@ describe('RegistryComponent user access navigation', () => {
       system_permissions: [],
       memberships: []
     };
-    permissions = new Set(['company.read', 'company.members.manage', 'asset.read', 'asset.assignment.manage', 'dashboard.read']);
+    permissions = new Set(['company.read', 'company.members.manage', 'asset.read', 'asset.assignment.manage', 'dashboard.read', 'alerts.read', 'alerts.manage']);
     registry = jasmine.createSpyObj<RegistryService>('RegistryService', [
       'companies',
       'listMaster',
@@ -125,8 +148,16 @@ describe('RegistryComponent user access navigation', () => {
       'getAssetDisposal',
       'reportAssetDepreciation',
       'reportAssetDisposals',
-      'getFinancialDashboard'
+      'getFinancialDashboard',
+      'listAlerts',
+      'getAlertSummary',
+      'syncAlerts',
+      'acknowledgeAlert',
+      'assignAlert',
+      'resolveAlert',
+      'dismissAlert'
     ]);
+
     registry.companies.and.returnValue(of([company]));
     registry.listMaster.and.returnValue(of([]));
     registry.listNumberRules.and.returnValue(of([]));
@@ -204,6 +235,13 @@ describe('RegistryComponent user access navigation', () => {
       total_disposal_gain_loss: 0
     }));
 
+    registry.listAlerts.and.returnValue(of([]));
+    registry.getAlertSummary.and.returnValue(of(defaultAlertSummary));
+    registry.syncAlerts.and.returnValue(of(defaultAlertSyncResponse));
+    registry.acknowledgeAlert.and.returnValue(of({} as any));
+    registry.assignAlert.and.returnValue(of({} as any));
+    registry.resolveAlert.and.returnValue(of({} as any));
+    registry.dismissAlert.and.returnValue(of({} as any));
 
     TestBed.configureTestingModule({
       imports: [RegistryComponent],
@@ -1621,7 +1659,14 @@ describe('RegistryComponent Physical Asset Verification', () => {
       'getAssetDisposal',
       'reportAssetDepreciation',
       'reportAssetDisposals',
-      'getFinancialDashboard'
+      'getFinancialDashboard',
+      'listAlerts',
+      'getAlertSummary',
+      'syncAlerts',
+      'acknowledgeAlert',
+      'assignAlert',
+      'resolveAlert',
+      'dismissAlert'
     ]);
 
     registry.companies.and.returnValue(of([company]));
@@ -1717,6 +1762,14 @@ describe('RegistryComponent Physical Asset Verification', () => {
       total_disposal_proceeds: 0,
       total_disposal_gain_loss: 0
     }));
+
+    registry.listAlerts.and.returnValue(of([]));
+    registry.getAlertSummary.and.returnValue(of(defaultAlertSummary));
+    registry.syncAlerts.and.returnValue(of(defaultAlertSyncResponse));
+    registry.acknowledgeAlert.and.returnValue(of({} as any));
+    registry.assignAlert.and.returnValue(of({} as any));
+    registry.resolveAlert.and.returnValue(of({} as any));
+    registry.dismissAlert.and.returnValue(of({} as any));
 
     TestBed.configureTestingModule({
       imports: [RegistryComponent],
@@ -2331,7 +2384,14 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
       'getAssetDisposal',
       'reportAssetDepreciation',
       'reportAssetDisposals',
-      'getFinancialDashboard'
+      'getFinancialDashboard',
+      'listAlerts',
+      'getAlertSummary',
+      'syncAlerts',
+      'acknowledgeAlert',
+      'assignAlert',
+      'resolveAlert',
+      'dismissAlert'
     ]);
 
     registry.companies.and.returnValue(of([company]));
@@ -2408,6 +2468,14 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
     registry.reportAssetDepreciation.and.returnValue(of([testDeprecReportItem]));
     registry.reportAssetDisposals.and.returnValue(of([testDisposalReportItem]));
     registry.getFinancialDashboard.and.returnValue(of(testFinancialDashboard));
+
+    registry.listAlerts.and.returnValue(of([]));
+    registry.getAlertSummary.and.returnValue(of(defaultAlertSummary));
+    registry.syncAlerts.and.returnValue(of(defaultAlertSyncResponse));
+    registry.acknowledgeAlert.and.returnValue(of({} as any));
+    registry.assignAlert.and.returnValue(of({} as any));
+    registry.resolveAlert.and.returnValue(of({} as any));
+    registry.dismissAlert.and.returnValue(of({} as any));
 
     TestBed.configureTestingModule({
       imports: [RegistryComponent],
@@ -2555,3 +2623,351 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
     expect(dispCsv).toContain('NBV at Disposal');
   });
 });
+
+const testAlert: AssetAlert = {
+  id: 'alert-1',
+  company_id: 'company-1',
+  alert_type: 'warranty_expiry',
+  severity: 'warning',
+  status: 'open',
+  title: 'Warranty Expiring Soon',
+  description: 'Warranty expires in 15 days',
+  entity_type: 'asset_service_contract',
+  entity_id: 'contract-1',
+  entity_reference: 'WAR-001',
+  asset_id: 'asset-1',
+  due_date: '2026-11-05',
+  days_overdue: 0,
+  responsible_user_id: null,
+  target_route: 'assets',
+  acknowledged_at: null,
+  acknowledged_by_id: null,
+  resolved_at: null,
+  resolved_by_id: null,
+  resolution_reason: null,
+  resolution_notes: null,
+  created_at: '2026-10-19T10:00:00Z',
+  updated_at: '2026-10-19T10:00:00Z'
+};
+
+const testAlertSummary: AssetAlertSummary = {
+  total_open: 3,
+  total_acknowledged: 1,
+  total_resolved: 2,
+  total_dismissed: 0,
+  critical_count: 1,
+  warning_count: 2,
+  info_count: 1,
+  by_type: {
+    warranty_expiry: 1,
+    maintenance_overdue: 1,
+    verification_discrepancy: 1,
+    approaching_eol: 1
+  }
+};
+
+describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
+  let fixture: ComponentFixture<RegistryComponent>;
+  let component: RegistryComponent;
+  let registry: jasmine.SpyObj<RegistryService>;
+  let permissions: Set<string>;
+
+  const company: Company = {
+    id: 'company-1',
+    code: 'ACME',
+    name: 'Acme',
+    is_active: true
+  };
+
+  beforeEach(() => {
+    permissions = new Set([
+      'company.read',
+      'asset.read',
+      'alerts.read',
+      'alerts.manage',
+      'maintenance.read',
+      'verification.read',
+      'procurement.read'
+    ]);
+
+    registry = jasmine.createSpyObj<RegistryService>('RegistryService', [
+      'companies',
+      'listMaster',
+      'listNumberRules',
+      'companyMembers',
+      'companyRoles',
+      'listAssets',
+      'getAsset',
+      'usages',
+      'history',
+      'assignments',
+      'assignmentRecipients',
+      'createAssignment',
+      'recordHandover',
+      'returnAssignment',
+      'transferAssignment',
+      'listLocations',
+      'suppliers',
+      'purchaseOrders',
+      'getPurchaseOrder',
+      'goodsReceipts',
+      'serviceContracts',
+      'maintenanceUsers',
+      'maintenanceRequests',
+      'dashboard',
+      'reportAssetRegister',
+      'reportAssetAllocation',
+      'reportWarrantyExpiry',
+      'reportMaintenance',
+      'reportProcurement',
+      'listVerificationCampaigns',
+      'getVerificationCampaign',
+      'createVerificationCampaign',
+      'updateVerificationCampaign',
+      'transitionVerificationCampaignStatus',
+      'getVerificationExpectedAssets',
+      'recordVerificationObservation',
+      'getVerificationDiscrepancies',
+      'resolveVerificationDiscrepancy',
+      'recordUnregisteredAsset',
+      'getUnregisteredAssets',
+      'registerUnregisteredAsset',
+      'getVerificationDashboard',
+      'reportVerificationCampaigns',
+      'reportVerificationDiscrepancies',
+      'getAssetFinancial',
+      'configureAssetFinancial',
+      'editAssetFinancial',
+      'adjustAssetFinancial',
+      'getDepreciationSchedule',
+      'postDepreciation',
+      'listDepreciationEntries',
+      'postBatchDepreciation',
+      'disposeAsset',
+      'getAssetDisposal',
+      'reportAssetDepreciation',
+      'reportAssetDisposals',
+      'getFinancialDashboard',
+      'listAlerts',
+      'getAlertSummary',
+      'syncAlerts',
+      'acknowledgeAlert',
+      'assignAlert',
+      'resolveAlert',
+      'dismissAlert'
+    ]);
+
+    registry.companies.and.returnValue(of([company]));
+    registry.listMaster.and.returnValue(of([]));
+    registry.listNumberRules.and.returnValue(of([]));
+    registry.companyMembers.and.returnValue(of([]));
+    registry.companyRoles.and.returnValue(of([]));
+    registry.listAssets.and.returnValue(of({ items: [testAsset], total: 1, page: 1, page_size: 15 }));
+    registry.getAsset.and.returnValue(of(testAsset));
+    registry.usages.and.returnValue(of([]));
+    registry.history.and.returnValue(of([]));
+    registry.assignments.and.returnValue(of([]));
+    registry.assignmentRecipients.and.returnValue(of([{ id: 'user-2', email: 'tech@mindzen.invalid' }]));
+    registry.listLocations.and.returnValue(of([]));
+    registry.suppliers.and.returnValue(of([]));
+    registry.purchaseOrders.and.returnValue(of([]));
+    registry.getPurchaseOrder.and.returnValue(of({} as any));
+    registry.goodsReceipts.and.returnValue(of([]));
+    registry.serviceContracts.and.returnValue(of([]));
+    registry.maintenanceUsers.and.returnValue(of([]));
+    registry.maintenanceRequests.and.returnValue(of([]));
+    registry.dashboard.and.returnValue(of({} as any));
+    registry.reportAssetRegister.and.returnValue(of([]));
+    registry.reportAssetAllocation.and.returnValue(of([]));
+    registry.reportWarrantyExpiry.and.returnValue(of([]));
+    registry.reportMaintenance.and.returnValue(of([]));
+    registry.reportProcurement.and.returnValue(of([]));
+    registry.listVerificationCampaigns.and.returnValue(of([]));
+    registry.getVerificationCampaign.and.returnValue(of({} as any));
+    registry.createVerificationCampaign.and.returnValue(of({} as any));
+    registry.updateVerificationCampaign.and.returnValue(of({} as any));
+    registry.transitionVerificationCampaignStatus.and.returnValue(of({} as any));
+    registry.getVerificationExpectedAssets.and.returnValue(of([]));
+    registry.recordVerificationObservation.and.returnValue(of({} as any));
+    registry.getVerificationDiscrepancies.and.returnValue(of([]));
+    registry.resolveVerificationDiscrepancy.and.returnValue(of({} as any));
+    registry.recordUnregisteredAsset.and.returnValue(of({} as any));
+    registry.getUnregisteredAssets.and.returnValue(of([]));
+    registry.registerUnregisteredAsset.and.returnValue(of({} as any));
+    registry.getVerificationDashboard.and.returnValue(of({} as any));
+    registry.reportVerificationCampaigns.and.returnValue(of([]));
+    registry.reportVerificationDiscrepancies.and.returnValue(of([]));
+    registry.getAssetFinancial.and.returnValue(of(undefined as any));
+    registry.configureAssetFinancial.and.returnValue(of({} as any));
+    registry.editAssetFinancial.and.returnValue(of({} as any));
+    registry.adjustAssetFinancial.and.returnValue(of({} as any));
+    registry.getDepreciationSchedule.and.returnValue(of([]));
+    registry.postDepreciation.and.returnValue(of({} as any));
+    registry.listDepreciationEntries.and.returnValue(of([]));
+    registry.postBatchDepreciation.and.returnValue(of({ period: '2026-10', processed_count: 0, posted_count: 0, skipped_count: 0, total_depreciation_posted: 0, posted_asset_ids: [], skipped: [] }));
+    registry.disposeAsset.and.returnValue(of({} as any));
+    registry.getAssetDisposal.and.returnValue(of({} as any));
+    registry.reportAssetDepreciation.and.returnValue(of([]));
+    registry.reportAssetDisposals.and.returnValue(of([]));
+    registry.getFinancialDashboard.and.returnValue(of({} as any));
+
+    registry.listAlerts.and.returnValue(of([testAlert]));
+    registry.getAlertSummary.and.returnValue(of(testAlertSummary));
+    registry.syncAlerts.and.returnValue(of({
+      synced: true,
+      created_count: 1,
+      updated_count: 0,
+      auto_resolved_count: 0,
+      active_count: 1
+    }));
+    registry.acknowledgeAlert.and.returnValue(of({ ...testAlert, status: 'acknowledged' }));
+    registry.assignAlert.and.returnValue(of({ ...testAlert, responsible_user_id: 'user-2' }));
+    registry.resolveAlert.and.returnValue(of({ ...testAlert, status: 'resolved', resolution_reason: 'manual_resolution' }));
+    registry.dismissAlert.and.returnValue(of({ ...testAlert, status: 'dismissed' }));
+
+    TestBed.configureTestingModule({
+      imports: [RegistryComponent],
+      providers: [
+        provideHttpClient(),
+        provideRouter([]),
+        { provide: RegistryService, useValue: registry },
+        {
+          provide: AuthService,
+          useValue: {
+            currentUser: signal({ id: 'admin-1', email: 'admin@example.invalid', system_permissions: [], memberships: [] }),
+            permissions: () => new Set(permissions)
+          }
+        }
+      ]
+    });
+
+    fixture = TestBed.createComponent(RegistryComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  it('should display Action Centre tab badge with critical count when critical alerts exist', () => {
+    const badge = fixture.nativeElement.querySelector('.alerts-tab-btn .tab-badge');
+    expect(badge).toBeTruthy();
+    expect(badge.textContent.trim()).toBe('1');
+    expect(badge.classList).toContain('badge-critical');
+  });
+
+  it('should load alerts and summary when switching to alerts view', () => {
+    component.setView('alerts');
+    expect(component.activeView).toBe('alerts');
+    expect(registry.listAlerts).toHaveBeenCalledWith('company-1', jasmine.objectContaining({ status: 'open' }));
+    expect(component.alerts.length).toBe(1);
+    expect(component.alerts[0].id).toBe('alert-1');
+    expect(component.alertSummary).toEqual(testAlertSummary);
+  });
+
+  it('should trigger alert synchronization and update alert list and success message', () => {
+    component.setView('alerts');
+    component.syncAlertsNow();
+
+    expect(registry.syncAlerts).toHaveBeenCalledWith('company-1');
+    expect(component.successMessage).toContain('Alert evaluation complete');
+    expect(registry.listAlerts).toHaveBeenCalled();
+  });
+
+  it('should apply filters and reload alerts with selected criteria', () => {
+    component.setView('alerts');
+    component.alertStatusFilter = 'acknowledged';
+    component.alertSeverityFilter = 'warning';
+    component.alertTypeFilter = 'warranty_expiry';
+    component.alertSearchQuery = 'AST-000001';
+
+    component.loadAlerts();
+
+    expect(registry.listAlerts).toHaveBeenCalledWith('company-1', {
+      status: 'acknowledged',
+      severity: 'warning',
+      alert_type: 'warranty_expiry',
+      search: 'AST-000001',
+      auto_sync: false
+    });
+  });
+
+  it('should open acknowledge modal and submit acknowledgment with notes', () => {
+    component.openAlertModal('acknowledge', testAlert);
+    expect(component.activeAlertModal).toBe('acknowledge');
+    expect(component.currentAlert).toBe(testAlert);
+
+    component.alertNotes = 'Awaiting renewal quote';
+    component.submitAlertAcknowledge();
+
+    expect(registry.acknowledgeAlert).toHaveBeenCalledWith('company-1', testAlert.id, 'Awaiting renewal quote');
+    expect(component.activeAlertModal).toBeNull();
+    expect(component.successMessage).toContain('acknowledged');
+  });
+
+  it('should open assign modal and submit alert assignment to a user', () => {
+    component.openAlertModal('assign', testAlert);
+    expect(component.activeAlertModal).toBe('assign');
+
+    component.alertAssigneeId = 'user-2';
+    component.submitAlertAssign();
+
+    expect(registry.assignAlert).toHaveBeenCalledWith('company-1', testAlert.id, 'user-2');
+    expect(component.activeAlertModal).toBeNull();
+    expect(component.successMessage).toContain('assigned');
+  });
+
+  it('should open resolve modal and submit alert resolution with reason and notes', () => {
+    component.openAlertModal('resolve', testAlert);
+    expect(component.activeAlertModal).toBe('resolve');
+
+    component.alertResolutionReason = 'manual_resolution';
+    component.alertNotes = 'Contract renewal executed';
+    component.submitAlertResolve();
+
+    expect(registry.resolveAlert).toHaveBeenCalledWith('company-1', testAlert.id, 'Contract renewal executed', 'manual_resolution');
+    expect(component.activeAlertModal).toBeNull();
+    expect(component.successMessage).toContain('resolved');
+  });
+
+  it('should open dismiss modal and submit alert dismissal with reason', () => {
+    component.openAlertModal('dismiss', testAlert);
+    expect(component.activeAlertModal).toBe('dismiss');
+
+    component.alertNotes = 'Risk accepted by operations';
+    component.submitAlertDismiss();
+
+    expect(registry.dismissAlert).toHaveBeenCalledWith('company-1', testAlert.id, 'Risk accepted by operations');
+    expect(component.activeAlertModal).toBeNull();
+    expect(component.successMessage).toContain('dismissed');
+  });
+
+  it('should route to the appropriate application entity when clicking alert target', () => {
+    // Asset target
+    component.goToAlertTarget({ ...testAlert, target_route: 'assets', asset_id: testAsset.id });
+    expect(component.activeView).toBe('assets');
+    expect(registry.getAsset).toHaveBeenCalledWith('company-1', testAsset.id);
+
+    // Maintenance target
+    component.goToAlertTarget({ ...testAlert, target_route: 'maintenance' });
+    expect(component.activeView).toBe('maintenance');
+
+    // Verification target
+    component.goToAlertTarget({ ...testAlert, target_route: 'verification' });
+    expect(component.activeView).toBe('verification');
+
+    // Procurement target
+    component.goToAlertTarget({ ...testAlert, target_route: 'procurement' });
+    expect(component.activeView).toBe('procurement');
+  });
+
+  it('should format alert types into user-friendly labels', () => {
+    expect(component.formatAlertType('warranty_expiry')).toBe('Warranty Expiry');
+    expect(component.formatAlertType('amc_expiry')).toBe('AMC Expiry');
+    expect(component.formatAlertType('maintenance_overdue')).toBe('Maintenance SLA');
+    expect(component.formatAlertType('verification_discrepancy')).toBe('Physical Discrepancy');
+    expect(component.formatAlertType('verification_campaign_due')).toBe('Campaign Deadline');
+    expect(component.formatAlertType('fully_depreciated_in_use')).toBe('Fully Depreciated In Service');
+    expect(component.formatAlertType('approaching_eol')).toBe('Approaching End of Life');
+    expect(component.formatAlertType('purchase_order_overdue')).toBe('PO Delivery Overdue');
+    expect(component.formatAlertType('custom_type')).toBe('custom type');
+  });
+});
+

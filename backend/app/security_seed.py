@@ -29,6 +29,8 @@ _PERMISSIONS = {
     'verification.manage': 'Manage company physical asset verification campaigns, observations, and resolutions',
     'finance.read': 'Read company asset financial records, depreciation, and disposal reports',
     'finance.manage': 'Manage company asset financial profiles, depreciation entries, and disposals',
+    'alerts.read': 'Read company lifecycle alerts and action centre',
+    'alerts.manage': 'Acknowledge, assign, dismiss, and resolve company lifecycle alerts',
 }
 
 _ROLE_PERMISSIONS = {
@@ -41,6 +43,7 @@ _ROLE_PERMISSIONS = {
         'maintenance.read', 'maintenance.manage', 'dashboard.read',
         'verification.read', 'verification.manage',
         'finance.read', 'finance.manage',
+        'alerts.read', 'alerts.manage',
     },
     ('company', 'asset_manager'): {
         'company.read', 'organization.read', 'organization.manage', 'asset.read',
@@ -49,20 +52,22 @@ _ROLE_PERMISSIONS = {
         'maintenance.read', 'maintenance.manage', 'dashboard.read',
         'verification.read', 'verification.manage',
         'finance.read', 'finance.manage',
+        'alerts.read', 'alerts.manage',
     },
     ('company', 'it_support'): {
         'company.read', 'organization.read', 'asset.read', 'asset.update',
         'asset.usage.manage', 'asset.history.read', 'maintenance.read',
         'maintenance.manage', 'verification.read',
+        'alerts.read', 'alerts.manage',
     },
     ('company', 'auditor'): {
         'company.read', 'organization.read', 'asset.read', 'asset.history.read', 'audit.read',
         'procurement.read', 'maintenance.read', 'dashboard.read', 'verification.read',
-        'finance.read',
+        'finance.read', 'alerts.read',
     },
     ('company', 'read_only_user'): {
         'company.read', 'organization.read', 'asset.read', 'asset.history.read', 'procurement.read',
-        'maintenance.read', 'verification.read', 'finance.read',
+        'maintenance.read', 'verification.read', 'finance.read', 'alerts.read',
     },
 }
 

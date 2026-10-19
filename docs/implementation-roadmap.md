@@ -282,6 +282,46 @@ All previous phases should be considered prerequisite foundations.
 - Reporting requirements are validated against actual business use cases
 - Integration boundary and API contract standards are approved
 
+## Phase 7 — Asset lifecycle alerts and action centre
+
+### Status (2026-10-19)
+Implemented and verified against PostgreSQL and Angular suites. Authoritative backend rule evaluation service (`AssetAlertService`) supporting 8 lifecycle rules (warranty expiry, AMC expiry, maintenance overdue SLAs, physical verification discrepancies, verification campaign deadlines, fully depreciated active assets, approaching EOL projections, and overdue PO deliveries). Anti-resurrection and auto-resolution semantics prevent stale or resurrected alerts. Central Action Centre workspace in Angular with KPI counters, filter bar, target routing links, and lifecycle action modals (Acknowledge, Assign, Resolve, Dismiss). Company-scoped RBAC (`alerts.read`, `alerts.manage`) and transactional audit logging. Full backend suite: 82 passed, 0 failed; frontend Karma suite: 79 passed, 0 failed.
+
+### Objective
+Proactively identify upcoming deadlines, operational SLAs, and unresolved asset-management risks through an authoritative, actionable alerting framework.
+
+### Scope included
+- Authoritative alert rule engine evaluating warranty, AMC, maintenance, verification, finance, and procurement conditions
+- Partial unique database constraints enforcing active alert idempotency
+- Auto-resolution when underlying condition clears and anti-resurrection for operator-handled alerts
+- Action Centre workspace UI with dynamic status/severity counters and filters
+- Operational lifecycle actions: Acknowledge, Assign, Resolve (with mandatory reason/notes), and Dismiss
+- Direct navigation routing to target domain records
+- Multi-tenant company isolation and RBAC (`alerts.read`, `alerts.manage`)
+
+### Scope deliberately excluded
+- User notification channels outside the web application (e.g., SMTP email, SMS, Webhook pushes deferred to dedicated notification engine)
+- Asset assignment return overdue alerts (as assignments intentionally lack artificial expected return dates)
+
+### Dependencies on earlier phases
+Phases 0 through 6 domain models and business state machines.
+
+### Expected deliverables
+- Central alerts engine and API endpoints under `/companies/{company_id}/alerts`
+- Alembic database migration for `asset_alerts` table, indexes, and check constraints
+- Action Centre tab, KPI cards, filter bar, and action modals in Angular frontend
+- Comprehensive integration and unit test suites across backend and frontend
+
+### Acceptance criteria and tests
+- Alerts are generated deterministically from authoritative domain records without artificial data
+- Idempotent evaluation produces no duplicate active alerts under repetitive syncs
+- Cleared conditions trigger automatic transition to `resolved` status
+- Operator-resolved or dismissed alerts are not resurrected by subsequent evaluations
+- Unauthorized cross-company alert operations are rejected with 404 (isolation preservation)
+
+### Conditions before proceeding
+- Alert rule thresholds and severity mappings are agreed with business stakeholders
+
 ## Overall release strategy
 
 The first usable release should focus on a practical subset of the full product scope:

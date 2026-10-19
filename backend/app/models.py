@@ -934,3 +934,55 @@ class AssetDisposal(Base):
     disposed_by_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='RESTRICT'), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
+
+class AssetAlert(Base):
+    __tablename__ = 'asset_alerts'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_asset_alerts_company_id_id'),
+        CheckConstraint("severity IN ('critical', 'warning', 'info')", name='ck_asset_alerts_severity'),
+        CheckConstraint("status IN ('open', 'acknowledged', 'resolved', 'dismissed')", name='ck_asset_alerts_status'),
+        CheckConstraint(
+            "resolution_reason IS NULL OR resolution_reason IN ('source_resolved', 'manual_resolution', 'dismissed')",
+            name='ck_asset_alerts_resolution_reason',
+        ),
+        Index(
+            'uq_asset_alerts_active_entity',
+            'company_id',
+            'alert_type',
+            'entity_type',
+            'entity_id',
+            unique=True,
+            postgresql_where=text("status IN ('open', 'acknowledged')"),
+            sqlite_where=text("status IN ('open', 'acknowledged')"),
+        ),
+        Index('ix_asset_alerts_company_status', 'company_id', 'status'),
+        Index('ix_asset_alerts_company_severity', 'company_id', 'severity'),
+        Index('ix_asset_alerts_company_type', 'company_id', 'alert_type'),
+        Index('ix_asset_alerts_company_asset', 'company_id', 'asset_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    alert_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default='warning')
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default='open')
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    entity_reference: Mapped[str | None] = mapped_column(String(160))
+    asset_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    due_date: Mapped[date | None] = mapped_column(Date)
+    days_overdue: Mapped[int | None] = mapped_column(Integer)
+    responsible_user_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'))
+    target_route: Mapped[str | None] = mapped_column(String(200))
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acknowledged_by_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'))
+    resolution_reason: Mapped[str | None] = mapped_column(String(32))
+    resolution_notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+

@@ -2,9 +2,46 @@
 
 ## Current delivery
 
-**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, multi-line purchase orders and line-item receiving, warranty/AMC/maintenance requests, Phase 4 physical asset verification campaigns, and Phase 5 asset financial lifecycle management (straight-line depreciation, authoritative book value, prospective adjustments, disposal cutoff/gain-loss, financial dashboard metrics, and operational reports): implemented.** Verification status and remaining integration limitations are recorded below.
+**Phase 0 technical foundation, Phase 1 organisation/asset registry, Phase 2 local security foundation, Phase 3 asset assignment lifecycle, multi-line purchase orders and line-item receiving, warranty/AMC/maintenance requests, Phase 4 physical asset verification campaigns, Phase 5 asset financial lifecycle management, and Phase 6 asset lifecycle alerts and action centre (authoritative rule evaluation engine, lifecycle states, anti-resurrection, auto-resolution, Action Centre UI, and company-isolated RBAC): implemented.** Verification status and remaining integration limitations are recorded below.
 
 Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
+
+## Asset lifecycle alerts and action centre (2026-10-19)
+
+- Implemented an actionable Asset Lifecycle Alerts and Action Centre identifying upcoming deadlines, overdue operational activities, and unresolved asset-management risks across company-scoped domains.
+- Authoritative backend rule evaluation engine (`AssetAlertService`):
+  - Company-scoped rule engine evaluating 8 authoritative alert rules from existing authoritative domain records:
+    1. `warranty_expiry`: Active warranty expiring within 30 days (`warning`) or expired (`critical`).
+    2. `amc_expiry`: Active AMC contract expiring within 30 days (`warning`) or expired (`critical`).
+    3. `maintenance_overdue`: Open/in-progress maintenance request exceeding priority SLA (`urgent`: 2 days, `high`: 5 days, `normal`: 14 days, `low`: 30 days; `critical` or `warning`).
+    4. `verification_discrepancy`: Unresolved discrepancy open ≥ 7 days (`warning`) or missing/unregistered/≥ 14 days (`critical`).
+    5. `verification_campaign_due`: In-progress/under-review campaign due within 7 days (`warning`) or overdue (`critical`).
+    6. `fully_depreciated_in_use`: Active asset status with fully depreciated financial profile (`warning`).
+    7. `approaching_eol`: Active financial profile with useful life ≤ 3 months remaining (`info` or `warning`).
+    8. `purchase_order_overdue`: Open/partially received purchase order with vendor expected date past due (`warning` or `critical` if > 7 days).
+  - Note: Asset assignment return alerts omitted as `AssetAssignment` does not store artificial expected return dates, adhering strictly to existing domain data rules.
+- Idempotency, auto-resolution, and anti-resurrection semantics:
+  - Database uniqueness constraint: partial unique index `(company_id, alert_type, entity_type, entity_id)` where `status IN ('open', 'acknowledged')` guarantees at most one active alert per entity.
+  - Auto-resolution: active alerts whose underlying source condition clears (e.g., maintenance request completed, contract renewed, PO received) automatically transition to `resolved` with `resolution_reason='source_resolved'`.
+  - Anti-resurrection: alerts manually resolved (`manual_resolution`) or dismissed (`dismissed`) by authorized operators are remembered to prevent repetitive background evaluations from resurrecting dismissed or resolved alerts.
+- Action Centre workspace UI in Angular:
+  - Dedicated Action Centre tab with dynamic critical/warning counter badge in navigation header.
+  - Interactive KPI summary cards (`Open`, `Acknowledged`, `Resolved`) and comprehensive filter bar supporting status, severity, alert type, and text search (by title, description, or entity reference).
+  - Responsive Action Centre data table with days overdue indicators, responsible assignees, and target entity routing links (`goToAlertTarget` directly switching to assets, maintenance, verification, or procurement views).
+  - Full modal action workflows:
+    - **Acknowledge**: flags open alert as acknowledged with operator notes.
+    - **Assign**: assigns alert to a company team member with task notes.
+    - **Resolve**: resolves alert with mandatory resolution notes and reason selection.
+    - **Dismiss**: dismisses alert with operator acceptance justification.
+- RBAC, multi-tenancy & audit logging:
+  - Added permissions `alerts.read` and `alerts.manage` mapped into `company_admin`, `asset_manager`, `technician`, `auditor`, and `read_only` roles.
+  - Multi-tenant company isolation enforced across all alert endpoints (`GET /companies/{company_id}/alerts`, `POST /sync`, `POST /{alert_id}/acknowledge`, `assign`, `resolve`, `dismiss`).
+  - Registered `AssetAlert` with the transactional audit framework (`alert_acknowledged`, `alert_assigned`, `alert_resolved`, `alert_dismissed`).
+- Verification & Test Coverage:
+  - Backend pytest suite: **82 passed, 0 failed, 1 warning** against PostgreSQL (`mindzen_test`) with 4 comprehensive integration test scenarios covering rule evaluation, idempotency/auto-resolution, operator action lifecycle & anti-resurrection, and multi-tenant isolation / RBAC.
+  - Frontend Angular Karma suite: **79 passed, 0 failed** in headless Chromium with 10 dedicated alert tests covering tab badge display, alerts/summary loading, synchronization trigger, filter combinations, action modal workflows, target route switching, and type formatting.
+  - Database schema: Alembic migration `20261019_asset_alerts.py` verified at head with zero schema drift.
+  - Production build: `ng build` succeeded cleanly with **0 errors**.
 
 ## Asset financial lifecycle management (2026-10-19)
 

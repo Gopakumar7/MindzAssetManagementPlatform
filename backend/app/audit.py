@@ -41,6 +41,7 @@ from app.models import (
     AssetFinancial,
     AssetDepreciationEntry,
     AssetDisposal,
+    AssetAlert,
 )
 
 _AUDITED_FIELDS: dict[type, tuple[str, ...]] = {
@@ -135,6 +136,10 @@ _AUDITED_FIELDS: dict[type, tuple[str, ...]] = {
     AssetDisposal: (
         'company_id', 'asset_id', 'disposal_date', 'disposal_reason', 'disposal_method',
         'sale_proceeds', 'net_book_value_at_disposal', 'gain_loss', 'notes', 'disposed_by_id',
+    ),
+    AssetAlert: (
+        'company_id', 'alert_type', 'severity', 'status', 'title', 'entity_type', 'entity_id',
+        'responsible_user_id', 'resolution_reason', 'resolution_notes',
     ),
 }
 

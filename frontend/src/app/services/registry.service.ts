@@ -1025,7 +1025,62 @@ export class RegistryService {
   getFinancialDashboard(companyId: string): Observable<FinancialDashboardMetric> {
     return this.http.get<FinancialDashboardMetric>(`${this.base}/companies/${companyId}/dashboard/financial`);
   }
+
+  listAlerts(
+    companyId: string,
+    filters: {
+      status?: string;
+      severity?: string;
+      alert_type?: string;
+      search?: string;
+      auto_sync?: boolean;
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): Observable<AssetAlert[]> {
+    let params = new HttpParams();
+    if (filters.status) params = params.set('status', filters.status);
+    if (filters.severity) params = params.set('severity', filters.severity);
+    if (filters.alert_type) params = params.set('alert_type', filters.alert_type);
+    if (filters.search) params = params.set('search', filters.search);
+    if (filters.auto_sync) params = params.set('auto_sync', 'true');
+    if (filters.limit) params = params.set('limit', filters.limit.toString());
+    if (filters.offset) params = params.set('offset', filters.offset.toString());
+    return this.http.get<AssetAlert[]>(`${this.base}/companies/${companyId}/alerts`, { params });
+  }
+
+  getAlertSummary(companyId: string): Observable<AssetAlertSummary> {
+    return this.http.get<AssetAlertSummary>(`${this.base}/companies/${companyId}/alerts/summary`);
+  }
+
+  syncAlerts(companyId: string): Observable<AlertSyncResponse> {
+    return this.http.post<AlertSyncResponse>(`${this.base}/companies/${companyId}/alerts/sync`, {});
+  }
+
+  acknowledgeAlert(companyId: string, alertId: string, notes?: string): Observable<AssetAlert> {
+    return this.http.post<AssetAlert>(`${this.base}/companies/${companyId}/alerts/${alertId}/acknowledge`, { notes });
+  }
+
+  assignAlert(companyId: string, alertId: string, responsibleUserId: string): Observable<AssetAlert> {
+    return this.http.post<AssetAlert>(`${this.base}/companies/${companyId}/alerts/${alertId}/assign`, {
+      responsible_user_id: responsibleUserId
+    });
+  }
+
+  resolveAlert(companyId: string, alertId: string, resolutionNotes?: string, reason: string = 'manual_resolution'): Observable<AssetAlert> {
+    return this.http.post<AssetAlert>(`${this.base}/companies/${companyId}/alerts/${alertId}/resolve`, {
+      resolution_reason: reason,
+      resolution_notes: resolutionNotes
+    });
+  }
+
+  dismissAlert(companyId: string, alertId: string, resolutionNotes?: string): Observable<AssetAlert> {
+    return this.http.post<AssetAlert>(`${this.base}/companies/${companyId}/alerts/${alertId}/dismiss`, {
+      resolution_notes: resolutionNotes
+    });
+  }
 }
+
 
 export interface VerificationCampaign {
   id: string;
@@ -1395,6 +1450,54 @@ export interface FinancialDashboardMetric {
   disposed_count: number;
   total_disposal_proceeds: number | string;
   total_disposal_gain_loss: number | string;
+}
+
+export interface AssetAlert {
+  id: string;
+  company_id: string;
+  alert_type: string;
+  severity: 'critical' | 'warning' | 'info';
+  status: 'open' | 'acknowledged' | 'resolved' | 'dismissed';
+  title: string;
+  description: string | null;
+  entity_type: string;
+  entity_id: string;
+  entity_reference: string | null;
+  asset_id: string | null;
+  due_date: string | null;
+  days_overdue: number | null;
+  responsible_user_id: string | null;
+  responsible_user_email?: string | null;
+  target_route: string | null;
+  acknowledged_at: string | null;
+  acknowledged_by_id: string | null;
+  acknowledged_by_email?: string | null;
+  resolved_at: string | null;
+  resolved_by_id: string | null;
+  resolved_by_email?: string | null;
+  resolution_reason: string | null;
+  resolution_notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssetAlertSummary {
+  total_open: number;
+  total_acknowledged: number;
+  total_resolved: number;
+  total_dismissed: number;
+  critical_count: number;
+  warning_count: number;
+  info_count: number;
+  by_type: Record<string, number>;
+}
+
+export interface AlertSyncResponse {
+  synced: boolean;
+  created_count: number;
+  updated_count: number;
+  auto_resolved_count: number;
+  active_count: number;
 }
 
 

@@ -31,6 +31,16 @@
     @if (can('dashboard.read')) {
       <button type="button" [class.active]="activeView === 'dashboard'" (click)="setView('dashboard')" [disabled]="!companyId">Dashboard</button>
     }
+    @if (can('alerts.read')) {
+      <button type="button" [class.active]="activeView === 'alerts'" (click)="setView('alerts')" [disabled]="!companyId" class="alerts-tab-btn">
+        Action Centre
+        @if (alertSummary && (alertSummary.critical_count > 0 || alertSummary.warning_count > 0)) {
+          <span class="tab-badge" [class.badge-critical]="alertSummary.critical_count > 0">
+            {{ alertSummary.critical_count > 0 ? alertSummary.critical_count : alertSummary.warning_count }}
+          </span>
+        }
+      </button>
+    }
     @if (can('asset.read')) {
       <button type="button" [class.active]="activeView === 'assets'" (click)="setView('assets')" [disabled]="!companyId">Assets</button>
     }
@@ -2499,7 +2509,345 @@
   </section>
 }
 
+@if (activeView === 'alerts') {
+  <section class="panel alerts-panel">
+    <div class="section-heading alerts-header">
+      <div>
+        <p class="eyebrow">MindZen Operations</p>
+        <h2>Lifecycle Alerts & Action Centre</h2>
+        <p class="dashboard-subtitle">Monitor upcoming deadlines, warranty expirations, overdue SLAs and unresolved compliance risks</p>
+      </div>
+      <div class="alerts-header-actions">
+        @if (can('alerts.manage')) {
+          <button type="button" class="primary sync-btn" (click)="syncAlertsNow()" [disabled]="alertsSyncing || alertsLoading">
+            <svg class="refresh-icon" [class.spinning]="alertsSyncing" viewBox="0 0 20 20" fill="currentColor" width="14" height="14" aria-hidden="true">
+              <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+            </svg>
+            {{ alertsSyncing ? 'Evaluating Rules…' : 'Sync & Evaluate Alerts' }}
+          </button>
+        }
+        <button type="button" class="secondary refresh-btn" (click)="loadAlerts()" [disabled]="alertsLoading || alertsSyncing">
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    @if (alertsError) {
+      <div class="notice error" role="alert">
+        {{ alertsError }}
+        <button type="button" class="secondary" style="margin-left: 1rem;" (click)="loadAlerts()">Retry</button>
+      </div>
+    }
+
+    <!-- Summary KPI Deck -->
+    @if (alertSummary) {
+      <div class="kpi-grid alert-kpi-grid">
+        <div class="kpi-card" [class.kpi-active-filter]="alertStatusFilter === 'open'" (click)="alertStatusFilter = 'open'; loadAlerts()" tabindex="0" role="button">
+          <div class="kpi-label">Open Alerts</div>
+          <div class="kpi-value">{{ alertSummary.total_open }}</div>
+          <div class="kpi-subtitle">Requires attention</div>
+        </div>
+        <div class="kpi-card kpi-critical" [class.kpi-active-filter]="alertSeverityFilter === 'critical'" (click)="alertSeverityFilter = (alertSeverityFilter === 'critical' ? '' : 'critical'); loadAlerts()" tabindex="0" role="button">
+          <div class="kpi-label">Critical Severity</div>
+          <div class="kpi-value text-critical">{{ alertSummary.critical_count }}</div>
+          <div class="kpi-subtitle">Overdue SLAs & contracts</div>
+        </div>
+        <div class="kpi-card kpi-warning" [class.kpi-active-filter]="alertSeverityFilter === 'warning'" (click)="alertSeverityFilter = (alertSeverityFilter === 'warning' ? '' : 'warning'); loadAlerts()" tabindex="0" role="button">
+          <div class="kpi-label">Warnings</div>
+          <div class="kpi-value text-warning">{{ alertSummary.warning_count }}</div>
+          <div class="kpi-subtitle">Approaching deadlines</div>
+        </div>
+        <div class="kpi-card" [class.kpi-active-filter]="alertStatusFilter === 'acknowledged'" (click)="alertStatusFilter = 'acknowledged'; loadAlerts()" tabindex="0" role="button">
+          <div class="kpi-label">Acknowledged</div>
+          <div class="kpi-value">{{ alertSummary.total_acknowledged }}</div>
+          <div class="kpi-subtitle">In investigation</div>
+        </div>
+        <div class="kpi-card" [class.kpi-active-filter]="alertStatusFilter === 'resolved'" (click)="alertStatusFilter = 'resolved'; loadAlerts()" tabindex="0" role="button">
+          <div class="kpi-label">Resolved / Dismissed</div>
+          <div class="kpi-value">{{ alertSummary.total_resolved + alertSummary.total_dismissed }}</div>
+          <div class="kpi-subtitle">{{ alertSummary.total_resolved }} resolved · {{ alertSummary.total_dismissed }} dismissed</div>
+        </div>
+      </div>
+    }
+
+    <!-- Filter Bar -->
+    <div class="alert-filter-bar">
+      <div class="filter-group">
+        <label for="alert-status-select">Status</label>
+        <select id="alert-status-select" [(ngModel)]="alertStatusFilter" (ngModelChange)="loadAlerts()" name="alertStatus">
+          <option value="">All Statuses</option>
+          <option value="open">Open (Active)</option>
+          <option value="acknowledged">Acknowledged</option>
+          <option value="resolved">Resolved</option>
+          <option value="dismissed">Dismissed</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="alert-severity-select">Severity</label>
+        <select id="alert-severity-select" [(ngModel)]="alertSeverityFilter" (ngModelChange)="loadAlerts()" name="alertSeverity">
+          <option value="">All Severities</option>
+          <option value="critical">Critical</option>
+          <option value="warning">Warning</option>
+          <option value="info">Info</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="alert-type-select">Rule / Type</label>
+        <select id="alert-type-select" [(ngModel)]="alertTypeFilter" (ngModelChange)="loadAlerts()" name="alertType">
+          <option value="">All Alert Types</option>
+          <option value="warranty_expiry">Warranty Expiry</option>
+          <option value="amc_expiry">AMC Expiry</option>
+          <option value="maintenance_overdue">Maintenance SLA</option>
+          <option value="verification_discrepancy">Physical Verification Discrepancy</option>
+          <option value="verification_campaign_due">Campaign Deadline</option>
+          <option value="fully_depreciated_in_use">Fully Depreciated In Service</option>
+          <option value="approaching_eol">Approaching End of Life</option>
+          <option value="purchase_order_overdue">Purchase Order Overdue</option>
+        </select>
+      </div>
+
+      <div class="filter-group search-group">
+        <label for="alert-search-input">Search Alerts</label>
+        <input id="alert-search-input" type="search" [(ngModel)]="alertSearchQuery" (ngModelChange)="loadAlerts()" placeholder="Search title, description, or reference…" name="alertSearch" />
+      </div>
+    </div>
+
+    <!-- Alerts Table -->
+    @if (alertsLoading && !alerts.length) {
+      <div class="loading">Loading lifecycle alerts…</div>
+    } @else {
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Severity</th>
+              <th>Rule & Title</th>
+              <th>Entity Reference</th>
+              <th>Due Date</th>
+              <th>Status</th>
+              <th>Responsible</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (alert of alerts; track alert.id) {
+              <tr [class.row-critical]="alert.severity === 'critical' && (alert.status === 'open' || alert.status === 'acknowledged')">
+                <td>
+                  <span class="severity-badge severity-{{ alert.severity }}">{{ alert.severity }}</span>
+                </td>
+                <td>
+                  <div class="alert-title-cell">
+                    <span class="alert-type-tag">{{ formatAlertType(alert.alert_type) }}</span>
+                    <strong class="alert-title-text">{{ alert.title }}</strong>
+                    @if (alert.description) {
+                      <p class="alert-desc-text">{{ alert.description }}</p>
+                    }
+                  </div>
+                </td>
+                <td>
+                  <span class="entity-ref-pill">{{ alert.entity_reference || '—' }}</span>
+                </td>
+                <td>
+                  @if (alert.due_date) {
+                    <div class="due-date-cell">
+                      <span>{{ alert.due_date | date:'mediumDate' }}</span>
+                      @if (alert.days_overdue !== null && alert.days_overdue > 0) {
+                        <span class="days-tag tag-overdue">{{ alert.days_overdue }}d overdue</span>
+                      } @else if (alert.days_overdue !== null && alert.days_overdue < 0) {
+                        <span class="days-tag tag-remaining">{{ 0 - alert.days_overdue }}d remaining</span>
+                      }
+                    </div>
+                  } @else {
+                    <span class="muted">—</span>
+                  }
+                </td>
+                <td>
+                  <span class="alert-status-badge status-{{ alert.status }}">{{ alert.status }}</span>
+                  @if (alert.resolution_reason) {
+                    <span class="reason-note">({{ alert.resolution_reason.replace('_', ' ') }})</span>
+                  }
+                </td>
+                <td>
+                  <span class="responsible-cell">{{ alert.responsible_user_email || 'Unassigned' }}</span>
+                </td>
+                <td>
+                  <div class="actions alert-actions">
+                    @if (alert.target_route) {
+                      <button type="button" class="link-button" (click)="goToAlertTarget(alert)" title="Navigate to record">
+                        View Record &rarr;
+                      </button>
+                    }
+                    @if (can('alerts.manage')) {
+                      @if (alert.status === 'open') {
+                        <button type="button" class="link-button" (click)="openAlertModal('acknowledge', alert)" title="Acknowledge alert">
+                          Acknowledge
+                        </button>
+                      }
+                      @if (alert.status === 'open' || alert.status === 'acknowledged') {
+                        <button type="button" class="link-button" (click)="openAlertModal('assign', alert)" title="Assign to member">
+                          Assign
+                        </button>
+                        <button type="button" class="link-button" (click)="openAlertModal('resolve', alert)" title="Mark resolved">
+                          Resolve
+                        </button>
+                        <button type="button" class="link-button muted" (click)="openAlertModal('dismiss', alert)" title="Dismiss alert">
+                          Dismiss
+                        </button>
+                      }
+                    }
+                  </div>
+                </td>
+              </tr>
+            }
+            @if (alerts.length === 0) {
+              <tr>
+                <td colspan="7" class="empty">
+                  No alerts found matching current filters. All lifecycle activities are within normal limits!
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </section>
+
+  <!-- Modals -->
+  @if (activeAlertModal === 'acknowledge' && currentAlert) {
+    <div class="modal-backdrop" (click)="closeAlertModal()">
+      <div class="modal-card" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Acknowledge Alert</h3>
+          <button type="button" class="close-btn" (click)="closeAlertModal()">&times;</button>
+        </div>
+        <form (ngSubmit)="submitAlertAcknowledge()">
+          <p>Acknowledge that this alert is being monitored or investigated:</p>
+          <div class="alert-preview-box">
+            <strong>{{ currentAlert.title }}</strong>
+            <p>{{ currentAlert.description }}</p>
+          </div>
+          <div class="form-grid compact">
+            <label class="wide">
+              Investigation Notes (Optional)
+              <textarea [(ngModel)]="alertNotes" name="ackNotes" rows="3" placeholder="Add context on ongoing investigation..."></textarea>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="primary" [disabled]="alertActionLoading">
+              {{ alertActionLoading ? 'Acknowledging…' : 'Confirm Acknowledge' }}
+            </button>
+            <button type="button" class="secondary" (click)="closeAlertModal()">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  }
+
+  @if (activeAlertModal === 'assign' && currentAlert) {
+    <div class="modal-backdrop" (click)="closeAlertModal()">
+      <div class="modal-card" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Assign Alert</h3>
+          <button type="button" class="close-btn" (click)="closeAlertModal()">&times;</button>
+        </div>
+        <form (ngSubmit)="submitAlertAssign()">
+          <p>Assign responsible owner for alert:</p>
+          <div class="alert-preview-box">
+            <strong>{{ currentAlert.title }}</strong>
+          </div>
+          <div class="form-grid compact">
+            <label class="wide">
+              Responsible Team Member *
+              <select [(ngModel)]="alertAssigneeId" name="assignUser" required>
+                <option value="">Select member</option>
+                @for (u of alertAssignees; track u.id) {
+                  <option [value]="u.id">{{ u.email }}</option>
+                }
+
+              </select>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="primary" [disabled]="alertActionLoading || !alertAssigneeId">
+              {{ alertActionLoading ? 'Assigning…' : 'Save Assignment' }}
+            </button>
+            <button type="button" class="secondary" (click)="closeAlertModal()">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  }
+
+  @if (activeAlertModal === 'resolve' && currentAlert) {
+    <div class="modal-backdrop" (click)="closeAlertModal()">
+      <div class="modal-card" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Resolve Alert</h3>
+          <button type="button" class="close-btn" (click)="closeAlertModal()">&times;</button>
+        </div>
+        <form (ngSubmit)="submitAlertResolve()">
+          <p>Record manual resolution for this alert without affecting underlying records:</p>
+          <div class="alert-preview-box">
+            <strong>{{ currentAlert.title }}</strong>
+          </div>
+          <div class="form-grid compact">
+            <label class="wide">
+              Resolution Reason
+              <select [(ngModel)]="alertResolutionReason" name="resReason">
+                <option value="manual_resolution">Manual Resolution / Exception Handled</option>
+                <option value="source_resolved">Source Condition Resolved</option>
+              </select>
+            </label>
+            <label class="wide">
+              Resolution Notes
+              <textarea [(ngModel)]="alertNotes" name="resNotes" rows="3" placeholder="Provide explanation of how this was resolved or verified..."></textarea>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="primary" [disabled]="alertActionLoading">
+              {{ alertActionLoading ? 'Resolving…' : 'Mark Resolved' }}
+            </button>
+            <button type="button" class="secondary" (click)="closeAlertModal()">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  }
+
+  @if (activeAlertModal === 'dismiss' && currentAlert) {
+    <div class="modal-backdrop" (click)="closeAlertModal()">
+      <div class="modal-card" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Dismiss Alert</h3>
+          <button type="button" class="close-btn" (click)="closeAlertModal()">&times;</button>
+        </div>
+        <form (ngSubmit)="submitAlertDismiss()">
+          <p>Dismiss this alert from active attention. The alert will be recorded as dismissed and won't be resurrected on subsequent syncs:</p>
+          <div class="alert-preview-box">
+            <strong>{{ currentAlert.title }}</strong>
+          </div>
+          <div class="form-grid compact">
+            <label class="wide">
+              Dismissal Reason / Notes
+              <textarea [(ngModel)]="alertNotes" name="disNotes" rows="3" placeholder="Reason for dismissal (e.g. intentional exception, vendor notified)..."></textarea>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="secondary danger-btn" [disabled]="alertActionLoading">
+              {{ alertActionLoading ? 'Dismissing…' : 'Confirm Dismiss' }}
+            </button>
+            <button type="button" class="secondary" (click)="closeAlertModal()">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  }
+}
+
 @if (activeView === 'assets') {
+
   <section class="panel">
     <div class="section-heading">
       <div><p class="eyebrow">Inventory</p><h2>Asset registry</h2></div>

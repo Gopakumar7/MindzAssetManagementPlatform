@@ -1269,3 +1269,69 @@ class FinancialDashboardMetric(BaseModel):
     total_disposal_gain_loss: Decimal
 
 
+class AssetAlertRead(Record):
+    id: UUID
+    company_id: UUID
+    alert_type: str
+    severity: str
+    status: str
+    title: str
+    description: str | None = None
+    entity_type: str
+    entity_id: UUID
+    entity_reference: str | None = None
+    asset_id: UUID | None = None
+    due_date: date | None = None
+    days_overdue: int | None = None
+    responsible_user_id: UUID | None = None
+    responsible_user_email: str | None = None
+    target_route: str | None = None
+    acknowledged_at: datetime | None = None
+    acknowledged_by_id: UUID | None = None
+    acknowledged_by_email: str | None = None
+    resolved_at: datetime | None = None
+    resolved_by_id: UUID | None = None
+    resolved_by_email: str | None = None
+    resolution_reason: str | None = None
+    resolution_notes: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AssetAlertSummary(BaseModel):
+    total_open: int
+    total_acknowledged: int
+    total_resolved: int
+    total_dismissed: int
+    critical_count: int
+    warning_count: int
+    info_count: int
+    by_type: dict[str, int]
+
+
+class AlertAcknowledgeRequest(BaseModel):
+    notes: str | None = None
+
+
+class AlertAssignRequest(BaseModel):
+    responsible_user_id: UUID
+
+
+class AlertResolveRequest(BaseModel):
+    resolution_reason: str = Field(default='manual_resolution', pattern=r'^(manual_resolution|source_resolved)$')
+    resolution_notes: str | None = None
+
+
+class AlertDismissRequest(BaseModel):
+    resolution_notes: str | None = None
+
+
+class AlertSyncResponse(BaseModel):
+    synced: bool
+    created_count: int
+    updated_count: int
+    auto_resolved_count: int
+    active_count: int
+
+
+
