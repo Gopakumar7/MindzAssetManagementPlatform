@@ -277,6 +277,30 @@ def test_origin_validation_semantics():
     })
     _validate_origin(req_https_same_origin)
 
+    # Standard Nginx $host forwarding (e.g. EC2 public IP without port)
+    req_nginx_host_same_origin = build_request({
+        'origin': 'http://198.51.100.42',
+        'x-forwarded-host': '198.51.100.42',
+        'x-forwarded-proto': 'http',
+    })
+    _validate_origin(req_nginx_host_same_origin)
+
+    # Multi-proxy comma-separated X-Forwarded-Host / X-Forwarded-Proto
+    req_multi_proxy = build_request({
+        'origin': 'https://demo.example.com',
+        'x-forwarded-host': 'demo.example.com, internal-proxy.local',
+        'x-forwarded-proto': 'https, http',
+    })
+    _validate_origin(req_multi_proxy)
+
+    # Case-insensitive host matching and trailing slash
+    req_case_insensitive = build_request({
+        'origin': 'https://DEMO.EXAMPLE.COM/',
+        'x-forwarded-host': 'demo.example.com',
+        'x-forwarded-proto': 'https',
+    })
+    _validate_origin(req_case_insensitive)
+
     # 4. Genuinely different origin is rejected with HTTP 403
     req_untrusted = build_request({'origin': 'https://evil.attacker.example.invalid'})
     with pytest.raises(HTTPException) as exc_info:
@@ -304,7 +328,31 @@ def test_login_origin_validation_endpoint(client):
     )
     assert res_allowed.status_code == 200
 
-    # 2. EC2 public IP same-origin forwarded by Nginx -> 200
+    # 2. EC2 public IP same-origin forwarded by Nginx ($host without port) -> 200
+    res_nginx_host = client.post(
+        '/api/v1/auth/login',
+        json={'email': 'test-admin@example.invalid', 'password': 'Correct-Horse-42!'},
+        headers={
+            'Origin': 'http://198.51.100.42',
+            'X-Forwarded-Host': '198.51.100.42',
+            'X-Forwarded-Proto': 'http',
+        },
+    )
+    assert res_nginx_host.status_code == 200
+
+    # 3. HTTPS custom domain forwarded by Nginx -> 200
+    res_nginx_domain = client.post(
+        '/api/v1/auth/login',
+        json={'email': 'test-admin@example.invalid', 'password': 'Correct-Horse-42!'},
+        headers={
+            'Origin': 'https://demo.example.com',
+            'X-Forwarded-Host': 'demo.example.com',
+            'X-Forwarded-Proto': 'https',
+        },
+    )
+    assert res_nginx_domain.status_code == 200
+
+    # 4. EC2 public IP same-origin forwarded with port -> 200
     res_ec2 = client.post(
         '/api/v1/auth/login',
         json={'email': 'test-admin@example.invalid', 'password': 'Correct-Horse-42!'},
@@ -331,6 +379,95 @@ def test_login_origin_validation_endpoint(client):
         json={'email': 'test-admin@example.invalid', 'password': 'Correct-Horse-42!'},
     )
     assert res_no_origin.status_code == 200
+
+
+def test_invitation_acceptance_origin_validation_endpoint(client, db_session):
+    company = _company(db_session, 'INV-ORIGIN')
+    invitation = client.post(
+        f'/api/v1/security/companies/{company.id}/invitations',
+        json={'email': 'origin.accept@example.invalid', 'role_code': 'read_only_user'},
+    )
+    assert invitation.status_code == 201
+    token = invitation.json()['token']
+
+    # 1. Untrusted origin -> 403
+    res_forbidden = client.post(
+        '/api/v1/auth/invitations/accept',
+        json={'token': token, 'password': 'Origin-User-42!'},
+        headers={'Origin': 'https://attacker.example.invalid'},
+    )
+    assert res_forbidden.status_code == 403
+    assert res_forbidden.json()['detail'] == 'Request origin is not allowed'
+
+    # 2. Same-origin forwarded by Nginx ($host) -> 200
+    res_same_origin = client.post(
+        '/api/v1/auth/invitations/accept',
+        json={'token': token, 'password': 'Origin-User-42!'},
+        headers={
+            'Origin': 'http://198.51.100.42',
+            'X-Forwarded-Host': '198.51.100.42',
+            'X-Forwarded-Proto': 'http',
+        },
+    )
+    assert res_same_origin.status_code == 200
+    assert res_same_origin.json()['status'] == 'invitation_accepted'
+
+
+def test_logout_origin_validation_endpoint(client, db_session):
+    login_res = client.post(
+        '/api/v1/auth/login',
+        json={'email': 'test-admin@example.invalid', 'password': 'Correct-Horse-42!'},
+        headers={
+            'Origin': 'http://198.51.100.42',
+            'X-Forwarded-Host': '198.51.100.42',
+            'X-Forwarded-Proto': 'http',
+        },
+    )
+    assert login_res.status_code == 200
+
+    csrf_cookie = client.cookies.get('mindzen_csrf')
+    headers_base = {'X-CSRF-Token': csrf_cookie} if csrf_cookie else {}
+
+    # 1. Untrusted origin -> 403
+    res_forbidden = client.post(
+        '/api/v1/auth/logout',
+        headers={**headers_base, 'Origin': 'https://attacker.example.invalid'},
+    )
+    assert res_forbidden.status_code == 403
+    assert res_forbidden.json()['detail'] == 'Request origin is not allowed'
+
+    # 2. Same-origin forwarded by Nginx ($host) -> 204
+    res_same_origin = client.post(
+        '/api/v1/auth/logout',
+        headers={
+            **headers_base,
+            'Origin': 'http://198.51.100.42',
+            'X-Forwarded-Host': '198.51.100.42',
+            'X-Forwarded-Proto': 'http',
+        },
+    )
+    assert res_same_origin.status_code == 204
+
+
+def test_nginx_configuration_forwarded_host_headers():
+    import re
+    from pathlib import Path
+
+    nginx_conf_path = Path(__file__).resolve().parents[2] / 'frontend' / 'nginx.conf'
+    assert nginx_conf_path.exists(), f'nginx.conf not found at {nginx_conf_path}'
+    content = nginx_conf_path.read_text(encoding='utf-8')
+
+    api_exact = re.search(r'location\s*=\s*/api/v1\s*\{(.*?)\}', content, re.DOTALL)
+    api_prefix = re.search(r'location\s*\^~\s*/api/v1/\s*\{(.*?)\}', content, re.DOTALL)
+
+    assert api_exact is not None, 'location = /api/v1 not found in nginx.conf'
+    assert api_prefix is not None, 'location ^~ /api/v1/ not found in nginx.conf'
+
+    for block in [api_exact.group(1), api_prefix.group(1)]:
+        assert 'proxy_set_header Host $host;' in block
+        assert 'proxy_set_header X-Forwarded-Host $host;' in block
+        assert 'proxy_set_header X-Forwarded-Proto $scheme;' in block
+        assert '$http_host' not in block
 
 
 @pytest.mark.parametrize(

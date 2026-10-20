@@ -33,8 +33,9 @@ def _validate_origin(request: Request) -> None:
     if origin is None:
         return
 
-    allowed_origins = settings.cors_origins_list
-    if origin in allowed_origins:
+    allowed_origins = [o.rstrip('/').casefold() for o in settings.cors_origins_list]
+    clean_origin = origin.rstrip('/').casefold()
+    if clean_origin in allowed_origins:
         return
 
     # Nginx must explicitly forward the original host and scheme.
@@ -42,8 +43,10 @@ def _validate_origin(request: Request) -> None:
     forwarded_proto = request.headers.get('x-forwarded-proto')
 
     if forwarded_host and forwarded_proto:
-        expected_origin = f'{forwarded_proto}://{forwarded_host}'
-        if origin == expected_origin:
+        first_host = forwarded_host.split(',')[0].strip()
+        first_proto = forwarded_proto.split(',')[0].strip()
+        expected_origin = f'{first_proto}://{first_host}'.rstrip('/').casefold()
+        if clean_origin == expected_origin:
             return
 
     raise HTTPException(
@@ -142,10 +145,12 @@ def read_current_user(
 
 @router.post('/logout', status_code=status.HTTP_204_NO_CONTENT)
 def logout(
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
     actor: CurrentActor = Depends(current_actor),
 ):
+    _validate_origin(request)
     actor.session.revoked_at = datetime.now(timezone.utc)
     record_security_event(
         db,
