@@ -6,6 +6,24 @@
 
 Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
 
+## Safe and repeatable demonstration data seeding (2026-10-21)
+
+- Implemented an idempotent, non-destructive sample demonstration data seeding script and CLI (`backend/app/cli/seed_demo_data.py` and `scripts/seed_demo_data.sh`).
+- Designed for safe execution on AWS EC2 directly against the Docker Compose backend and PostgreSQL container (`mindzen-postgres`).
+- Features and dataset:
+  - Realistic enterprise portfolio: 5 departments, 3 sites, 6 locations, 4 cost centres, 6 asset categories, and 18 diverse assets (laptops, desktops, servers, switches, security gateways, enterprise printers, peripherals, fully depreciated active assets, and disposed assets).
+  - Lifecycle domains: 7 assignment/return/transfer records with custodian handovers, 4 suppliers, 3 multi-line purchase orders (fully received, partially received with damaged RMA line, and overdue ordered), 5 warranties/AMCs, 4 priority maintenance requests with SLA tracking, Q1 audit verification campaign with blind scans and discrepancies, and 18 financial profiles with 36 straight-line depreciation postings.
+  - Alert engine sync triggering all 8 lifecycle alert rules in the Action Centre, critical notification generation for in-app bell feed, and scheduled background job execution logging (`alert_lifecycle_sync`).
+- Safety & Idempotency:
+  - Strict deterministic natural keys guarantee 0 duplicate records upon repeated executions.
+  - `--dry-run` flag previews planned record insertions and automatically rolls back all changes without committing.
+  - Interactive confirmation prompt with `--yes` / `-y` bypass.
+  - Safe demo custodians created with `password_hash = None` to prevent credential exposure or authentication vectors.
+  - URL masking protects database passwords in console output.
+- Automated Test Suite (`backend/tests/test_seed_demo_data.py`):
+  - 7 comprehensive tests verifying initial population, strict idempotency, pre-existing custom record preservation, dry-run simulation, company multi-tenant isolation, missing company validation, and dynamic company creation.
+  - Verification: 101 passed, 0 failed across the complete backend test suite.
+
 ## Scheduled automation and durable notifications (2026-10-19)
 
 - Implemented periodic background alert evaluation and durable multi-channel notifications decoupled from alert reconciliation without adding external message brokers.
