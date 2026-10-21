@@ -44,6 +44,12 @@ fi
 
 # 3. Execution routing
 if [ "${USE_DOCKER}" -eq 1 ]; then
+    # Ensure backend container has the latest seeder CLI script even if image was built earlier
+    CONTAINER_ID=$(${DOCKER_CMD} ps -q backend 2>/dev/null || true)
+    if [ -n "${CONTAINER_ID}" ] && [ -f "backend/app/cli/seed_demo_data.py" ]; then
+        docker cp "backend/app/cli/seed_demo_data.py" "${CONTAINER_ID}:/app/app/cli/seed_demo_data.py" >/dev/null 2>&1 || true
+    fi
+
     echo "Running seeder via Docker Compose ('mindzen-backend' container)..."
     TTY_FLAG="-T"
     if [ -t 0 ] && [ -t 1 ]; then
