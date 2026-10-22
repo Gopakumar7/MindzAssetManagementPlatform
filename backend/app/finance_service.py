@@ -5,7 +5,9 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, InvalidRequestError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.audit import record_security_event
 from app.models import (
@@ -343,8 +345,15 @@ def post_single_depreciation(
         },
     )
 
-    db.commit()
-    db.refresh(entry)
+    try:
+        db.commit()
+        db.refresh(entry)
+    except (IntegrityError, StaleDataError, InvalidRequestError) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f'Depreciation for period {period} has already been posted for this asset',
+        ) from exc
     return entry
 
 

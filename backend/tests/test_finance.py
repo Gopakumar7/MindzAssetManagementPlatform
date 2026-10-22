@@ -1,7 +1,8 @@
 import concurrent.futures
 from datetime import date, timedelta
 from decimal import Decimal
-from uuid import uuid4
+import os
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -295,7 +296,7 @@ def test_disposal_workflow_gain_loss_and_cutoff(client, db_session):
     # Active assignment guard test: assign asset, then attempt disposal
     user = db_session.scalar(select(User).where(User.email == 'test-admin@example.invalid'))
     role = db_session.scalar(select(Role).where(Role.scope == 'company', Role.code == 'company_administrator'))
-    membership = CompanyMembership(company_id=company_id, user_id=user.id, role_id=role.id, status='active')
+    membership = CompanyMembership(company_id=UUID(company_id), user_id=user.id, role_id=role.id, status='active')
     db_session.add(membership)
     db_session.commit()
 
@@ -514,6 +515,7 @@ def test_company_isolation_and_rbac(client, db_session):
     assert cross_post.status_code == 404
 
 
+@pytest.mark.skipif(not os.getenv('TEST_DATABASE_URL'), reason='set TEST_DATABASE_URL to run PostgreSQL concurrency integration')
 def test_concurrent_depreciation_postings_prevent_duplicates(client):
     """Test 9: Concurrent depreciation posting on same asset and period cannot duplicate entries."""
     company_id, category_id = _setup_company_and_category(client, 'FIN-CONCUR-1')
@@ -530,9 +532,13 @@ def test_concurrent_depreciation_postings_prevent_duplicates(client):
 
     url = f'/api/v1/companies/{company_id}/assets/{asset_id}/depreciation-entries'
     payload = {'period': '2026-01'}
+    cookies = dict(client.cookies)
+    headers = dict(client.headers)
 
     def post_deprec():
-        return client.post(url, json=payload)
+        from fastapi.testclient import TestClient
+        with TestClient(client.app, cookies=cookies, headers=headers) as tc:
+            return tc.post(url, json=payload)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(post_deprec) for _ in range(5)]

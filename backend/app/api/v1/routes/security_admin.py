@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.audit import record_security_event
 from app.authentication import (
     assigned_permission_codes,
     create_invitation,
@@ -121,6 +122,16 @@ def invite_member(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.info['audit_request_id'] = getattr(request.state, 'request_id', None)
+    record_security_event(
+        db,
+        action='security.member.invited',
+        entity_type='CompanyMembership',
+        entity_id=str(membership.id),
+        actor_id=actor.user.id,
+        company_id=company_id,
+        outcome='success',
+        changes={'email': normalized_email, 'role_code': role.code},
+    )
     db.commit()
     invitation = db.scalar(
         select(UserInvitation).where(UserInvitation.membership_id == membership.id, UserInvitation.accepted_at.is_(None))
@@ -177,6 +188,16 @@ def update_member(
             )
         ).all():
             invitation.revoked_at = now
+    record_security_event(
+        db,
+        action='security.member.updated',
+        entity_type='CompanyMembership',
+        entity_id=str(membership.id),
+        actor_id=actor.user.id,
+        company_id=company_id,
+        outcome='success',
+        changes=changes,
+    )
     db.commit()
     user = db.get(User, membership.user_id)
     role = db.get(Role, membership.role_id)
@@ -294,6 +315,15 @@ def set_user_active(
                 )
             ).all():
                 invitation.revoked_at = datetime.now(timezone.utc)
+    record_security_event(
+        db,
+        action='security.user.status_updated',
+        entity_type='User',
+        entity_id=str(user.id),
+        actor_id=actor.user.id,
+        outcome='success',
+        changes={'is_active': active},
+    )
     db.commit()
     return None
 
