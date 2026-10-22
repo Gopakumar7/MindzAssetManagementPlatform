@@ -64,6 +64,7 @@ import {
   ScheduledJobExecution
 } from '../../services/registry.service';
 import { AuthService } from '../../services/auth.service';
+import { ActionCentreComponent } from './action-centre/action-centre.component';
 
 type ViewName = 'dashboard' | 'alerts' | 'assets' | 'reports' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company' | 'users-access' | 'procurement' | 'maintenance' | 'verification';
 type MasterKind = 'departments' | 'sites' | 'categories' | 'cost-centers';
@@ -116,12 +117,13 @@ export function serializeCsvCell(value: unknown): string {
 
 @Component({
     selector: 'app-registry',
-    imports: [CommonModule, FormsModule, RouterLink],
+    imports: [CommonModule, FormsModule, RouterLink, ActionCentreComponent],
     changeDetection: ChangeDetectionStrategy.Eager,
     templateUrl: './registry.component.html'
 })
 export class RegistryComponent implements OnInit {
   @ViewChild('assetDetail') private assetDetail?: ElementRef<HTMLElement>;
+  @ViewChild('actionCentre') actionCentre?: ActionCentreComponent;
 
   companies: Company[] = [];
   companyId = '';
@@ -650,7 +652,7 @@ export class RegistryComponent implements OnInit {
         } else if (this.activeView === 'alerts') {
           this.loadAlerts();
         }
-        if (this.can('alerts.read')) {
+        if (this.can('alerts.read') && this.activeView !== 'alerts') {
           this.loadAlertSummary();
         }
         this.loadNotificationCount();
@@ -744,7 +746,9 @@ export class RegistryComponent implements OnInit {
     } else if (view === 'verification') {
       this.loadVerification();
     } else if (view === 'alerts') {
-      this.loadAlerts();
+      if (this.actionCentre) {
+        this.actionCentre.loadAlerts();
+      }
     }
   }
 
@@ -3123,6 +3127,10 @@ export class RegistryComponent implements OnInit {
 
   loadAlerts(autoSync = false): void {
     if (!this.companyId) return;
+    if (this.actionCentre) {
+      this.actionCentre.loadAlerts(autoSync);
+      return;
+    }
     this.alertsLoading = true;
     this.alertsError = null;
     this.loadLastAlertJob();
@@ -3151,6 +3159,10 @@ export class RegistryComponent implements OnInit {
     });
   }
 
+  onAlertSummaryChange(summary: AssetAlertSummary): void {
+    this.alertSummary = summary;
+  }
+
   loadAlertSummary(): void {
     if (!this.companyId || !this.can('alerts.read')) return;
     this.registry.getAlertSummary(this.companyId).subscribe({
@@ -3164,6 +3176,10 @@ export class RegistryComponent implements OnInit {
 
   syncAlertsNow(): void {
     if (!this.companyId || this.alertsSyncing) return;
+    if (this.actionCentre) {
+      this.actionCentre.syncAlertsNow();
+      return;
+    }
     this.alertsSyncing = true;
     this.alertsError = null;
     this.registry.syncAlerts(this.companyId).subscribe({

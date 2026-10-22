@@ -2902,6 +2902,7 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
 
   it('should load alerts and summary when switching to alerts view', () => {
     component.setView('alerts');
+    fixture.detectChanges();
     expect(component.activeView).toBe('alerts');
     expect(registry.listAlerts).toHaveBeenCalledWith('company-1', jasmine.objectContaining({ status: 'open' }));
     expect(component.alerts.length).toBe(1);
@@ -3015,6 +3016,116 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
     expect(component.formatAlertType('approaching_eol')).toBe('Approaching End of Life');
     expect(component.formatAlertType('purchase_order_overdue')).toBe('PO Delivery Overdue');
     expect(component.formatAlertType('custom_type')).toBe('custom type');
+  });
+
+  describe('Action Centre Single-Owner HTTP Request Deduplication (F-01)', () => {
+    it('should produce exactly one initial set of alert-list, summary and last-job requests when entering alerts view', () => {
+      registry.listAlerts.calls.reset();
+      registry.getAlertSummary.calls.reset();
+      registry.getLastAlertJob.calls.reset();
+
+      component.setView('alerts');
+      fixture.detectChanges();
+
+      expect(component.activeView).toBe('alerts');
+      expect(component.actionCentre).toBeDefined();
+      expect(registry.listAlerts.calls.count()).toBe(1);
+      expect(registry.getAlertSummary.calls.count()).toBe(1);
+      expect(registry.getLastAlertJob.calls.count()).toBe(1);
+      expect(registry.listAlerts).toHaveBeenCalledWith('company-1', jasmine.objectContaining({ status: 'open' }));
+    });
+
+    it('should delegate to ActionCentreComponent when parent loadAlerts is called without duplicate requests', () => {
+      component.setView('alerts');
+      fixture.detectChanges();
+
+      registry.listAlerts.calls.reset();
+      registry.getAlertSummary.calls.reset();
+      registry.getLastAlertJob.calls.reset();
+
+      component.loadAlerts();
+
+      expect(registry.listAlerts.calls.count()).toBe(1);
+      expect(registry.getAlertSummary.calls.count()).toBe(1);
+      expect(registry.getLastAlertJob.calls.count()).toBe(1);
+    });
+
+    it('should refresh alerts exactly once for the new company on company change', () => {
+      component.setView('alerts');
+      fixture.detectChanges();
+
+      registry.listAlerts.calls.reset();
+      registry.getAlertSummary.calls.reset();
+      registry.getLastAlertJob.calls.reset();
+
+      component.companyId = 'company-2';
+      component.loadAlerts();
+      fixture.detectChanges();
+
+      const comp2AlertCalls = registry.listAlerts.calls.allArgs().filter(args => args[0] === 'company-2');
+      expect(comp2AlertCalls.length).toBe(1);
+
+      const comp2SummaryCalls = registry.getAlertSummary.calls.allArgs().filter(args => args[0] === 'company-2');
+      expect(comp2SummaryCalls.length).toBe(1);
+
+      const comp2JobCalls = registry.getLastAlertJob.calls.allArgs().filter(args => args[0] === 'company-2');
+      expect(comp2JobCalls.length).toBe(1);
+    });
+
+    it('should execute explicit syncAlertsNow via delegation and refresh once', () => {
+      component.setView('alerts');
+      fixture.detectChanges();
+
+      registry.syncAlerts.calls.reset();
+      registry.listAlerts.calls.reset();
+
+      component.syncAlertsNow();
+
+      expect(registry.syncAlerts.calls.count()).toBe(1);
+      expect(registry.syncAlerts).toHaveBeenCalledWith('company-1');
+      expect(registry.listAlerts.calls.count()).toBe(1);
+    });
+
+    it('should update parent summary and tab badge when child emits summaryChange', () => {
+      component.setView('alerts');
+      fixture.detectChanges();
+
+      const updatedSummary: AssetAlertSummary = {
+        total_open: 5,
+        total_acknowledged: 2,
+        total_resolved: 10,
+        total_dismissed: 1,
+        critical_count: 4,
+        warning_count: 1,
+        info_count: 0,
+        by_type: { warranty_expiry: 4, maintenance_overdue: 1 }
+      };
+
+      component.actionCentre!.summaryChange.emit(updatedSummary);
+      fixture.detectChanges();
+
+      expect(component.alertSummary).toEqual(updatedSummary);
+      const badge = fixture.nativeElement.querySelector('.alerts-tab-btn .tab-badge');
+      expect(badge).toBeTruthy();
+      expect(badge.textContent.trim()).toBe('4');
+      expect(badge.classList).toContain('badge-critical');
+    });
+
+    it('should safely execute loadAlerts fallback when ActionCentre child is not mounted', () => {
+      component.setView('dashboard');
+      fixture.detectChanges();
+
+      expect(component.actionCentre).toBeUndefined();
+
+      registry.listAlerts.calls.reset();
+      registry.getAlertSummary.calls.reset();
+      registry.getLastAlertJob.calls.reset();
+
+      expect(() => component.loadAlerts()).not.toThrow();
+      expect(registry.listAlerts.calls.count()).toBe(1);
+      expect(registry.getAlertSummary.calls.count()).toBe(1);
+      expect(component.alerts.length).toBe(1);
+    });
   });
 
   describe('Scheduled Automation and Notifications', () => {
