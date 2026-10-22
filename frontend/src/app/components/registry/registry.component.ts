@@ -65,6 +65,7 @@ import {
 } from '../../services/registry.service';
 import { AuthService } from '../../services/auth.service';
 import { ActionCentreComponent } from './action-centre/action-centre.component';
+import { AssetImportComponent } from './asset-import/asset-import.component';
 
 type ViewName = 'dashboard' | 'alerts' | 'assets' | 'reports' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company' | 'users-access' | 'procurement' | 'maintenance' | 'verification';
 type MasterKind = 'departments' | 'sites' | 'categories' | 'cost-centers';
@@ -117,13 +118,14 @@ export function serializeCsvCell(value: unknown): string {
 
 @Component({
     selector: 'app-registry',
-    imports: [CommonModule, FormsModule, RouterLink, ActionCentreComponent],
+    imports: [CommonModule, FormsModule, RouterLink, ActionCentreComponent, AssetImportComponent],
     changeDetection: ChangeDetectionStrategy.Eager,
     templateUrl: './registry.component.html'
 })
 export class RegistryComponent implements OnInit {
   @ViewChild('assetDetail') private assetDetail?: ElementRef<HTMLElement>;
   @ViewChild('actionCentre') actionCentre?: ActionCentreComponent;
+  showBulkImport = false;
 
   companies: Company[] = [];
   companyId = '';
@@ -1685,6 +1687,15 @@ export class RegistryComponent implements OnInit {
       },
       error: (error) => this.fail(error)
     });
+  }
+
+  toggleBulkImport(): void {
+    this.showBulkImport = !this.showBulkImport;
+  }
+
+  onBulkImportSuccess(result: { count: number; assetNumbers: string[] }): void {
+    this.successMessage = `Successfully imported ${result.count} assets.`;
+    this.loadAssets();
   }
 
   openAsset(asset: Asset): void {

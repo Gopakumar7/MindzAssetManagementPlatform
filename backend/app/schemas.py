@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Generic, TypeVar
+from typing import Annotated, Any, Generic, TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -329,6 +329,40 @@ class AssetRead(Record):
     notes: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class ImportRowError(BaseModel):
+    row_number: int
+    field: str
+    value: str | None = None
+    message: str
+
+
+class ImportRowWarning(BaseModel):
+    row_number: int
+    field: str
+    message: str
+
+
+class AssetImportPreviewResponse(BaseModel):
+    valid: bool
+    total_rows: int
+    valid_rows: int
+    invalid_rows: int
+    preview_token: str | None = None
+    errors: list[ImportRowError] = Field(default_factory=list)
+    warnings: list[ImportRowWarning] = Field(default_factory=list)
+    preview_rows: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AssetImportConfirmRequest(BaseModel):
+    preview_token: str
+    idempotency_key: str | None = None
+
+
+class AssetImportConfirmResponse(BaseModel):
+    imported_count: int
+    asset_numbers: list[str] = Field(default_factory=list)
 
 
 class SupplierCreate(BaseModel):

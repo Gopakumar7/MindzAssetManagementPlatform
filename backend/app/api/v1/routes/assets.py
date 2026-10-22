@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -21,6 +22,9 @@ from app.models import (
 )
 from app.schemas import (
     AssetCreate,
+    AssetImportConfirmRequest,
+    AssetImportConfirmResponse,
+    AssetImportPreviewResponse,
     AssetRead,
     AssetUpdate,
     AssignmentCreate,
@@ -36,6 +40,7 @@ from app.schemas import (
 )
 from app.services import create_asset, get_company, get_page, get_scoped, record_history, update_asset
 from app.security import CurrentActor, current_actor, require_permission
+from app.asset_import_service import confirm_import, generate_template, parse_and_validate_file
 
 router = APIRouter(
     prefix='/companies/{company_id}/assets',
@@ -187,6 +192,64 @@ def list_assignment_recipients(company_id: UUID, db: Session = Depends(get_db)):
         .order_by(User.email)
     ).all()
     return [{'id': recipient.id, 'email': recipient.email} for recipient in recipients]
+
+
+@router.get('/import/template', dependencies=[Depends(require_permission('asset.create'))])
+def download_asset_import_template(
+    company_id: UUID,
+    format: Literal['csv', 'xlsx'] = Query(default='csv'),
+    db: Session = Depends(get_db),
+):
+    content, media_type, filename = generate_template(db, company_id, format)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post(
+    '/import/preview',
+    response_model=AssetImportPreviewResponse,
+)
+def preview_bulk_asset_import(
+    company_id: UUID,
+    file: UploadFile = File(...),
+    actor: CurrentActor = Depends(require_permission('asset.create')),
+    db: Session = Depends(get_db),
+):
+    from app.asset_import_service import MAX_FILE_SIZE_BYTES
+    file_bytes = file.file.read(MAX_FILE_SIZE_BYTES + 1)
+    if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f'File size exceeds maximum allowed limit of {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB',
+        )
+    return parse_and_validate_file(
+        db=db,
+        company_id=company_id,
+        actor_id=actor.user.id,
+        file_bytes=file_bytes,
+        filename=file.filename or 'upload.csv',
+    )
+
+
+@router.post(
+    '/import/confirm',
+    response_model=AssetImportConfirmResponse,
+)
+def confirm_bulk_asset_import(
+    company_id: UUID,
+    payload: AssetImportConfirmRequest,
+    actor: CurrentActor = Depends(require_permission('asset.create')),
+    db: Session = Depends(get_db),
+):
+    return confirm_import(
+        db=db,
+        company_id=company_id,
+        actor_id=actor.user.id,
+        preview_token=payload.preview_token,
+    )
 
 
 @router.get('/{asset_id}', response_model=AssetRead, dependencies=[Depends(require_permission('asset.read'))])

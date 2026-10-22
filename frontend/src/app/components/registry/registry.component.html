@@ -2602,8 +2602,23 @@
   <section class="panel">
     <div class="section-heading">
       <div><p class="eyebrow">Inventory</p><h2>Asset registry</h2></div>
-      <span class="count">{{ totalAssets }} assets</span>
+      <div class="heading-actions">
+        <span class="count">{{ totalAssets }} assets</span>
+        @if (can('asset.create')) {
+          <button type="button" class="secondary bulk-import-btn" (click)="toggleBulkImport()">
+            {{ showBulkImport ? 'Close Bulk Import' : 'Bulk Import' }}
+          </button>
+        }
+      </div>
     </div>
+    @if (showBulkImport) {
+      <app-asset-import
+        [companyId]="companyId"
+        [canCreateAssets]="can('asset.create')"
+        (importCompleted)="onBulkImportSuccess($event)"
+        (close)="showBulkImport = false">
+      </app-asset-import>
+    }
     <form class="filter-grid" (ngSubmit)="page = 1; loadAssets()">
       <label>Search asset / serial<input name="search" [(ngModel)]="filters.search" placeholder="Search"></label>
       <label>Category<select name="assetCategoryFilter" [(ngModel)]="filters.category_id"><option value="">All categories</option>@for (item of activeCategories; track item) {

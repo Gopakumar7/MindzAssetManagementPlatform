@@ -1,0 +1,284 @@
+<div class="asset-import-panel card">
+  <div class="panel-header">
+    <div class="title-wrap">
+      <h3>Bulk Spreadsheet Asset Import</h3>
+      <p class="subtitle">Upload CSV or Excel (.xlsx) files to validate and import assets in batch.</p>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="btn-text close-btn" (click)="onClose()" title="Close import panel">✕</button>
+    </div>
+  </div>
+
+  <div class="panel-body">
+    <!-- Step 1: Template and upload zone (shown if no file is chosen or during reset) -->
+    @if (!selectedFile && !confirmResult) {
+      <div class="template-section">
+        <span class="step-badge">Step 1</span>
+        <span class="step-label">Need the spreadsheet template?</span>
+        <div class="template-buttons">
+          <button
+            type="button"
+            class="secondary btn-sm"
+            (click)="downloadTemplate('csv')"
+            [disabled]="templateDownloading">
+            Download Template (CSV)
+          </button>
+          <button
+            type="button"
+            class="secondary btn-sm"
+            (click)="downloadTemplate('xlsx')"
+            [disabled]="templateDownloading">
+            Download Template (Excel)
+          </button>
+        </div>
+      </div>
+
+      <div
+        class="drop-zone"
+        [class.dragging]="isDragging"
+        (dragover)="onDragOver($event)"
+        (dragleave)="onDragLeave($event)"
+        (drop)="onDrop($event)">
+        <div class="drop-icon">📄</div>
+        <p class="drop-title">Drag & drop your CSV or Excel file here</p>
+        <p class="drop-sub">Supported formats: .csv, .xlsx (Max size: 5MB, up to 1,000 rows)</p>
+        <label class="primary file-picker-label">
+          Browse File
+          <input
+            type="file"
+            accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, .xlsx"
+            (change)="onFileInput($event)"
+            class="file-input-hidden" />
+        </label>
+      </div>
+    }
+
+    <!-- Validation in progress spinner -->
+    @if (isValidating) {
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <p>Validating spreadsheet data, resolving master records, and checking uniqueness...</p>
+      </div>
+    }
+
+    <!-- Top error alert -->
+    @if (errorMessage) {
+      <div class="alert alert-danger">
+        <span class="alert-icon">⚠️</span>
+        <span class="alert-text">{{ errorMessage }}</span>
+        <button type="button" class="btn-text alert-dismiss" (click)="errorMessage = null">✕</button>
+      </div>
+    }
+
+    <!-- Success state -->
+    @if (confirmResult) {
+      <div class="success-card">
+        <div class="success-icon">✅</div>
+        <h4>Import Successful!</h4>
+        <p>Successfully imported <strong>{{ confirmResult.imported_count }}</strong> assets into the registry.</p>
+        @if (confirmResult.asset_numbers.length > 0) {
+          <div class="asset-numbers-summary">
+            <span class="summary-label">Allocated Asset Numbers:</span>
+            <div class="chips-wrap">
+              @for (num of confirmResult.asset_numbers; track num) {
+                <span class="asset-chip">{{ num }}</span>
+              }
+            </div>
+          </div>
+        }
+        <div class="success-actions">
+          <button type="button" class="primary" (click)="onClose()">Done</button>
+          <button type="button" class="secondary" (click)="reset()">Import Another Batch</button>
+        </div>
+      </div>
+    }
+
+    <!-- Step 2: Validation Preview & Results -->
+    @if (previewResult && !isValidating && !confirmResult) {
+      <div class="preview-container">
+        <!-- Selected file bar -->
+        <div class="file-summary-bar">
+          <div class="file-info">
+            <span class="file-icon">📎</span>
+            <span class="file-name">{{ selectedFile?.name }}</span>
+            <span class="file-size">({{ ((selectedFile?.size || 0) / 1024).toFixed(1) }} KB)</span>
+          </div>
+          <button type="button" class="secondary btn-sm" (click)="reset()">Choose Another File</button>
+        </div>
+
+        <!-- Metric badges -->
+        <div class="stats-row">
+          <div class="stat-badge">
+            <span class="stat-value">{{ previewResult.total_rows }}</span>
+            <span class="stat-label">Total Rows</span>
+          </div>
+          <div class="stat-badge stat-valid" [class.badge-active]="previewResult.valid_rows > 0">
+            <span class="stat-value">{{ previewResult.valid_rows }}</span>
+            <span class="stat-label">Valid Rows</span>
+          </div>
+          <div class="stat-badge stat-errors" [class.badge-active]="previewResult.invalid_rows > 0">
+            <span class="stat-value">{{ previewResult.invalid_rows }}</span>
+            <span class="stat-label">Errors</span>
+          </div>
+          <div class="stat-badge stat-warnings" [class.badge-active]="previewResult.warnings.length > 0">
+            <span class="stat-value">{{ previewResult.warnings.length }}</span>
+            <span class="stat-label">Warnings</span>
+          </div>
+        </div>
+
+        <!-- Validation status banner -->
+        @if (previewResult.valid) {
+          <div class="alert alert-success">
+            <span>All {{ previewResult.valid_rows }} rows passed validation. Ready to import.</span>
+          </div>
+        } @else {
+          <div class="alert alert-danger">
+            <span>Validation failed on {{ previewResult.invalid_rows }} row(s). All rows must be valid for transactional import. Please resolve the errors below and re-upload.</span>
+            @if (previewResult.errors.length > 0) {
+              <button type="button" class="secondary btn-sm error-download-btn" (click)="downloadErrorReport()">
+                Download Error Report (CSV)
+              </button>
+            }
+          </div>
+        }
+
+        <!-- Tab buttons -->
+        <div class="sub-tab-bar">
+          <button
+            type="button"
+            class="sub-tab-btn"
+            [class.active]="activeTab === 'preview'"
+            (click)="activeTab = 'preview'">
+            Preview Data ({{ previewResult.preview_rows.length }})
+          </button>
+          @if (previewResult.errors.length > 0) {
+            <button
+              type="button"
+              class="sub-tab-btn sub-tab-danger"
+              [class.active]="activeTab === 'errors'"
+              (click)="activeTab = 'errors'">
+              Errors ({{ previewResult.errors.length }})
+            </button>
+          }
+          @if (previewResult.warnings.length > 0) {
+            <button
+              type="button"
+              class="sub-tab-btn sub-tab-warning"
+              [class.active]="activeTab === 'warnings'"
+              (click)="activeTab = 'warnings'">
+              Warnings ({{ previewResult.warnings.length }})
+            </button>
+          }
+        </div>
+
+        <!-- Tab 1: Preview Data Table -->
+        @if (activeTab === 'preview') {
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Row</th>
+                  <th>Status</th>
+                  <th>Category</th>
+                  <th>Serial Number</th>
+                  <th>Manufacturer</th>
+                  <th>Model</th>
+                  <th>Site</th>
+                  <th>Location</th>
+                  <th>Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of previewResult.preview_rows; track row.row_number) {
+                  <tr [class.row-invalid]="row.has_errors">
+                    <td>{{ row.row_number }}</td>
+                    <td>
+                      <span class="status-pill" [class.status-error]="row.has_errors">
+                        {{ row.status }}
+                      </span>
+                    </td>
+                    <td>{{ row.category_name || row.category_code }}</td>
+                    <td>{{ row.serial_number || '—' }}</td>
+                    <td>{{ row.manufacturer || '—' }}</td>
+                    <td>{{ row.model || '—' }}</td>
+                    <td>{{ row.site_code || '—' }}</td>
+                    <td>{{ row.location_code || '—' }}</td>
+                    <td>{{ row.acquisition_cost || '—' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+
+        <!-- Tab 2: Errors Table -->
+        @if (activeTab === 'errors') {
+          <div class="errors-section">
+            <div class="table-wrap">
+              <table class="errors-table">
+                <thead>
+                  <tr>
+                    <th>Row</th>
+                    <th>Column / Field</th>
+                    <th>Provided Value</th>
+                    <th>Error Message</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (err of previewResult.errors; track err.row_number + err.field) {
+                    <tr>
+                      <td class="cell-row-num"><strong>{{ err.row_number }}</strong></td>
+                      <td><code>{{ err.field }}</code></td>
+                      <td><span class="invalid-val">{{ err.value || '(empty)' }}</span></td>
+                      <td class="cell-err-msg">{{ err.message }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        }
+
+        <!-- Tab 3: Warnings Table -->
+        @if (activeTab === 'warnings') {
+          <div class="table-wrap">
+            <table class="warnings-table">
+              <thead>
+                <tr>
+                  <th>Row</th>
+                  <th>Field</th>
+                  <th>Warning Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (w of previewResult.warnings; track w.row_number + w.field) {
+                  <tr>
+                    <td><strong>{{ w.row_number }}</strong></td>
+                    <td><code>{{ w.field }}</code></td>
+                    <td>{{ w.message }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+
+        <!-- Action buttons footer -->
+        <div class="panel-footer">
+          <button type="button" class="secondary" (click)="reset()">Cancel</button>
+          <button
+            type="button"
+            class="primary confirm-import-btn"
+            [disabled]="!previewResult.valid || !previewResult.preview_token || !canCreateAssets || isImporting"
+            (click)="confirmImport()">
+            @if (isImporting) {
+              Importing Assets...
+            } @else {
+              Import {{ previewResult.valid_rows }} Assets
+            }
+          </button>
+        </div>
+      </div>
+    }
+  </div>
+</div>

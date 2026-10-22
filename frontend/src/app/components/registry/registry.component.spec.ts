@@ -93,6 +93,9 @@ describe('RegistryComponent user access navigation', () => {
       'companyMembers',
       'companyRoles',
       'listAssets',
+      'downloadAssetImportTemplate',
+      'previewAssetImport',
+      'confirmAssetImport',
       'getAsset',
       'usages',
       'history',
@@ -1615,6 +1618,9 @@ describe('RegistryComponent Physical Asset Verification', () => {
       'companyMembers',
       'companyRoles',
       'listAssets',
+      'downloadAssetImportTemplate',
+      'previewAssetImport',
+      'confirmAssetImport',
       'getAsset',
       'usages',
       'history',
@@ -2359,6 +2365,9 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
       'companyMembers',
       'companyRoles',
       'listAssets',
+      'downloadAssetImportTemplate',
+      'previewAssetImport',
+      'confirmAssetImport',
       'getAsset',
       'usages',
       'history',
@@ -2733,6 +2742,9 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       'companyMembers',
       'companyRoles',
       'listAssets',
+      'downloadAssetImportTemplate',
+      'previewAssetImport',
+      'confirmAssetImport',
       'getAsset',
       'usages',
       'history',
@@ -3291,6 +3303,38 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
 
       const threeDaysAgo = new Date(Date.now() - 3 * 86400 * 1000).toISOString();
       expect(component.formatTimeAgo(threeDaysAgo)).toBe('3d ago');
+    });
+  });
+
+  describe('Bulk Asset Import Integration', () => {
+    it('should toggle bulk import visibility with toggleBulkImport()', () => {
+      expect(component.showBulkImport).toBeFalse();
+      component.toggleBulkImport();
+      expect(component.showBulkImport).toBeTrue();
+      component.toggleBulkImport();
+      expect(component.showBulkImport).toBeFalse();
+    });
+
+    it('should handle onBulkImportSuccess by setting success message and reloading assets', () => {
+      spyOn(component, 'loadAssets');
+      component.onBulkImportSuccess({ count: 5, assetNumbers: ['AST-001', 'AST-002'] });
+
+      expect(component.successMessage).toBe('Successfully imported 5 assets.');
+      expect(component.loadAssets).toHaveBeenCalled();
+    });
+
+    it('should render bulk import button and component when permission is held and view is assets', () => {
+      permissions.add('asset.create');
+      component.setView('assets');
+      component.showBulkImport = true;
+      fixture.detectChanges();
+
+      const btn = fixture.nativeElement.querySelector('.bulk-import-btn');
+      expect(btn).toBeTruthy();
+      expect(btn.textContent.trim()).toBe('Close Bulk Import');
+
+      const importComp = fixture.nativeElement.querySelector('app-asset-import');
+      expect(importComp).toBeTruthy();
     });
   });
 });

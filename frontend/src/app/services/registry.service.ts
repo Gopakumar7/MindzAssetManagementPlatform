@@ -86,6 +86,52 @@ export interface AssetPage {
   page_size: number;
 }
 
+export interface ImportRowError {
+  row_number: number;
+  field: string;
+  value?: string | null;
+  message: string;
+}
+
+export interface ImportRowWarning {
+  row_number: number;
+  field: string;
+  message: string;
+}
+
+export interface AssetImportPreviewRow {
+  row_number: number;
+  category_code: string;
+  category_name: string;
+  serial_number: string;
+  manufacturer: string;
+  model: string;
+  status: string;
+  site_code: string;
+  location_code: string;
+  department_code: string;
+  cost_center_code: string;
+  acquisition_date: string;
+  acquisition_cost: string;
+  has_errors: boolean;
+}
+
+export interface AssetImportPreviewResponse {
+  valid: boolean;
+  total_rows: number;
+  valid_rows: number;
+  invalid_rows: number;
+  preview_token?: string | null;
+  errors: ImportRowError[];
+  warnings: ImportRowWarning[];
+  preview_rows: AssetImportPreviewRow[];
+}
+
+export interface AssetImportConfirmResponse {
+  imported_count: number;
+  asset_numbers: string[];
+}
+
 export interface DepartmentUsage {
   id: string;
   department_id: string;
@@ -577,6 +623,26 @@ export class RegistryService {
 
   history(companyId: string, assetId: string): Observable<AssetHistory[]> {
     return this.http.get<AssetHistory[]>(`${this.base}/companies/${companyId}/assets/${assetId}/history`);
+  }
+
+  downloadAssetImportTemplate(companyId: string, format: 'csv' | 'xlsx' = 'csv'): Observable<Blob> {
+    const params = new HttpParams().set('format', format);
+    return this.http.get(`${this.base}/companies/${companyId}/assets/import/template`, {
+      params,
+      responseType: 'blob'
+    });
+  }
+
+  previewAssetImport(companyId: string, file: File): Observable<AssetImportPreviewResponse> {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    return this.http.post<AssetImportPreviewResponse>(`${this.base}/companies/${companyId}/assets/import/preview`, formData);
+  }
+
+  confirmAssetImport(companyId: string, previewToken: string): Observable<AssetImportConfirmResponse> {
+    return this.http.post<AssetImportConfirmResponse>(`${this.base}/companies/${companyId}/assets/import/confirm`, {
+      preview_token: previewToken
+    });
   }
 
   assignmentRecipients(companyId: string): Observable<AssignmentRecipient[]> {

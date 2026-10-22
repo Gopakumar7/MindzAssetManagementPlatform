@@ -1,0 +1,340 @@
+.asset-import-panel {
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  background: var(--card-bg, #ffffff);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+
+    .title-wrap {
+      h3 {
+        margin: 0 0 0.25rem;
+        font-size: 1.15rem;
+        font-weight: 600;
+        color: var(--text-heading, #1e293b);
+      }
+      .subtitle {
+        margin: 0;
+        font-size: 0.875rem;
+        color: var(--text-muted, #64748b);
+      }
+    }
+
+    .close-btn {
+      font-size: 1.25rem;
+      color: var(--text-muted, #64748b);
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+
+      &:hover {
+        color: var(--text-heading, #1e293b);
+        background: #f1f5f9;
+      }
+    }
+  }
+
+  .panel-body {
+    padding: 1.5rem;
+  }
+}
+
+.template-section {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  margin-bottom: 1.25rem;
+
+  .step-badge {
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+
+  .step-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #334155;
+    flex-grow: 1;
+  }
+
+  .template-buttons {
+    display: flex;
+    gap: 0.5rem;
+  }
+}
+
+.drop-zone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  background: #fcfcfd;
+  transition: all 0.2s ease-in-out;
+
+  &.dragging {
+    border-color: #3b82f6;
+    background: #eff6ff;
+  }
+
+  .drop-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .drop-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 0 0 0.25rem;
+  }
+
+  .drop-sub {
+    font-size: 0.825rem;
+    color: #64748b;
+    margin: 0 0 1rem;
+  }
+
+  .file-picker-label {
+    display: inline-block;
+    cursor: pointer;
+    padding: 0.5rem 1.25rem;
+    border-radius: 6px;
+    font-weight: 500;
+    font-size: 0.875rem;
+
+    .file-input-hidden {
+      display: none;
+    }
+  }
+}
+
+.loading-state {
+  text-align: center;
+  padding: 3rem 1rem;
+
+  .spinner {
+    width: 36px;
+    height: 36px;
+    margin: 0 auto 1rem;
+    border: 3px solid #e2e8f0;
+    border-top: 3px solid #2563eb;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  p {
+    font-size: 0.9rem;
+    color: #475569;
+    margin: 0;
+  }
+}
+
+.file-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  margin-bottom: 1.25rem;
+
+  .file-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+
+    .file-name {
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .file-size {
+      color: #64748b;
+    }
+  }
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+
+  .stat-badge {
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    text-align: center;
+
+    .stat-value {
+      display: block;
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #1e293b;
+      line-height: 1.2;
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    &.stat-valid.badge-active {
+      background: #f0fdf4;
+      border-color: #86efac;
+      .stat-value { color: #15803d; }
+    }
+
+    &.stat-errors.badge-active {
+      background: #fef2f2;
+      border-color: #fca5a5;
+      .stat-value { color: #b91c1c; }
+    }
+
+    &.stat-warnings.badge-active {
+      background: #fffbeb;
+      border-color: #fde68a;
+      .stat-value { color: #b45309; }
+    }
+  }
+}
+
+.sub-tab-bar {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 1rem;
+
+  .sub-tab-btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    background: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #64748b;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s ease;
+
+    &:hover {
+      color: #1e293b;
+    }
+
+    &.active {
+      color: #2563eb;
+      border-bottom-color: #2563eb;
+      font-weight: 600;
+    }
+
+    &.sub-tab-danger.active {
+      color: #dc2626;
+      border-bottom-color: #dc2626;
+    }
+
+    &.sub-tab-warning.active {
+      color: #d97706;
+      border-bottom-color: #d97706;
+    }
+  }
+}
+
+.errors-table {
+  .cell-row-num {
+    width: 60px;
+  }
+  .invalid-val {
+    color: #b91c1c;
+    font-weight: 500;
+  }
+  .cell-err-msg {
+    color: #7f1d1d;
+  }
+}
+
+.success-card {
+  text-align: center;
+  padding: 2.5rem 1.5rem;
+
+  .success-icon {
+    font-size: 3rem;
+    margin-bottom: 0.5rem;
+  }
+
+  h4 {
+    font-size: 1.35rem;
+    margin: 0 0 0.5rem;
+    color: #15803d;
+  }
+
+  p {
+    font-size: 0.95rem;
+    color: #475569;
+    margin-bottom: 1.5rem;
+  }
+
+  .asset-numbers-summary {
+    max-width: 600px;
+    margin: 0 auto 1.5rem;
+    text-align: left;
+    background: #f8fafc;
+    padding: 1rem;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+
+    .summary-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #64748b;
+      display: block;
+      margin-bottom: 0.5rem;
+      text-transform: uppercase;
+    }
+
+    .chips-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      max-height: 120px;
+      overflow-y: auto;
+
+      .asset-chip {
+        font-family: monospace;
+        font-size: 0.8rem;
+        background: #e0f2fe;
+        color: #0369a1;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        font-weight: 600;
+      }
+    }
+  }
+
+  .success-actions {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+  }
+}
