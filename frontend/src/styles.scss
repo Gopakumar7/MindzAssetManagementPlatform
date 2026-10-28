@@ -1,5 +1,6 @@
 @use './app/components/registry/registry';
 @use './app/components/registry/asset_import';
+@use './app/components/registry/asset_label';
 
 html, body {
   margin: 0;

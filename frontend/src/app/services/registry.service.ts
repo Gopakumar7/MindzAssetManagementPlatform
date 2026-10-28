@@ -596,6 +596,11 @@ export class RegistryService {
     return this.http.get<Asset>(`${this.base}/companies/${companyId}/assets/${assetId}`);
   }
 
+  lookupAsset(companyId: string, code: string): Observable<Asset> {
+    const params = new HttpParams().set('code', code.trim());
+    return this.http.get<Asset>(`${this.base}/companies/${companyId}/assets/lookup`, { params });
+  }
+
   createAsset(companyId: string, payload: Partial<Asset>): Observable<Asset> {
     return this.http.post<Asset>(`${this.base}/companies/${companyId}/assets`, payload);
   }

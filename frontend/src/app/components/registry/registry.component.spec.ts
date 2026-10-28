@@ -1,8 +1,8 @@
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
-import { provideRouter } from '@angular/router';
-import { of, throwError } from 'rxjs';
+import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
+import { BehaviorSubject, of, throwError } from 'rxjs';
 
 import { AuthService, CurrentUser } from '../../services/auth.service';
 import {
@@ -97,6 +97,7 @@ describe('RegistryComponent user access navigation', () => {
       'previewAssetImport',
       'confirmAssetImport',
       'getAsset',
+      'lookupAsset',
       'usages',
       'history',
       'assignments',
@@ -182,6 +183,7 @@ describe('RegistryComponent user access navigation', () => {
     registry.companyRoles.and.returnValue(of(roles));
     registry.listAssets.and.returnValue(of({ items: [], total: 0, page: 1, page_size: 15 }));
     registry.getAsset.and.returnValue(of(testAsset));
+    registry.lookupAsset.and.returnValue(of(testAsset));
     registry.usages.and.returnValue(of([]));
     registry.history.and.returnValue(of([]));
     registry.assignments.and.returnValue(of([]));
@@ -1622,6 +1624,7 @@ describe('RegistryComponent Physical Asset Verification', () => {
       'previewAssetImport',
       'confirmAssetImport',
       'getAsset',
+      'lookupAsset',
       'usages',
       'history',
       'assignments',
@@ -1707,6 +1710,7 @@ describe('RegistryComponent Physical Asset Verification', () => {
     registry.companyRoles.and.returnValue(of([]));
     registry.listAssets.and.returnValue(of({ items: [], total: 0, page: 1, page_size: 15 }));
     registry.getAsset.and.returnValue(of(testAsset));
+    registry.lookupAsset.and.returnValue(of(testAsset));
     registry.usages.and.returnValue(of([]));
     registry.history.and.returnValue(of([]));
     registry.assignments.and.returnValue(of([]));
@@ -2369,6 +2373,7 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
       'previewAssetImport',
       'confirmAssetImport',
       'getAsset',
+      'lookupAsset',
       'usages',
       'history',
       'assignments',
@@ -2446,6 +2451,7 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
     registry.companyRoles.and.returnValue(of([]));
     registry.listAssets.and.returnValue(of({ items: [testAsset], total: 1, page: 1, page_size: 15 }));
     registry.getAsset.and.returnValue(of(testAsset));
+    registry.lookupAsset.and.returnValue(of(testAsset));
     registry.usages.and.returnValue(of([]));
     registry.history.and.returnValue(of([]));
     registry.assignments.and.returnValue(of([]));
@@ -2746,6 +2752,7 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       'previewAssetImport',
       'confirmAssetImport',
       'getAsset',
+      'lookupAsset',
       'usages',
       'history',
       'assignments',
@@ -2823,6 +2830,7 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
     registry.companyRoles.and.returnValue(of([]));
     registry.listAssets.and.returnValue(of({ items: [testAsset], total: 1, page: 1, page_size: 15 }));
     registry.getAsset.and.returnValue(of(testAsset));
+    registry.lookupAsset.and.returnValue(of(testAsset));
     registry.usages.and.returnValue(of([]));
     registry.history.and.returnValue(of([]));
     registry.assignments.and.returnValue(of([]));
@@ -3337,5 +3345,4 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       expect(importComp).toBeTruthy();
     });
   });
-});
 

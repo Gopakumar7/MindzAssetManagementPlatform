@@ -56,6 +56,25 @@ describe('LoginComponent', () => {
     expect(router.navigateByUrl).toHaveBeenCalledWith('/dashboard');
   });
 
+  it('preserves and navigates to pending QR deep-link returnUrl after successful login', () => {
+    const route = TestBed.inject(ActivatedRoute);
+    (route.snapshot as any).queryParamMap = convertToParamMap({ returnUrl: '/?lookup=MZ-000016' });
+
+    authServiceSpy.login.and.returnValue(of({
+      id: 'u-1',
+      email: 'user@example.invalid',
+      system_permissions: [],
+      memberships: []
+    }));
+
+    component.email = 'user@example.invalid';
+    component.password = 'password12345';
+    component.submit();
+    fixture.detectChanges();
+
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/?lookup=MZ-000016');
+  });
+
   it('renders error notice when login fails', () => {
     authServiceSpy.login.and.returnValue(
       throwError(() => new HttpErrorResponse({ status: 401 }))

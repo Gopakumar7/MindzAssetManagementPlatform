@@ -252,6 +252,58 @@ def confirm_bulk_asset_import(
     )
 
 
+@router.get(
+    '/lookup',
+    response_model=AssetRead,
+    dependencies=[Depends(require_permission('asset.read'))],
+)
+def lookup_asset(
+    company_id: UUID,
+    code: str = Query(..., min_length=1, max_length=120, description='Exact asset number or serial number to look up'),
+    db: Session = Depends(get_db),
+):
+    get_company(db, company_id)
+
+    stripped_code = code.strip()
+    if not stripped_code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail='Lookup code cannot be empty or blank',
+        )
+
+    if any(ord(c) < 32 and c not in '\t\n\r' for c in code) or '\x00' in code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail='Lookup code contains invalid control characters',
+        )
+
+    # 1. Exact match on asset_number takes precedence
+    asset = db.scalar(
+        select(Asset).where(
+            Asset.company_id == company_id,
+            Asset.asset_number == stripped_code,
+        )
+    )
+
+    # 2. If no asset_number match, fallback to exact match on serial_number
+    if asset is None:
+        asset = db.scalars(
+            select(Asset).where(
+                Asset.company_id == company_id,
+                Asset.serial_number == stripped_code,
+            ).order_by(Asset.created_at.desc(), Asset.id)
+        ).first()
+
+    # 3. If neither matches, return 404 without leaking cross-company data
+    if asset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Asset not found in this company',
+        )
+
+    return asset
+
+
 @router.get('/{asset_id}', response_model=AssetRead, dependencies=[Depends(require_permission('asset.read'))])
 def read_asset(company_id: UUID, asset_id: UUID, db: Session = Depends(get_db)):
     return get_scoped(db, Asset, company_id, asset_id, 'Asset')

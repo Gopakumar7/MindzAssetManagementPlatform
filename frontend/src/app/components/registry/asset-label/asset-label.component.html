@@ -1,0 +1,70 @@
+<div class="label-modal-backdrop" (click)="onClose()">
+  <div class="label-modal-dialog" (click)="$event.stopPropagation()">
+    <!-- Header with controls (hidden during printing) -->
+    <div class="label-modal-header no-print">
+      <div>
+        <h3>{{ assets.length === 1 ? 'Asset Label Preview' : 'Bulk Asset Labels (' + assets.length + ')' }}</h3>
+        <p class="muted">
+          {{ assets.length === 1 ? 'Standard tag with Code 128 barcode and QR code' : 'Multi-label sheet preview for thermal rolls or standard label paper' }}
+        </p>
+      </div>
+      <div class="label-modal-actions">
+        <button type="button" class="primary print-btn" (click)="printLabels()" [disabled]="assets.length === 0">
+          Print {{ assets.length === 1 ? 'Label' : 'Labels (' + assets.length + ')' }}
+        </button>
+        <button type="button" class="secondary" (click)="onClose()">Close</button>
+      </div>
+    </div>
+
+    <!-- Printable Content Area -->
+    <div class="label-modal-body" id="asset-label-print-area">
+      @if (assets.length === 0) {
+        <p class="empty-state no-print">No assets selected for printing.</p>
+      } @else {
+        <div [class]="assets.length === 1 ? 'label-single-container' : 'label-grid'">
+          @for (asset of assets; track asset.id) {
+            <div class="asset-label-card" [id]="'label-card-' + asset.id">
+              <!-- Label Header -->
+              <div class="label-top-row">
+                <span class="label-company-name">{{ companyName || 'MindZen Asset Tag' }}</span>
+                <span class="label-category-pill">{{ getCategoryName(asset.category_id) }}</span>
+              </div>
+
+              <!-- Label Body: QR + Barcode -->
+              <div class="label-middle-row">
+                <!-- 2D QR Code -->
+                <div class="label-qr-wrap">
+                  @if (qrDataUrls[asset.id]) {
+                    <img [src]="qrDataUrls[asset.id]" alt="QR Code" class="label-qr-img">
+                  } @else {
+                    <div class="label-qr-placeholder">QR</div>
+                  }
+                </div>
+
+                <!-- 1D Barcode & Asset Number -->
+                <div class="label-barcode-wrap">
+                  <svg [id]="'barcode-' + asset.id" class="label-barcode-svg"></svg>
+                  <div class="label-asset-number">{{ asset.asset_number }}</div>
+                </div>
+              </div>
+
+              <!-- Label Footer: Model & Serial Number -->
+              <div class="label-bottom-row">
+                @if (asset.model) {
+                  <span class="label-meta-item label-model" [title]="asset.model">
+                    {{ asset.model }}
+                  </span>
+                }
+                @if (asset.serial_number) {
+                  <span class="label-meta-item label-sn" [title]="asset.serial_number">
+                    SN: {{ asset.serial_number }}
+                  </span>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </div>
+</div>

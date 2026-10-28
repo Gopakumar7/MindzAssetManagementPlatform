@@ -2604,6 +2604,15 @@
       <div><p class="eyebrow">Inventory</p><h2>Asset registry</h2></div>
       <div class="heading-actions">
         <span class="count">{{ totalAssets }} assets</span>
+        @if (selectedAssetsCount > 0) {
+          <span class="selection-pill">{{ selectedAssetsCount }} selected</span>
+          <button type="button" class="primary print-bulk-btn" (click)="openBulkLabelModal()">
+            Print Labels ({{ selectedAssetsCount }})
+          </button>
+          <button type="button" class="secondary" (click)="clearAssetSelection()">
+            Clear selection
+          </button>
+        }
         @if (can('asset.create')) {
           <button type="button" class="secondary bulk-import-btn" (click)="toggleBulkImport()">
             {{ showBulkImport ? 'Close Bulk Import' : 'Bulk Import' }}
@@ -2638,18 +2647,26 @@
 </form>
 <div class="table-wrap">
   <table>
-    <thead><tr><th>Asset number</th><th>Category</th><th>Serial number</th><th>Status</th><th>Custodian</th><th>Site</th><th>Location</th><th></th></tr></thead>
+    <thead><tr><th class="th-checkbox"><input type="checkbox" [checked]="isAllAssetsOnPageSelected" (change)="toggleSelectAll($any($event.target).checked)" [disabled]="assets.length === 0" aria-label="Select all assets on page" /></th><th>Asset number</th><th>Category</th><th>Serial number</th><th>Status</th><th>Custodian</th><th>Site</th><th>Location</th><th></th></tr></thead>
     <tbody>
-      @for (asset of assets; track asset) {
-        <tr>
+      @for (asset of assets; track asset.id) {
+        <tr [class.row-selected]="isAssetSelected(asset.id)">
+          <td class="th-checkbox">
+            <input type="checkbox" [checked]="isAssetSelected(asset.id)" (change)="toggleAssetSelection(asset.id)" [attr.aria-label]="'Select ' + asset.asset_number" />
+          </td>
           <td><strong>{{ asset.asset_number }}</strong></td><td>{{ categoryName(asset.category_id) }}</td>
           <td>{{ asset.serial_number || '—' }}</td><td><span class="status-pill">{{ asset.status }}</span></td>
           <td>{{ asset.custodian_name || '—' }}</td><td>{{ siteName(asset.site_id) }}</td><td>{{ locationName(asset.location_id) }}</td>
-          <td><button type="button" class="link-button" (click)="openAsset(asset)">Details</button></td>
+          <td>
+            <div class="table-actions">
+              <button type="button" class="link-button" (click)="openAsset(asset)">Details</button>
+              <button type="button" class="link-button print-label-link" (click)="openLabelModal(asset)" title="Generate and print barcode/QR label">Print Label</button>
+            </div>
+          </td>
         </tr>
       }
       @if (!loading && assets.length === 0) {
-        <tr><td colspan="8" class="empty">No assets found. Register an asset below.</td></tr>
+        <tr><td colspan="9" class="empty">No assets found. Register an asset below.</td></tr>
       }
     </tbody>
   </table>
@@ -2694,7 +2711,12 @@
   <section #assetDetail class="asset-detail" tabindex="-1" aria-labelledby="asset-detail-heading">
     <div class="section-heading">
       <div><p class="eyebrow">Asset record</p><h2 id="asset-detail-heading">{{ selectedAsset.asset_number }}</h2></div>
-      <button type="button" class="secondary" (click)="selectedAsset = undefined">Close details</button>
+      <div class="heading-actions">
+        <button type="button" class="primary print-btn" (click)="openLabelModal(selectedAsset)">
+          Print Label
+        </button>
+        <button type="button" class="secondary" (click)="selectedAsset = undefined">Close details</button>
+      </div>
     </div>
     @if (can('asset.update')) {
       <form class="form-grid" (ngSubmit)="saveAsset()">
@@ -3354,6 +3376,15 @@
         </form>
       </div>
     </div>
+  }
+
+  @if (showLabelModal) {
+    <app-asset-label
+      [assets]="labelAssets"
+      [companyName]="company?.name || ''"
+      [categoryNames]="categoryMap"
+      (close)="closeLabelModal()">
+    </app-asset-label>
   }
 
 <footer><a routerLink="/status">System status</a><span>MindZen technical foundation · organisation and asset registry</span></footer>

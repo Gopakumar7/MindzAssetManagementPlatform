@@ -1,8 +1,9 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectorRef, Component, ElementRef, OnInit, ViewChild, ChangeDetectionStrategy } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { ChangeDetectorRef, Component, ElementRef, OnInit, OnDestroy, ViewChild, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
-import { forkJoin } from 'rxjs';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Subscription, forkJoin } from 'rxjs';
 
 import {
   Asset,
@@ -66,6 +67,7 @@ import {
 import { AuthService } from '../../services/auth.service';
 import { ActionCentreComponent } from './action-centre/action-centre.component';
 import { AssetImportComponent } from './asset-import/asset-import.component';
+import { AssetLabelComponent } from './asset-label/asset-label.component';
 
 type ViewName = 'dashboard' | 'alerts' | 'assets' | 'reports' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company' | 'users-access' | 'procurement' | 'maintenance' | 'verification';
 type MasterKind = 'departments' | 'sites' | 'categories' | 'cost-centers';
@@ -118,14 +120,22 @@ export function serializeCsvCell(value: unknown): string {
 
 @Component({
     selector: 'app-registry',
-    imports: [CommonModule, FormsModule, RouterLink, ActionCentreComponent, AssetImportComponent],
+    imports: [CommonModule, FormsModule, RouterLink, ActionCentreComponent, AssetImportComponent, AssetLabelComponent],
     changeDetection: ChangeDetectionStrategy.Eager,
     templateUrl: './registry.component.html'
 })
-export class RegistryComponent implements OnInit {
+export class RegistryComponent implements OnInit, OnDestroy {
   @ViewChild('assetDetail') private assetDetail?: ElementRef<HTMLElement>;
   @ViewChild('actionCentre') actionCentre?: ActionCentreComponent;
   showBulkImport = false;
+  showLabelModal = false;
+  labelAssets: Asset[] = [];
+  selectedAssetIds = new Set<string>();
+
+  private queryParamsSub?: Subscription;
+  private pendingLookupCode: string | null = null;
+  private processedLookupCode: string | null = null;
+  isProcessingLookup = false;
 
   companies: Company[] = [];
   companyId = '';
@@ -474,10 +484,13 @@ export class RegistryComponent implements OnInit {
   constructor(
     private readonly registry: RegistryService,
     private readonly changeDetector: ChangeDetectorRef,
-    readonly auth: AuthService
+    readonly auth: AuthService,
+    private readonly route: ActivatedRoute,
+    private readonly router: Router
   ) {}
 
   ngOnInit(): void {
+    this.initLookupSubscription();
     this.loadNotificationCount();
     this.loading = true;
     this.registry.companies().subscribe({
@@ -486,10 +499,18 @@ export class RegistryComponent implements OnInit {
         this.loading = false;
         if (companies.length > 0) {
           this.selectCompany(companies[0].id);
+        } else if (this.pendingLookupCode) {
+          this.errorMessage = 'No authorized company available to perform asset lookup.';
+          this.clearLookupParam();
+          this.changeDetector.markForCheck();
         }
       },
       error: (error) => this.fail(error)
     });
+  }
+
+  ngOnDestroy(): void {
+    this.queryParamsSub?.unsubscribe();
   }
 
   viewMaintenanceForSelectedAsset(): void {
@@ -637,7 +658,9 @@ export class RegistryComponent implements OnInit {
             padding: defaultRule.padding
           };
         }
-        if (this.activeView === 'dashboard' && !this.can('dashboard.read')) {
+        if (this.pendingLookupCode) {
+          this.activeView = 'assets';
+        } else if (this.activeView === 'dashboard' && !this.can('dashboard.read')) {
           this.activeView = 'assets';
         }
         this.loadAssets();
@@ -661,6 +684,7 @@ export class RegistryComponent implements OnInit {
         if (this.selectedSiteId) {
           this.loadLocations(this.selectedSiteId);
         }
+        this.processPendingLookup();
       },
 
       error: (error) => this.fail(error)
@@ -1696,6 +1720,149 @@ export class RegistryComponent implements OnInit {
   onBulkImportSuccess(result: { count: number; assetNumbers: string[] }): void {
     this.successMessage = `Successfully imported ${result.count} assets.`;
     this.loadAssets();
+  }
+
+  get isAllAssetsOnPageSelected(): boolean {
+    return this.assets.length > 0 && this.assets.every((a) => this.selectedAssetIds.has(a.id));
+  }
+
+  get selectedAssetsCount(): number {
+    return this.selectedAssetIds.size;
+  }
+
+  isAssetSelected(id: string): boolean {
+    return this.selectedAssetIds.has(id);
+  }
+
+  toggleAssetSelection(id: string): void {
+    if (this.selectedAssetIds.has(id)) {
+      this.selectedAssetIds.delete(id);
+    } else {
+      this.selectedAssetIds.add(id);
+    }
+  }
+
+  toggleSelectAll(checked: boolean): void {
+    if (checked) {
+      for (const asset of this.assets) {
+        this.selectedAssetIds.add(asset.id);
+      }
+    } else {
+      for (const asset of this.assets) {
+        this.selectedAssetIds.delete(asset.id);
+      }
+    }
+  }
+
+  clearAssetSelection(): void {
+    this.selectedAssetIds.clear();
+  }
+
+  openLabelModal(asset: Asset): void {
+    this.labelAssets = [asset];
+    this.showLabelModal = true;
+  }
+
+  openBulkLabelModal(): void {
+    this.labelAssets = this.assets.filter((a) => this.selectedAssetIds.has(a.id));
+    if (this.labelAssets.length > 0) {
+      this.showLabelModal = true;
+    }
+  }
+
+  closeLabelModal(): void {
+    this.showLabelModal = false;
+    this.labelAssets = [];
+  }
+
+  get categoryMap(): Record<string, string> {
+    const map: Record<string, string> = {};
+    for (const cat of this.categories) {
+      map[cat.id] = cat.name;
+    }
+    return map;
+  }
+
+  initLookupSubscription(): void {
+    this.queryParamsSub = this.route.queryParamMap.subscribe((params) => {
+      const code = params.get('lookup');
+      if (code === null) {
+        this.processedLookupCode = null;
+        return;
+      }
+      const trimmed = code.trim();
+      if (!trimmed) {
+        this.errorMessage = 'Lookup code cannot be empty.';
+        this.clearLookupParam();
+        return;
+      }
+      if (trimmed.length > 120 || /[\x00-\x1f\x7f]/.test(trimmed)) {
+        this.errorMessage = 'Invalid lookup code provided.';
+        this.clearLookupParam();
+        return;
+      }
+      if (trimmed !== this.processedLookupCode) {
+        this.pendingLookupCode = trimmed;
+        this.activeView = 'assets';
+        this.processPendingLookup();
+      }
+    });
+  }
+
+  processPendingLookup(): void {
+    if (!this.pendingLookupCode || this.isProcessingLookup) {
+      return;
+    }
+    if (!this.companyId) {
+      return;
+    }
+    if (!this.can('asset.read')) {
+      this.errorMessage = 'You do not have permission to view asset records.';
+      this.pendingLookupCode = null;
+      this.activeView = 'assets';
+      this.clearLookupParam();
+      this.changeDetector.markForCheck();
+      return;
+    }
+
+    const codeToLookup = this.pendingLookupCode;
+    this.pendingLookupCode = null;
+    this.isProcessingLookup = true;
+    this.processedLookupCode = codeToLookup;
+    this.activeView = 'assets';
+
+    this.registry.lookupAsset(this.companyId, codeToLookup).subscribe({
+      next: (asset) => {
+        this.isProcessingLookup = false;
+        this.openAsset(asset);
+        this.clearLookupParam();
+        this.changeDetector.markForCheck();
+      },
+      error: (err: unknown) => {
+        this.isProcessingLookup = false;
+        this.activeView = 'assets';
+        if (err instanceof HttpErrorResponse && err.status === 404) {
+          this.errorMessage = `Asset "${codeToLookup}" was not found or is not accessible in ${this.company?.name || 'the active company'}.`;
+        } else if (err instanceof HttpErrorResponse && err.status === 403) {
+          this.errorMessage = 'You do not have permission to view this asset.';
+        } else if (err instanceof HttpErrorResponse && err.status === 422) {
+          this.errorMessage = err.error?.detail || 'Invalid asset lookup query.';
+        } else {
+          this.errorMessage = `Failed to look up asset "${codeToLookup}". Please try again.`;
+        }
+        this.clearLookupParam();
+        this.changeDetector.markForCheck();
+      }
+    });
+  }
+
+  clearLookupParam(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { lookup: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true
+    });
   }
 
   openAsset(asset: Asset): void {
