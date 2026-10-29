@@ -576,6 +576,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
       this.successMessage = '';
       this.errorMessage = '';
       this.selectedAsset = undefined;
+      this.selectedAssetIds.clear();
       this.assignmentHistory = [];
       this.assignmentRecipients = [];
       this.suppliers = [];

@@ -3365,4 +3365,307 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       component.onInviteCompanyChange('company-2');
       expect(component.selectCompany).toHaveBeenCalledWith('company-2');
     });
-  })});
+  });
+
+  describe('Asset Label Generation & Printing (Phase 9C Task 2)', () => {
+    const testAssets: Asset[] = [
+      {
+        id: 'asset-1',
+        company_id: 'company-1',
+        asset_number: 'AST-0001',
+        category_id: 'cat-1',
+        status: 'in_stock',
+        model: 'Latitude 7420',
+        serial_number: 'SN-001'
+      } as Asset,
+      {
+        id: 'asset-2',
+        company_id: 'company-1',
+        asset_number: 'AST-0002',
+        category_id: 'cat-2',
+        status: 'in_use',
+        model: 'Precision 5550',
+        serial_number: 'SN-002'
+      } as Asset
+    ];
+
+    beforeEach(() => {
+      component.companyId = 'company-1';
+      component.company = { id: 'company-1', name: 'MindZen Corp', code: 'MZ', is_active: true };
+      component.assets = [...testAssets];
+      component.categories = [
+        { id: 'cat-1', company_id: 'company-1', code: 'LAPTOP', name: 'Laptops', is_active: true },
+        { id: 'cat-2', company_id: 'company-1', code: 'WORKSTATION', name: 'Workstations', is_active: true }
+      ];
+      component.selectedAssetIds.clear();
+      component.showLabelModal = false;
+      component.labelAssets = [];
+    });
+
+    it('should toggle individual asset selection', () => {
+      expect(component.isAssetSelected('asset-1')).toBeFalse();
+      component.toggleAssetSelection('asset-1');
+      expect(component.isAssetSelected('asset-1')).toBeTrue();
+      expect(component.selectedAssetsCount).toBe(1);
+
+      component.toggleAssetSelection('asset-1');
+      expect(component.isAssetSelected('asset-1')).toBeFalse();
+      expect(component.selectedAssetsCount).toBe(0);
+    });
+
+    it('should toggle select all assets on current page', () => {
+      expect(component.isAllAssetsOnPageSelected).toBeFalse();
+      component.toggleSelectAll(true);
+      expect(component.isAllAssetsOnPageSelected).toBeTrue();
+      expect(component.selectedAssetsCount).toBe(2);
+
+      component.toggleSelectAll(false);
+      expect(component.isAllAssetsOnPageSelected).toBeFalse();
+      expect(component.selectedAssetsCount).toBe(0);
+    });
+
+    it('should clear all selected assets', () => {
+      component.toggleSelectAll(true);
+      expect(component.selectedAssetsCount).toBe(2);
+      component.clearAssetSelection();
+      expect(component.selectedAssetsCount).toBe(0);
+    });
+
+    it('should open single asset label modal', () => {
+      component.openLabelModal(testAssets[0]);
+      expect(component.showLabelModal).toBeTrue();
+      expect(component.labelAssets.length).toBe(1);
+      expect(component.labelAssets[0].asset_number).toBe('AST-0001');
+
+      component.closeLabelModal();
+      expect(component.showLabelModal).toBeFalse();
+      expect(component.labelAssets.length).toBe(0);
+    });
+
+    it('should open bulk label modal for selected assets', () => {
+      component.toggleAssetSelection('asset-1');
+      component.toggleAssetSelection('asset-2');
+      component.openBulkLabelModal();
+
+      expect(component.showLabelModal).toBeTrue();
+      expect(component.labelAssets.length).toBe(2);
+    });
+
+    it('should build categoryMap correctly from master categories', () => {
+      const map = component.categoryMap;
+      expect(map['cat-1']).toBe('Laptops');
+      expect(map['cat-2']).toBe('Workstations');
+    });
+
+    it('should clear selection when switching company', () => {
+      component.toggleSelectAll(true);
+      expect(component.selectedAssetsCount).toBe(2);
+
+      component.selectCompany('company-2');
+      expect(component.selectedAssetsCount).toBe(0);
+    });
+  });
+
+  describe('QR Deep-Link Asset Lookup (Phase 9C Task 2.1)', () => {
+    let router: Router;
+    let queryParamMapSubject: BehaviorSubject<any>;
+
+    const targetAsset: Asset = {
+      id: 'asset-deep-link-1',
+      company_id: 'company-1',
+      asset_number: 'MZ-000016',
+      category_id: 'cat-laptop',
+      status: 'in_stock',
+      model: 'ThinkPad T14s',
+      serial_number: 'SN-TP-1234',
+      manufacturer: 'Lenovo',
+      acquisition_date: '2026-01-10',
+      acquisition_cost: '1450.00',
+      site_id: null,
+      location_id: null,
+      responsible_department_id: null,
+      cost_center_id: null,
+      custodian_name: null,
+      vendor_reference: null,
+      invoice_reference: null,
+      warranty_start: null,
+      warranty_end: null,
+      notes: null
+    };
+
+    beforeEach(() => {
+      router = TestBed.inject(Router);
+      spyOn(router, 'navigate').and.returnValue(Promise.resolve(true));
+
+      queryParamMapSubject = new BehaviorSubject(convertToParamMap({}));
+      const route = TestBed.inject(ActivatedRoute);
+      spyOnProperty(route, 'queryParamMap', 'get').and.returnValue(queryParamMapSubject.asObservable());
+      component.initLookupSubscription();
+
+      component.companyId = 'company-1';
+      component.company = { id: 'company-1', name: 'MindZen Corp', code: 'MZ', is_active: true };
+      component.loading = false;
+      permissions.add('asset.read');
+      registry.lookupAsset.and.returnValue(of(targetAsset));
+      registry.getAsset.and.returnValue(of(targetAsset));
+    });
+
+    it('should look up asset and open details when valid ?lookup= code is received', () => {
+      spyOn(component, 'openAsset').and.callThrough();
+
+      queryParamMapSubject.next(convertToParamMap({ lookup: 'MZ-000016' }));
+
+      expect(registry.lookupAsset).toHaveBeenCalledWith('company-1', 'MZ-000016');
+      expect(component.openAsset).toHaveBeenCalledWith(targetAsset);
+      expect(component.selectedAsset?.asset_number).toBe('MZ-000016');
+      expect(component.activeView).toBe('assets');
+      expect(router.navigate).toHaveBeenCalledWith([], {
+        relativeTo: jasmine.any(Object),
+        queryParams: { lookup: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true
+      });
+    });
+
+    it('should show error and remove parameter when asset is not found (404)', () => {
+      registry.lookupAsset.and.returnValue(
+        throwError(() => new HttpErrorResponse({
+          status: 404,
+          error: { detail: "Asset with code 'UNKNOWN-999' not found" }
+        }))
+      );
+
+      queryParamMapSubject.next(convertToParamMap({ lookup: 'UNKNOWN-999' }));
+
+      expect(registry.lookupAsset).toHaveBeenCalledWith('company-1', 'UNKNOWN-999');
+      expect(component.errorMessage).toContain('UNKNOWN-999');
+      expect(component.errorMessage).toContain('was not found or is not accessible');
+      expect(router.navigate).toHaveBeenCalledWith([], {
+        relativeTo: jasmine.any(Object),
+        queryParams: { lookup: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true
+      });
+    });
+
+    it('should reject empty or whitespace lookup code without calling lookupAsset', () => {
+      queryParamMapSubject.next(convertToParamMap({ lookup: '   ' }));
+
+      expect(registry.lookupAsset).not.toHaveBeenCalled();
+      expect(component.errorMessage).toBe('Lookup code cannot be empty.');
+      expect(router.navigate).toHaveBeenCalled();
+    });
+
+    it('should reject control characters or excessively long lookup codes', () => {
+      queryParamMapSubject.next(convertToParamMap({ lookup: 'bad\x00code' }));
+
+      expect(registry.lookupAsset).not.toHaveBeenCalled();
+      expect(component.errorMessage).toBe('Invalid lookup code provided.');
+      expect(router.navigate).toHaveBeenCalled();
+    });
+
+    it('should enforce asset.read permission and show error without calling API if unauthorized', () => {
+      permissions.delete('asset.read');
+
+      queryParamMapSubject.next(convertToParamMap({ lookup: 'MZ-000016' }));
+
+      expect(registry.lookupAsset).not.toHaveBeenCalled();
+      expect(component.errorMessage).toContain('permission');
+      expect(router.navigate).toHaveBeenCalled();
+    });
+
+    it('should prevent duplicate API requests when lookup parameter is repeated', () => {
+      queryParamMapSubject.next(convertToParamMap({ lookup: 'MZ-000016' }));
+      expect(registry.lookupAsset).toHaveBeenCalledTimes(1);
+
+      queryParamMapSubject.next(convertToParamMap({ lookup: 'MZ-000016' }));
+      expect(registry.lookupAsset).toHaveBeenCalledTimes(1);
+    });
+
+    it('should wait for company initialization and process pending lookup once company context is ready', () => {
+      component.companyId = '';
+      component.loading = true;
+
+      queryParamMapSubject.next(convertToParamMap({ lookup: 'MZ-000016' }));
+      expect(registry.lookupAsset).not.toHaveBeenCalled();
+
+      component.companyId = 'company-1';
+      component.loading = true; // Even if loading is true from loadAssets(), lookup should proceed!
+      component.processPendingLookup();
+
+      expect(registry.lookupAsset).toHaveBeenCalledWith('company-1', 'MZ-000016');
+      expect(component.selectedAsset?.asset_number).toBe('MZ-000016');
+    });
+
+    it('should process lookup during selectCompany lifecycle even when loadAssets sets loading to true', () => {
+      component.companyId = '';
+      component.activeView = 'dashboard';
+      component.selectedAsset = undefined;
+
+      // Mock listMaster, listNumberRules, listAssets for selectCompany
+      registry.listMaster.and.returnValue(of([]));
+      registry.listNumberRules.and.returnValue(of([]));
+      registry.listAssets.and.returnValue(of({ items: [], total: 0, page: 1, page_size: 25 }));
+      registry.lookupAsset.and.returnValue(of(targetAsset));
+
+      queryParamMapSubject.next(convertToParamMap({ lookup: 'MZ-000016' }));
+      expect(registry.lookupAsset).not.toHaveBeenCalled();
+      expect(component.activeView).toBe('assets');
+
+      // Now trigger selectCompany
+      component.selectCompany('company-1');
+
+      expect(registry.lookupAsset).toHaveBeenCalledWith('company-1', 'MZ-000016');
+      expect((component.selectedAsset as Asset | undefined)?.asset_number).toBe('MZ-000016');
+      expect(component.activeView).toBe('assets');
+      expect(router.navigate).toHaveBeenCalledWith([], {
+        relativeTo: jasmine.any(Object),
+        queryParams: { lookup: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true
+      });
+    });
+
+    it('should display error and stay on assets view if lookup fails during selectCompany', () => {
+      component.companyId = '';
+      component.activeView = 'dashboard';
+      component.selectedAsset = undefined;
+
+      registry.listMaster.and.returnValue(of([]));
+      registry.listNumberRules.and.returnValue(of([]));
+      registry.listAssets.and.returnValue(of({ items: [], total: 0, page: 1, page_size: 25 }));
+      registry.lookupAsset.and.returnValue(
+        throwError(() => new HttpErrorResponse({
+          status: 404,
+          error: { detail: "Asset with code 'NOTFOUND-01' not found" }
+        }))
+      );
+
+      queryParamMapSubject.next(convertToParamMap({ lookup: 'NOTFOUND-01' }));
+      component.selectCompany('company-1');
+
+      expect(registry.lookupAsset).toHaveBeenCalledWith('company-1', 'NOTFOUND-01');
+      expect(component.errorMessage).toContain('NOTFOUND-01');
+      expect(component.activeView).toBe('assets');
+      expect(component.selectedAsset).toBeUndefined();
+      expect(router.navigate).toHaveBeenCalledWith([], {
+        relativeTo: jasmine.any(Object),
+        queryParams: { lookup: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true
+      });
+    });
+
+    it('should reset processedLookupCode when lookup param is cleared so subsequent lookup works', () => {
+      queryParamMapSubject.next(convertToParamMap({ lookup: 'MZ-000016' }));
+      expect(registry.lookupAsset).toHaveBeenCalledTimes(1);
+
+      // Simulate router clearing param
+      queryParamMapSubject.next(convertToParamMap({}));
+
+      // Simulate scanning/opening the same asset again
+      queryParamMapSubject.next(convertToParamMap({ lookup: 'MZ-000016' }));
+      expect(registry.lookupAsset).toHaveBeenCalledTimes(2);
+    });
+  });
+});
