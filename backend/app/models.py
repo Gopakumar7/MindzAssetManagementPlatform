@@ -855,7 +855,7 @@ class AssetFinancial(Base):
     company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
     asset_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     capitalised_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
-    currency: Mapped[str] = mapped_column(String(3), nullable=False, default='USD')
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default='INR', server_default='INR')
     depreciation_method: Mapped[str] = mapped_column(String(32), nullable=False, default='straight_line')
     useful_life_months: Mapped[int] = mapped_column(Integer, nullable=False)
     residual_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal('0.00'))

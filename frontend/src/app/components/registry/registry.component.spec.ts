@@ -2251,7 +2251,7 @@ const testFinancial: AssetFinancial = {
   company_id: 'company-1',
   asset_id: 'asset-1',
   capitalised_cost: 1200.0,
-  currency: 'USD',
+  currency: 'INR',
   depreciation_method: 'straight_line',
   useful_life_months: 24,
   residual_value: 0.0,
@@ -2323,7 +2323,7 @@ const testDeprecReportItem: AssetDepreciationReportItem = {
   financial_status: 'active',
   acquisition_date: '2026-01-15',
   capitalised_cost: 1200.0,
-  currency: 'USD',
+  currency: 'INR',
   depreciation_method: 'straight_line',
   useful_life_months: 24,
   residual_value: 0.0,
@@ -2566,7 +2566,7 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
     component.openConfigureFinancialModal();
 
     expect(component.configureFinancialModalOpen).toBeTrue();
-    expect(component.configureFinancialForm.currency).toBe('USD');
+    expect(component.configureFinancialForm.currency).toBe('INR');
 
     component.configureFinancialForm.useful_life_months = 36;
     component.submitConfigureFinancial();
@@ -3344,7 +3344,9 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       const importComp = fixture.nativeElement.querySelector('app-asset-import');
       expect(importComp).toBeTruthy();
     });
-    describe('Superuser Company & User Access Management', () => {
+  });
+
+  describe('Superuser Company & User Access Management', () => {
     it('should return all company roles for superusers regardless of company-level permissions', () => {
       permissions.clear();
       permissions.add('company.read');
@@ -3363,5 +3365,4 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       component.onInviteCompanyChange('company-2');
       expect(component.selectCompany).toHaveBeenCalledWith('company-2');
     });
-  });
-});
+  })});

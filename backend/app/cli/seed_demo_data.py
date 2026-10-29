@@ -1355,7 +1355,7 @@ def seed_demo_data(db: Session, options: SeederOptions) -> SeedingSummary:
                 company_id=company.id,
                 asset_id=f_asset.id,
                 capitalised_cost=cost,
-                currency='USD',
+                currency='INR',
                 depreciation_method='straight_line',
                 useful_life_months=useful_life,
                 residual_value=residual,

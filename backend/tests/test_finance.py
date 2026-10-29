@@ -96,8 +96,48 @@ def test_financial_profile_configuration_and_validation(client):
     )
     assert cfg_res.status_code == 200
     configured = cfg_res.json()
+    assert configured['currency'] == 'INR'
     assert configured['useful_life_months'] == 24
     assert Decimal(str(configured['residual_value'])) == Decimal('240.00')
+
+
+def test_financial_currency_defaults_to_inr_and_preserves_numeric_amounts(client):
+    """Verify that new financial records default to INR and numeric amounts are preserved exactly."""
+    company_id, category_id = _setup_company_and_category(client, 'FIN-INR-1')
+    asset_res = client.post(
+        f'/api/v1/companies/{company_id}/assets',
+        json={
+            'category_id': category_id,
+            'model': 'Server Rack',
+            'acquisition_date': '2026-03-01',
+            'acquisition_cost': 150000.50,
+        },
+    )
+    assert asset_res.status_code == 201
+    asset_id = asset_res.json()['id']
+
+    # 1. Verify auto-derived financial profile defaults to INR
+    fin_res = client.get(f'/api/v1/companies/{company_id}/assets/{asset_id}/financial')
+    assert fin_res.status_code == 200
+    fin_data = fin_res.json()
+    assert fin_data['currency'] == 'INR'
+    assert Decimal(str(fin_data['capitalised_cost'])) == Decimal('150000.50')
+
+    # 2. Verify explicit put without currency retains default INR and preserves exact amount
+    put_res = client.put(
+        f'/api/v1/companies/{company_id}/assets/{asset_id}/financial',
+        json={
+            'capitalised_cost': 150000.50,
+            'useful_life_months': 60,
+            'residual_value': 15000.00,
+            'depreciation_start_date': '2026-03-01',
+        },
+    )
+    assert put_res.status_code == 200
+    updated_fin = put_res.json()
+    assert updated_fin['currency'] == 'INR'
+    assert Decimal(str(updated_fin['capitalised_cost'])) == Decimal('150000.50')
+    assert Decimal(str(updated_fin['residual_value'])) == Decimal('15000.00')
 
 
 def test_straight_line_depreciation_schedule_and_rounding(client):

@@ -260,7 +260,7 @@ def isolation_data(client, db_session):
         current_book_value=Decimal('2000.00'),
         accumulated_depreciation=Decimal('0.00'),
         financial_status='active',
-        currency='USD',
+        currency='INR',
     )
     db_session.add(financial_a)
 
@@ -400,7 +400,7 @@ def isolation_data(client, db_session):
         current_book_value=Decimal('3000.00'),
         accumulated_depreciation=Decimal('0.00'),
         financial_status='active',
-        currency='USD',
+        currency='INR',
     )
     db_session.add(financial_b)
 

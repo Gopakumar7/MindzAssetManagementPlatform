@@ -263,7 +263,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
   configureFinancialModalOpen = false;
   configureFinancialForm: AssetFinancialCreate = {
     capitalised_cost: 0,
-    currency: 'USD',
+    currency: 'INR',
     depreciation_method: 'straight_line',
     useful_life_months: 36,
     residual_value: 0,
@@ -3140,7 +3140,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
     const acqDate = this.selectedAsset.acquisition_date || this.today();
     this.configureFinancialForm = {
       capitalised_cost: acqCost,
-      currency: 'USD',
+      currency: 'INR',
       depreciation_method: 'straight_line',
       useful_life_months: 36,
       residual_value: 0,

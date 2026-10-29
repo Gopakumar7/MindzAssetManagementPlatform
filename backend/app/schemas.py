@@ -1135,7 +1135,7 @@ class VerificationDiscrepancyReportItem(BaseModel):
 
 class AssetFinancialCreate(BaseModel):
     capitalised_cost: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
-    currency: str = Field(default='USD', min_length=3, max_length=3)
+    currency: str = Field(default='INR', min_length=3, max_length=3)
     depreciation_method: str = Field(default='straight_line')
     useful_life_months: int = Field(ge=1, le=1200)
     residual_value: Decimal = Field(default=Decimal('0.00'), ge=0, max_digits=14, decimal_places=2)

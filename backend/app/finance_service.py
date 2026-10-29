@@ -69,7 +69,7 @@ def get_or_create_financial(
         start_date = defaults.depreciation_start_date
     else:
         cost = Decimal(str(asset.acquisition_cost)) if asset.acquisition_cost is not None else Decimal('0.00')
-        currency = 'USD'
+        currency = 'INR'
         method = 'straight_line'
         useful_life = 36  # Default 36 months (3 years)
         residual = Decimal('0.00')

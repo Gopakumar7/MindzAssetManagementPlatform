@@ -495,22 +495,22 @@
             </div>
             <div class="kpi-grid">
               <div class="kpi-card card-blue">
-                <span class="kpi-value">{{ financialDashboard.total_capitalised_cost | number:'1.2-2' }}</span>
+                <span class="kpi-value">₹{{ financialDashboard.total_capitalised_cost | number:'1.2-2' }}</span>
                 <span class="kpi-label">Capitalised Cost</span>
                 <span class="kpi-meta">{{ financialDashboard.approaching_eol_count }} approaching EOL</span>
               </div>
               <div class="kpi-card card-purple">
-                <span class="kpi-value">{{ financialDashboard.total_accumulated_depreciation | number:'1.2-2' }}</span>
+                <span class="kpi-value">₹{{ financialDashboard.total_accumulated_depreciation | number:'1.2-2' }}</span>
                 <span class="kpi-label">Accumulated Depreciation</span>
                 <span class="kpi-meta">{{ financialDashboard.fully_depreciated_active_count }} fully depreciated</span>
               </div>
               <div class="kpi-card card-green">
-                <span class="kpi-value">{{ financialDashboard.total_net_book_value | number:'1.2-2' }}</span>
+                <span class="kpi-value">₹{{ financialDashboard.total_net_book_value | number:'1.2-2' }}</span>
                 <span class="kpi-label">Current Net Book Value</span>
                 <span class="kpi-meta">Authoritative basis</span>
               </div>
               <div class="kpi-card card-orange">
-                <span class="kpi-value">{{ financialDashboard.total_disposal_gain_loss | number:'1.2-2' }}</span>
+                <span class="kpi-value">₹{{ financialDashboard.total_disposal_gain_loss | number:'1.2-2' }}</span>
                 <span class="kpi-label">Disposal Gain / Loss</span>
                 <span class="kpi-meta">{{ financialDashboard.disposed_count }} asset(s) retired/disposed</span>
               </div>
@@ -831,7 +831,7 @@
                       <td><span class="status-badge" [ngClass]="'status-' + item.status">{{ formatStatus(item.status) }}</span></td>
                       <td>{{ item.site_name || '—' }} @if (item.department_name) { / {{ item.department_name }} }</td>
                       <td>{{ item.custodian_name || '—' }}</td>
-                      <td>{{ item.acquisition_date || '—' }} @if (item.acquisition_cost) { <small class="muted">({{ item.acquisition_cost }})</small> }</td>
+                      <td>{{ item.acquisition_date || '—' }} @if (item.acquisition_cost) { <small class="muted">(₹{{ item.acquisition_cost }})</small> }</td>
                       <td>{{ item.warranty_end || '—' }}</td>
                     </tr>
                   }
@@ -949,7 +949,7 @@
                       <td>{{ item.assignee_email || '—' }}</td>
                       <td>{{ item.reported_date }}</td>
                       <td>{{ item.completed_date || '—' }}</td>
-                      <td>{{ item.cost ? ('$' + item.cost) : '—' }}</td>
+                      <td>{{ item.cost ? ('₹' + item.cost) : '—' }}</td>
                       <td>{{ item.resolution_notes || item.work_performed || '—' }}</td>
                     </tr>
                   }
@@ -998,7 +998,7 @@
                           <td><strong>{{ line.quantity_received }}</strong></td>
                           <td>{{ line.quantity_rejected }}</td>
                           <td><strong [class.danger-text]="line.quantity_outstanding > 0">{{ line.quantity_outstanding }}</strong></td>
-                          <td>${{ line.unit_cost }}</td>
+                          <td>₹{{ line.unit_cost }}</td>
                         </tr>
                       }
                     </tbody>
@@ -1498,7 +1498,7 @@
                     <th>Asset Category *</th>
                     <th>Item Description *</th>
                     <th>Qty *</th>
-                    <th>Unit Cost ($) *</th>
+                    <th>Unit Cost (₹) *</th>
                     <th>Line Total</th>
                     <th></th>
                   </tr>
@@ -1525,7 +1525,7 @@
                         <input type="number" [name]="'poLineCost_' + i" [(ngModel)]="line.unit_cost" required min="0" step="0.01" style="width: 100px;">
                       </td>
                       <td class="line-total-cell">
-                        ${{ poLineTotal(line) | number:'1.2-2' }}
+                        ₹{{ poLineTotal(line) | number:'1.2-2' }}
                       </td>
                       <td class="line-actions">
                         @if (purchaseOrderForm.lines.length > 1) {
@@ -1546,23 +1546,23 @@
               </div>
               <div class="po-total-row">
                 <span class="total-label">Subtotal:</span>
-                <span class="total-value">${{ poSubtotal | number:'1.2-2' }}</span>
+                <span class="total-value">₹{{ poSubtotal | number:'1.2-2' }}</span>
               </div>
               @if (poTotalDiscount > 0) {
                 <div class="po-total-row">
                   <span class="total-label">Total Discount:</span>
-                  <span class="total-value discount-val">-${{ poTotalDiscount | number:'1.2-2' }}</span>
+                  <span class="total-value discount-val">-₹{{ poTotalDiscount | number:'1.2-2' }}</span>
                 </div>
               }
               @if (poTotalTax > 0) {
                 <div class="po-total-row">
                   <span class="total-label">Total Tax:</span>
-                  <span class="total-value">+${{ poTotalTax | number:'1.2-2' }}</span>
+                  <span class="total-value">+₹{{ poTotalTax | number:'1.2-2' }}</span>
                 </div>
               }
               <div class="po-total-row grand-total">
                 <span class="total-label">Purchase Order Total:</span>
-                <span class="total-value grand-val">${{ poTotalAmount | number:'1.2-2' }}</span>
+                <span class="total-value grand-val">₹{{ poTotalAmount | number:'1.2-2' }}</span>
               </div>
             </div>
           </div>
@@ -1624,14 +1624,14 @@
               <td>
                 @for (line of order.lines; track line.id) {
                   <div class="po-line-summary">
-                    {{ line.description }} ({{ categoryName(line.category_id) }}) — {{ line.quantity_ordered }} × ${{ line.unit_cost | number:'1.2-2' }}
+                    {{ line.description }} ({{ categoryName(line.category_id) }}) — {{ line.quantity_ordered }} × ₹{{ line.unit_cost | number:'1.2-2' }}
                     @if (line.quantity_remaining !== undefined && line.quantity_remaining !== line.quantity_ordered) {
                       <span class="muted">({{ line.quantity_remaining }} remaining)</span>
                     }
                   </div>
                 }
               </td>
-              <td><strong>${{ (order.total_amount || 0) | number:'1.2-2' }}</strong></td>
+              <td><strong>₹{{ (order.total_amount || 0) | number:'1.2-2' }}</strong></td>
               <td class="actions">
                 @if (canEditOrder(order)) {
                   <button type="button" class="link-button" (click)="editPurchaseOrder(order)">Edit order</button>
@@ -1789,7 +1789,7 @@
             <dt>Work performed</dt><dd>{{ request.work_performed || '—' }}</dd>
             <dt>Resolution</dt><dd>{{ request.resolution_notes || '—' }}</dd>
             <dt>Completion date</dt><dd>{{ request.completed_date || '—' }}</dd>
-            <dt>Cost</dt><dd>{{ request.cost || '—' }}</dd>
+            <dt>Cost</dt><dd>{{ request.cost ? ('₹' + request.cost) : '—' }}</dd>
           </dl>
         }
       </section>
