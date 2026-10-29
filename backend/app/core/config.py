@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -34,6 +34,51 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = Field(default=True, alias='SMTP_USE_TLS')
     email_from: str = Field(default='alerts@mindzen.invalid', alias='EMAIL_FROM')
 
+    @property
+    def normalized_app_env(self) -> str:
+        return self.app_env.strip().casefold()
+
+    @model_validator(mode='after')
+    def validate_production_configuration(self) -> 'Settings':
+        is_production = self.normalized_app_env in {'production', 'prod'}
+        if is_production:
+            insecure_defaults = {'change_me', 'password', 'admin', 'root', '123456'}
+            from urllib.parse import urlparse
+            try:
+                parsed = urlparse(self.database_url)
+                if parsed.password and parsed.password.casefold() in insecure_defaults:
+                    raise ValueError(
+                        'Production configuration error: Insecure default database password detected. '
+                        'DATABASE_URL must be configured with a secure production password.'
+                    )
+                if not parsed.password and parsed.scheme.startswith(('postgresql', 'postgres', 'mysql')):
+                    raise ValueError(
+                        'Production configuration error: Missing database credentials in DATABASE_URL. '
+                        'Production requires authentication credentials.'
+                    )
+            except ValueError:
+                raise
+            except Exception:
+                pass
+            if ':change_me@' in self.database_url or ':password@' in self.database_url:
+                raise ValueError(
+                    'Production configuration error: Insecure default database password detected. '
+                    'DATABASE_URL must be configured with a secure production password.'
+                )
+
+            if self.cookie_secure_setting is False:
+                raise ValueError(
+                    'Production configuration error: COOKIE_SECURE cannot be disabled (false) in production. '
+                    'HTTPS-only cookies are mandatory in production.'
+                )
+
+            if '*' in self.cors_origins_list:
+                raise ValueError(
+                    "Production configuration error: Wildcard '*' CORS origin is not permitted in production."
+                )
+
+        return self
+
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / '.env',
         env_file_encoding='utf-8',
@@ -50,7 +95,7 @@ class Settings(BaseSettings):
         if self.cookie_secure_setting is not None:
             return self.cookie_secure_setting
 
-        return self.app_env.casefold() not in {'development', 'dev', 'test'}
+        return self.normalized_app_env not in {'development', 'dev', 'test'}
 
 
 @lru_cache(maxsize=1)

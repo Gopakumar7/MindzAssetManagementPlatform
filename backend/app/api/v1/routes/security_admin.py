@@ -37,6 +37,8 @@ from app.security import (
     CurrentActor,
     actor_has_permission,
     current_actor,
+    is_company_permission,
+    is_system_permission,
     permission_codes,
     require_permission,
 )
@@ -354,6 +356,20 @@ def update_role_permissions(
     permissions = db.scalars(select(Permission).where(Permission.code.in_(new_codes))).all()
     if {permission.code for permission in permissions} != new_codes:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Unknown permission identifier')
+    if role.scope == 'company':
+        system_scoped = sorted([c for c in new_codes if is_system_permission(c)])
+        if system_scoped:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Cannot assign system-scoped permission(s) to company-scoped role '{role.code}': {', '.join(system_scoped)}",
+            )
+    elif role.scope == 'system':
+        company_scoped = sorted([c for c in new_codes if is_company_permission(c)])
+        if company_scoped:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Cannot assign company-scoped permission(s) to system-scoped role '{role.code}': {', '.join(company_scoped)}",
+            )
     old_codes = assigned_permission_codes(db, role.id)
     db.execute(delete(role_permissions).where(role_permissions.c.role_id == role.id))
     db.execute(

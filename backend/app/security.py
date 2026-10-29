@@ -27,6 +27,24 @@ SESSION_COOKIE = 'mindzen_session'
 CSRF_COOKIE = 'mindzen_csrf'
 CSRF_HEADER = 'X-CSRF-Token'
 
+SYSTEM_PERMISSION_CODES = {
+    'system.companies.manage',
+    'system.users.manage',
+    'system.rbac.manage',
+    'company.create',
+}
+
+
+def is_system_permission(code: str) -> bool:
+    """Determine if a permission code is platform/system-scoped."""
+    return code.startswith('system.') or code == 'company.create'
+
+
+def is_company_permission(code: str) -> bool:
+    """Determine if a permission code is company-scoped."""
+    return not is_system_permission(code)
+
+
 
 @dataclass(frozen=True)
 class CurrentActor:

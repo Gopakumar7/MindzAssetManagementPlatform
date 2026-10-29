@@ -6,6 +6,46 @@
 
 Workspace: `c:\Users\krgop\Documents\Projects\MindzAssetManagementPlatform`
 
+## Focused Security Review and Remediation (2026-10-28)
+
+- **Role and Permission Scope Validation**:
+  - Implemented strict scope validation in `PUT /api/v1/security/roles/{role_code}/permissions` (`backend/app/api/v1/routes/security_admin.py`) using `is_system_permission` and `is_company_permission` helpers (`backend/app/security.py`).
+  - Enforced that company-scoped roles cannot be assigned system-scoped permissions (`system.companies.manage`, `system.users.manage`, `system.rbac.manage`, `company.create`), returning HTTP 422 with descriptive validation details.
+  - Enforced that system-scoped roles cannot be assigned company-scoped permissions (HTTP 422).
+  - Protected `system_administrator` role as immutable (HTTP 404).
+  - Ensured company administrators cannot gain system-level privileges through role manipulation.
+- **Production Configuration Safeguards**:
+  - Added `@model_validator(mode='after')` to `Settings` (`backend/app/core/config.py`) enforcing production security constraints when `APP_ENV=production`.
+  - Prohibits known default/weak credentials (`change_me`, `password`, `admin`, etc.) in `DATABASE_URL` in production, failing at startup.
+  - Prohibits `COOKIE_SECURE=false` in production, enforcing HTTPS-only session cookies.
+  - Prohibits wildcard (`*`) CORS origins in production.
+  - Sanitized error messages to ensure database credentials or sensitive connection strings are never leaked in exceptions or logs.
+  - Preserved convenient local development defaults when running under `development`, `dev`, or `test` modes.
+- **Invitation Workflow Security & Edge-Case Coverage**:
+  - Validated and added comprehensive automated tests in `backend/tests/test_security.py` covering:
+    - Expired invitations rejected (HTTP 400).
+    - Single-use token enforcement (reusing accepted token returns HTTP 400).
+    - Inactive / deactivated user accounts cannot accept invitations (HTTP 400).
+    - Inactive user accounts cannot be invited via company user invitation API (HTTP 409).
+    - Inviting an existing active user links company membership without altering their existing password.
+    - Token invalidation upon membership revocation or token reissuance.
+
+## Phase 9C: Barcode and QR Code Label Generation & Fast Lookup (2026-10-28)
+
+- **Backend Asset Fast-Lookup API** (`GET /api/v1/companies/{company_id}/assets/lookup?code={value}`):
+  - Exact-match resolution prioritising `asset_number` over `serial_number`.
+  - Strict company tenant isolation, preventing cross-tenant information disclosure.
+  - Requires `asset.read` authorization; returns `AssetRead` schema for direct client consumption.
+  - Complete test coverage in `backend/tests/test_asset_lookup.py` (11 tests passed).
+- **Frontend Printable Asset Labels**:
+  - Standalone Angular component `AssetLabelComponent` (`frontend/src/app/components/registry/asset-label/`).
+  - Dual barcode/QR support using `jsbarcode` (Code 128) and `qrcode` (QR code) SVG rendering.
+  - Clean printable media styles (`@media print`) and modal dialog preview with direct browser print trigger.
+- **QR Deep-Link Lookup Resolution**:
+  - Opening the application with `?lookup={code}` resolves the parameter after session and active company context initialization.
+  - Automatically switches view to the asset registry and opens the asset drawer.
+  - Cleans up query parameter upon completion or displays informative error toast if not found.
+
 ## Safe and repeatable demonstration data seeding (2026-10-21)
 
 - Implemented an idempotent, non-destructive sample demonstration data seeding script and CLI (`backend/app/cli/seed_demo_data.py` and `scripts/seed_demo_data.sh`).
@@ -370,19 +410,25 @@ All routes are under `/api/v1`.
 - Procurement: `/api/v1/companies/{company_id}/suppliers`, `/purchase-orders`, `/goods-receipts`
 - Maintenance: `/api/v1/companies/{company_id}/maintenance-users`, `/maintenance-requests`, `/service-contracts/{contract_id}/cancel`
 - Dashboard & Reports: `/api/v1/companies/{company_id}/dashboard`, `/reports/asset-register`, `/reports/asset-allocation`, `/reports/warranty-expiry`, `/reports/maintenance`, `/reports/procurement`
-- Current deployed migration head: `20261017_service_management (head)`
+### Database Migration Status
+
+- **Applied Local Database Migration Revision**: `20261027_currency_default_inr (head)` (verified via `alembic current` on running PostgreSQL container).
+- **Committed Repository Migration Head**: `20261019_notifications_sched` (latest tracked Git migration).
+- **Untracked Working-Tree Revisions**:
+  - `20261027_sys_admin_perms` (`backend/alembic/versions/20261027_sys_admin_perms.py`, down_revision: `20261019_notifications_sched`): System administrator invitation privilege alignment.
+  - `20261027_currency_default_inr` (`backend/alembic/versions/20261027_currency_default_inr.py`, down_revision: `20261027_sys_admin_perms`): Company default currency migration to INR.
 
 ## Verification results
 
-The latest checks for Phase 5 Executive Dashboard and Operational Reports:
+The latest checks for Final Security Hardening and Phase 9C:
 
-- PostgreSQL-enabled pytest (`mindzen_test`): **42 passed, 0 skipped, 0 failed** in 18.23s.
-- Standard backend suite (SQLite): **39 passed, 3 skipped** (PostgreSQL-specific concurrency and table triggers skipped as expected).
-- `alembic check`: **passed** — zero schema drift detected.
-- Angular headless Chromium test suite: **21 passed, 0 failed**.
-- Angular production build: **passed** within performance budgets (`538.72 kB` bundle).
-- Docker Compose stack: **PostgreSQL healthy, backend healthy, frontend healthy**.
-- Database volume `postgres_data` preserved with all existing demo entities intact.
+- **Security & RBAC test suite (`backend/tests/test_security.py`)**: **38 passed, 0 skipped, 0 failed** (including `APP_ENV` normalization tests and `test_nginx_configuration_forwarded_host_headers`).
+- **PostgreSQL Concurrency test suite (`backend/tests/test_postgres_concurrency.py`)**: **4 passed, 0 failed** on disposable `mindzen_test` database (including `test_concurrent_invitation_acceptance_allows_only_one_success`).
+- **Multi-tenant isolation suite (`backend/tests/test_tenant_isolation.py`)**: **13 passed, 0 failed**.
+- **Asset Fast-Lookup suite (`backend/tests/test_asset_lookup.py`)**: **11 passed, 0 failed**.
+- **Docker Compose stack**: **PostgreSQL healthy, backend healthy, frontend healthy**.
+- **Database volume `postgres_data`**: Preserved with all existing demo entities and 21 assets intact.
+- **Uncommitted working-tree changes**: Preserved untouched.
 
 ## Scope limitations and known issues
 

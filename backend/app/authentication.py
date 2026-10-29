@@ -184,7 +184,14 @@ def accept_invitation(db: Session, token: str, password: str) -> User | None:
     if not password_is_valid(password):
         return None
     now = datetime.now(timezone.utc)
-    invitation = db.get(UserInvitation, digest(token))
+    token_digest = digest(token)
+
+    # Acquire row-level lock on the invitation to serialize concurrent acceptance attempts
+    invitation = db.scalar(
+        select(UserInvitation)
+        .where(UserInvitation.token_hash == token_digest)
+        .with_for_update()
+    )
     expires_at = invitation.expires_at if invitation is not None else None
     if expires_at is not None and expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -195,10 +202,22 @@ def accept_invitation(db: Session, token: str, password: str) -> User | None:
         or expires_at <= now
     ):
         return None
-    membership = db.get(CompanyMembership, invitation.membership_id)
+
+    # Acquire row-level lock on the associated company membership
+    membership = db.scalar(
+        select(CompanyMembership)
+        .where(CompanyMembership.id == invitation.membership_id)
+        .with_for_update()
+    )
     if membership is None or membership.status != 'pending':
         return None
-    user = db.get(User, membership.user_id)
+
+    # Acquire row-level lock on the user record
+    user = db.scalar(
+        select(User)
+        .where(User.id == membership.user_id)
+        .with_for_update()
+    )
     company = db.get(Company, membership.company_id)
     if user is None or company is None or not company.is_active or (not user.is_active and user.password_hash is not None):
         return None

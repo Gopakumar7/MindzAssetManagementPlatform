@@ -4,7 +4,7 @@ from datetime import date
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from fastapi import HTTPException
 
@@ -198,6 +198,110 @@ def test_concurrent_receipts_cannot_over_receive_purchase_order_line():
             ).all()
             assert len(lines) == 1
             assert sum(receipt_line.quantity_received for receipt_line in lines) == 2
+    finally:
+        setup.close()
+        engine.dispose()
+
+
+@pytest.mark.skipif(not os.getenv('TEST_DATABASE_URL'), reason='set TEST_DATABASE_URL to run PostgreSQL concurrency integration')
+def test_concurrent_invitation_acceptance_allows_only_one_success():
+    from app.authentication import accept_invitation, create_invitation, digest, password_hasher
+    from app.models import CompanyMembership, UserInvitation
+
+    engine = create_engine(os.environ['TEST_DATABASE_URL'], pool_pre_ping=True)
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    setup = sessions()
+    try:
+        seed_security_defaults(setup)
+        company = create_company(
+            setup,
+            CompanyCreate(code=f'IV{uuid4().hex[:12]}', name='Invitation concurrency test', number_prefix='INV'),
+        )
+        admin = User(
+            email=f'admin-{uuid4().hex[:8]}@example.invalid',
+            password_hash=password_hasher.hash('Admin-Pass-42!'),
+            is_active=True,
+        )
+        setup.add(admin)
+        setup.flush()
+
+        role = setup.scalar(select(Role).where(Role.code == 'read_only_user', Role.scope == 'company'))
+        # 1. Test concurrent acceptance for new user
+        membership, raw_token = create_invitation(
+            setup,
+            company_id=company.id,
+            email=f'new-user-{uuid4().hex[:8]}@example.invalid',
+            role=role,
+            assigned_by_id=admin.id,
+        )
+        setup.commit()
+
+        def accept_worker(index: int) -> bool:
+            with sessions() as session:
+                user = accept_invitation(session, raw_token, 'ValidPass-Concurrent-123!')
+                if user is not None:
+                    session.commit()
+                    return True
+                else:
+                    session.rollback()
+                    return False
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            results = list(executor.map(accept_worker, range(4)))
+
+        # Exactly one acceptance must succeed; all concurrent attempts must be rejected
+        assert results.count(True) == 1, f"Expected 1 success, got {results.count(True)}"
+        assert results.count(False) == 3, f"Expected 3 rejections, got {results.count(False)}"
+
+        with sessions() as verify:
+            inv = verify.scalar(select(UserInvitation).where(UserInvitation.token_hash == digest(raw_token)))
+            assert inv.accepted_at is not None
+            mem = verify.scalar(select(CompanyMembership).where(CompanyMembership.id == inv.membership_id))
+            assert mem.status == 'active'
+            usr = verify.scalar(select(User).where(User.id == mem.user_id))
+            assert usr.is_active is True
+
+        # 2. Test concurrent acceptance for existing user preserves original password
+        orig_pass = 'Existing-Pass-42!'
+        existing_user = User(
+            email=f'existing-{uuid4().hex[:8]}@example.invalid',
+            password_hash=password_hasher.hash(orig_pass),
+            is_active=True,
+        )
+        setup.add(existing_user)
+        setup.flush()
+
+        membership2, raw_token2 = create_invitation(
+            setup,
+            company_id=company.id,
+            email=existing_user.email,
+            role=role,
+            assigned_by_id=admin.id,
+        )
+        setup.commit()
+
+        def accept_existing_worker(index: int) -> bool:
+            with sessions() as session:
+                user = accept_invitation(session, raw_token2, 'AttackerPass-Concurrent-999!')
+                if user is not None:
+                    session.commit()
+                    return True
+                else:
+                    session.rollback()
+                    return False
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            results2 = list(executor.map(accept_existing_worker, range(4)))
+
+        assert results2.count(True) == 1
+        assert results2.count(False) == 3
+
+        with sessions() as verify2:
+            usr2 = verify2.scalar(select(User).where(User.email == existing_user.email))
+            # Verify original password hash is untouched
+            assert password_hasher.verify(usr2.password_hash, orig_pass) is True
+
     finally:
         setup.close()
         engine.dispose()
