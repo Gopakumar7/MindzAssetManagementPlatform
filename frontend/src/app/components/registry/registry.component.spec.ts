@@ -3344,5 +3344,24 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       const importComp = fixture.nativeElement.querySelector('app-asset-import');
       expect(importComp).toBeTruthy();
     });
-  });
+    describe('Superuser Company & User Access Management', () => {
+    it('should return all company roles for superusers regardless of company-level permissions', () => {
+      permissions.clear();
+      permissions.add('company.read');
+      component.companyRoles = [
+        { scope: 'company', code: 'company_administrator', name: 'Company Administrator', permissions: ['company.members.manage', 'asset.create'] },
+        { scope: 'company', code: 'read_only_user', name: 'Read-only User', permissions: ['company.read'] }
+      ];
+      expect(component.assignableCompanyRoles.map(r => r.code)).toEqual(['read_only_user']);
 
+      permissions.add('system.companies.manage');
+      expect(component.assignableCompanyRoles.map(r => r.code)).toEqual(['company_administrator', 'read_only_user']);
+    });
+
+    it('should switch company scope on onInviteCompanyChange', () => {
+      spyOn(component, 'selectCompany');
+      component.onInviteCompanyChange('company-2');
+      expect(component.selectCompany).toHaveBeenCalledWith('company-2');
+    });
+  });
+});

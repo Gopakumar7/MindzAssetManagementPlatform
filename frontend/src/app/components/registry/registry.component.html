@@ -121,7 +121,7 @@
     @if (can('asset.read') || can('maintenance.read') || can('procurement.read') || can('verification.read')) {
       <button type="button" [class.active]="activeView === 'reports'" (click)="setView('reports')" [disabled]="!companyId">Reports</button>
     }
-    @if (companyId && can('company.members.manage')) {
+    @if (companyId && (can('company.members.manage') || can('system.companies.manage') || can('system.users.manage'))) {
       <button type="button" [class.active]="activeView === 'users-access'" (click)="setView('users-access')">Users & Access</button>
     }
     @if (can('organization.read')) {
@@ -1270,16 +1270,25 @@
           }
         </div>
       </div>
-      @if (companyId && can('company.members.manage')) {
+      @if (companyId && (can('company.members.manage') || can('system.companies.manage') || can('system.users.manage'))) {
         <h3>Invite a user</h3>
         <form class="form-grid" (ngSubmit)="inviteCompanyMember()">
+          @if (can('system.companies.manage') || can('system.users.manage') || companies.length > 1) {
+            <label>Company
+              <select name="inviteCompany" [ngModel]="companyId" (ngModelChange)="onInviteCompanyChange($event)" required>
+                @for (item of companies; track item.id) {
+                  <option [value]="item.id">{{ item.name }} ({{ item.code }})</option>
+                }
+              </select>
+            </label>
+          }
           <label>Email address<input type="email" name="inviteEmail" [(ngModel)]="inviteEmail" required></label>
           <label>Company role<select name="inviteRole" [(ngModel)]="inviteRoleCode" required>
             @for (role of assignableCompanyRoles; track role.code) {
               <option [value]="role.code">{{ role.name }}</option>
             }
           </select></label>
-          <div class="form-actions"><button class="primary" type="submit" [disabled]="!inviteEmail.trim() || !inviteRoleCode">Create invitation</button></div>
+          <div class="form-actions"><button class="primary" type="submit" [disabled]="!companyId || !inviteEmail.trim() || !inviteRoleCode">Create invitation</button></div>
         </form>
         @if (invitation) {
           <div class="notice warning">

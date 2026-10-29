@@ -563,6 +563,9 @@ export class RegistryComponent implements OnInit, OnDestroy {
   }
 
   get assignableCompanyRoles(): CompanyRole[] {
+    if (this.can('system.rbac.manage') || this.can('system.companies.manage') || this.can('system.users.manage')) {
+      return this.companyRoles;
+    }
     const permissions = this.auth.permissions(this.companyId);
     return this.companyRoles.filter((role) => role.permissions.every((permission) => permissions.has(permission)));
   }
@@ -695,7 +698,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
   loadCompanyMembers(): void {
     this.members = [];
     this.companyRoles = [];
-    if (!this.companyId || !this.can('company.members.manage')) {
+    if (!this.companyId || (!this.can('company.members.manage') && !this.can('system.users.manage') && !this.can('system.companies.manage'))) {
       return;
     }
     forkJoin({
@@ -705,12 +708,17 @@ export class RegistryComponent implements OnInit, OnDestroy {
       next: ({ members, roles }) => {
         this.members = members;
         this.companyRoles = roles;
-        if (!this.inviteRoleCode) {
-          this.inviteRoleCode = this.assignableCompanyRoles[0]?.code ?? '';
+        const assignable = this.assignableCompanyRoles;
+        if (!assignable.some((r) => r.code === this.inviteRoleCode)) {
+          this.inviteRoleCode = assignable[0]?.code ?? '';
         }
       },
       error: (error) => this.fail(error)
     });
+  }
+
+  onInviteCompanyChange(id: string): void {
+    this.selectCompany(id);
   }
 
   inviteCompanyMember(): void {

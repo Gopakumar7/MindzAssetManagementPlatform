@@ -108,7 +108,8 @@ def invite_member(
 
     actor_permissions = permission_codes(db, actor.user.id, company_id)
     actor_permissions.update(permission_codes(db, actor.user.id))
-    if not assigned_permission_codes(db, role.id).issubset(actor_permissions):
+    is_system_admin = actor_has_permission(db, actor.user.id, None, 'system.rbac.manage') or actor_has_permission(db, actor.user.id, None, 'system.users.manage')
+    if not is_system_admin and not assigned_permission_codes(db, role.id).issubset(actor_permissions):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Cannot grant permissions you do not hold')
     if existing_user is not None and not existing_user.is_active and existing_user.password_hash is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='This account is inactive')

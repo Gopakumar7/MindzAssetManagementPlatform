@@ -196,6 +196,15 @@ def test_reissuing_invitation_invalidates_the_previous_token(client, db_session)
     ).status_code == 200
 
 
+def test_system_admin_can_invite_any_company_role(client, db_session):
+    company = _company(db_session, 'SYSADMIN-INVITE')
+    path = f'/api/v1/security/companies/{company.id}/invitations'
+    res = client.post(path, json={'email': 'sysadmin.invited@example.invalid', 'role_code': 'company_administrator'})
+    assert res.status_code == 201
+    assert res.json()['email'] == 'sysadmin.invited@example.invalid'
+    assert res.json()['token'] is not None
+
+
 def test_audit_events_reject_orm_mutation(db_session):
     audit_event = models.AuditEvent(action='test', entity_type='Test', outcome='success')
     db_session.add(audit_event)
