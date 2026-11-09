@@ -15,7 +15,13 @@ from app.models import (
     CostCenter,
     Department,
     Location,
+    ReferenceSequence,
     Site,
+)
+from app.reference_service import (
+    ReferenceNumberService,
+    ReservedPrefixCollisionError,
+    SequenceNotFoundError,
 )
 from app.schemas import AssetCreate, AssetUpdate, CompanyCreate
 
@@ -44,13 +50,30 @@ def get_scoped(db: Session, model, company_id: UUID, item_id: UUID, label: str):
 
 
 def create_company(db: Session, payload: CompanyCreate) -> Company:
+    prefix_base = (payload.number_prefix or "").strip().upper()
+    if not prefix_base:
+        raise HTTPException(
+            status_code=422,
+            detail="An explicit number_prefix is required for company creation and numbering provisioning.",
+        )
+
     company = Company(code=payload.code.strip(), name=payload.name.strip(), is_active=payload.is_active)
     db.add(company)
     db.flush()
+
+    try:
+        ReferenceNumberService.provision_company_sequences(db, company.id, prefix_base=prefix_base)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail=f"Company provisioning failed during reference sequence initialization: {exc}",
+        ) from exc
+
     db.add(
         AssetNumberRule(
             company_id=company.id,
-            prefix=payload.number_prefix,
+            prefix=prefix_base,
             separator=payload.number_separator,
             padding=payload.number_padding,
             next_value=1,
@@ -107,38 +130,19 @@ def record_history(db: Session, asset: Asset, event_type: str, field_name: str |
     )
 
 
-def next_asset_number(db: Session, company_id: UUID, category_id: UUID) -> str:
-    format_rule = db.scalar(
-        select(AssetNumberRule).where(
-            AssetNumberRule.company_id == company_id,
-            AssetNumberRule.category_id == category_id,
-        )
+def next_asset_number(db: Session, company_id: UUID, category_id: UUID | None = None) -> str:
+    """
+    Centralized asset number allocator helper.
+    Delegates directly to ReferenceNumberService as the sole allocator.
+    Category-specific legacy rules no longer override the central sequence.
+    Allocation occurs within caller's active database transaction without internal commits.
+    """
+    return ReferenceNumberService.allocate(
+        db,
+        company_id,
+        "asset",
+        is_permanent=True,
     )
-    default_rule = db.scalar(
-        select(AssetNumberRule).where(
-            AssetNumberRule.company_id == company_id,
-            AssetNumberRule.category_id.is_(None),
-        )
-    )
-    if default_rule is None:
-        raise HTTPException(status_code=422, detail='No asset numbering rule is configured for this company or category')
-    rule = format_rule or default_rule
-
-    while True:
-        allocated = db.scalar(
-            update(AssetNumberRule)
-            .where(AssetNumberRule.id == default_rule.id)
-            .values(next_value=AssetNumberRule.next_value + 1)
-            .returning(AssetNumberRule.next_value - 1)
-        )
-        if allocated is None:
-            raise HTTPException(status_code=409, detail='Unable to allocate an asset number')
-        candidate = f'{rule.prefix}{rule.separator}{allocated:0{rule.padding}d}'
-        duplicate = db.scalar(
-            select(Asset.id).where(Asset.company_id == company_id, Asset.asset_number == candidate)
-        )
-        if duplicate is None:
-            return candidate
 
 
 def create_asset(
@@ -154,21 +158,43 @@ def create_asset(
         db, company_id, payload.category_id, payload.site_id, payload.location_id,
         payload.responsible_department_id, payload.cost_center_id,
     )
-    if payload.asset_number:
-        allocator_id = db.scalar(
-            update(AssetNumberRule)
-            .where(
-                AssetNumberRule.company_id == company_id,
-                AssetNumberRule.category_id.is_(None),
-            )
-            .values(next_value=AssetNumberRule.next_value)
-            .returning(AssetNumberRule.id)
-        )
-        if allocator_id is None:
-            raise HTTPException(status_code=422, detail='No company asset numbering rule is configured')
+    if payload.asset_number and payload.asset_number.strip():
         number = payload.asset_number.strip()
+        try:
+            ReferenceNumberService.validate_manual_identifier(
+                db, company_id, "asset", number
+            )
+        except SequenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Company {company_id} has not been provisioned with asset numbering rules.",
+            ) from exc
+        except ReservedPrefixCollisionError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from exc
+
+        # 2. Duplicate check within company:
+        dup = db.scalar(
+            select(Asset.id).where(
+                Asset.company_id == company_id,
+                Asset.asset_number == number,
+            )
+        )
+        if dup is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Asset number '{number}' already exists in this company",
+            )
     else:
-        number = next_asset_number(db, company_id, payload.category_id)
+        number = ReferenceNumberService.allocate(
+            db,
+            company_id,
+            "asset",
+            is_permanent=True,
+        )
+
     asset = Asset(
         company_id=company.id,
         asset_number=number,

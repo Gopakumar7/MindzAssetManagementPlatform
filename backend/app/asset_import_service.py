@@ -25,6 +25,7 @@ from app.models import (
     CostCenter,
     Department,
     Location,
+    ReferenceSequence,
     Site,
 )
 from app.schemas import (
@@ -519,6 +520,17 @@ def parse_and_validate_file(
         if n
     }
 
+    ref_seq = db.scalar(
+        select(ReferenceSequence).where(
+            ReferenceSequence.company_id == company_id,
+            ReferenceSequence.entity_type == 'asset',
+            ReferenceSequence.fiscal_year == 'PERMANENT',
+            ReferenceSequence.is_active.is_(True),
+        )
+    )
+    managed_prefix = f'{ref_seq.prefix}{ref_seq.separator}'.upper() if ref_seq else None
+    managed_prefix_exact = ref_seq.prefix.upper() if ref_seq else None
+
     errors: list[ImportRowError] = []
     warnings: list[ImportRowWarning] = []
     preview_rows: list[dict[str, Any]] = []
@@ -607,16 +619,31 @@ def parse_and_validate_file(
                         field='asset_number',
                         value=asset_num_val,
                         message='Asset number exceeds maximum length of 80 characters',
+                        code='VALIDATION_ERROR',
                     )
                 )
             a_upper = asset_num_val.upper()
-            if a_upper in batch_asset_numbers:
+            if ref_seq and (a_upper == managed_prefix_exact or (managed_prefix and a_upper.startswith(managed_prefix))):
+                row_errors.append(
+                    ImportRowError(
+                        row_number=idx,
+                        field='asset_number',
+                        value=asset_num_val,
+                        message=(
+                            f"Manual asset number '{asset_num_val}' conflicts with the managed sequence prefix '{ref_seq.prefix}'. "
+                            f"Manual identifiers cannot use the active generated prefix."
+                        ),
+                        code='RESERVED_NAMESPACE_CONFLICT',
+                    )
+                )
+            elif a_upper in batch_asset_numbers:
                 row_errors.append(
                     ImportRowError(
                         row_number=idx,
                         field='asset_number',
                         value=asset_num_val,
                         message=f"Duplicate asset number '{asset_num_val}' within this spreadsheet batch",
+                        code='DUPLICATE_IDENTIFIER',
                     )
                 )
             elif a_upper in existing_asset_numbers:
@@ -626,6 +653,7 @@ def parse_and_validate_file(
                         field='asset_number',
                         value=asset_num_val,
                         message=f"Asset number '{asset_num_val}' already exists in this company",
+                        code='DUPLICATE_IDENTIFIER',
                     )
                 )
             else:
@@ -990,6 +1018,11 @@ def confirm_import(
             },
         )
         db.commit()
+    except HTTPException:
+        db.rollback()
+        with _STAGING_LOCK:
+            staged.is_processing = False
+        raise
     except Exception as exc:
         db.rollback()
         with _STAGING_LOCK:

@@ -62,10 +62,12 @@ from app.models import (
     VerificationDiscrepancy,
     VerificationExpectedAsset,
     VerificationObservation,
+    ReferenceSequence,
 )
 from app.notification_service import NotificationService
 from app.security_seed import seed_security_defaults
 from app.services import INITIAL_CATEGORIES, next_asset_number
+from app.reference_service import ReferenceNumberService
 
 logger = logging.getLogger('demo_seeder')
 
@@ -230,6 +232,20 @@ def seed_demo_data(db: Session, options: SeederOptions) -> SeedingSummary:
         summary.record('Asset Number Rule', created=True)
     else:
         summary.record('Asset Number Rule', created=False)
+
+    ref_seq = db.scalar(
+        select(ReferenceSequence).where(
+            ReferenceSequence.company_id == company.id,
+            ReferenceSequence.entity_type == 'asset',
+            ReferenceSequence.fiscal_year == 'PERMANENT',
+        )
+    )
+    if not ref_seq:
+        ReferenceNumberService.provision_company_sequences(db, company.id, prefix_base=DEMO_PREFIX)
+        db.flush()
+        summary.record('Reference Sequence', created=True)
+    else:
+        summary.record('Reference Sequence', created=False)
 
     # 2. Asset Categories
     category_map: dict[str, AssetCategory] = {}

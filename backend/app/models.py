@@ -3,6 +3,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -1059,5 +1060,44 @@ class NotificationDelivery(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
+class ReferenceSequence(Base):
+    __tablename__ = 'reference_sequences'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'entity_type', 'fiscal_year', name='uq_reference_sequences_company_entity_fy'),
+        Index('ix_reference_sequences_lookup', 'company_id', 'entity_type', 'is_active'),
+    )
 
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    fiscal_year: Mapped[str] = mapped_column(String(10), nullable=False)
+    prefix: Mapped[str] = mapped_column(String(32), nullable=False)
+    separator: Mapped[str] = mapped_column(String(4), nullable=False, default='-')
+    padding: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    current_value: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class ReferenceSequenceAudit(Base):
+    __tablename__ = 'reference_sequence_audits'
+    __table_args__ = (
+        Index('ix_reference_sequence_audits_sequence_id', 'sequence_id'),
+        Index('ix_reference_sequence_audits_company_id', 'company_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    sequence_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('reference_sequences.id', ondelete='CASCADE'), nullable=False)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    fiscal_year: Mapped[str] = mapped_column(String(10), nullable=False)
+    old_prefix: Mapped[str] = mapped_column(String(32), nullable=False)
+    new_prefix: Mapped[str] = mapped_column(String(32), nullable=False)
+    old_padding: Mapped[int] = mapped_column(Integer, nullable=False)
+    new_padding: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    performed_by_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='RESTRICT'), nullable=False)
+    ticket_reference: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

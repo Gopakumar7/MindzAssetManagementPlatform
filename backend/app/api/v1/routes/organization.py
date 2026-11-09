@@ -214,37 +214,69 @@ def edit_category(company_id: UUID, category_id: UUID, payload: CategoryUpdate, 
     return update_scoped(db, AssetCategory, company_id, category_id, payload, 'Asset category')
 
 
+RETIRED_NUMBER_RULE_DETAIL = (
+    'Legacy numbering rules are retired and cannot be created, modified, or deleted. '
+    'Asset reference numbers are now centrally managed by ReferenceNumberService.'
+)
+
+
 @router.get('/companies/{company_id}/numbering-rules', response_model=list[NumberRuleRead], dependencies=[Depends(require_permission('organization.read'))])
 def list_number_rules(company_id: UUID, db: Session = Depends(get_db)):
+    """
+    Read-only access to legacy AssetNumberRule records for backward compatibility.
+    Configuration is non-authoritative; ReferenceNumberService is the active reference allocator.
+    """
     get_company(db, company_id)
     return db.scalars(
         select(AssetNumberRule).where(AssetNumberRule.company_id == company_id).order_by(AssetNumberRule.category_id)
     ).all()
 
 
-@router.put('/companies/{company_id}/numbering-rules', response_model=NumberRuleRead, dependencies=[Depends(require_permission('organization.manage'))])
-def put_number_rule(
+@router.post('/companies/{company_id}/numbering-rules', status_code=status.HTTP_409_CONFLICT, dependencies=[Depends(require_permission('organization.manage'))])
+def create_number_rule(
     company_id: UUID,
-    payload: NumberRuleWrite,
+    payload: NumberRuleWrite | None = None,
     category_id: UUID | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    get_company(db, company_id, active=True)
-    if category_id is not None:
-        get_scoped(db, AssetCategory, company_id, category_id, 'Asset category')
-    rule = db.scalar(
-        select(AssetNumberRule).where(
-            AssetNumberRule.company_id == company_id,
-            AssetNumberRule.category_id == category_id if category_id is not None else AssetNumberRule.category_id.is_(None),
-        )
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=RETIRED_NUMBER_RULE_DETAIL,
     )
-    if rule is None:
-        rule = AssetNumberRule(company_id=company_id, category_id=category_id, next_value=1, **payload.model_dump())
-        db.add(rule)
-    else:
-        rule.prefix = payload.prefix
-        rule.separator = payload.separator
-        rule.padding = payload.padding
-    commit(db)
-    db.refresh(rule)
-    return rule
+
+
+@router.put('/companies/{company_id}/numbering-rules', status_code=status.HTTP_409_CONFLICT, dependencies=[Depends(require_permission('organization.manage'))])
+def put_number_rule(
+    company_id: UUID,
+    payload: NumberRuleWrite | None = None,
+    category_id: UUID | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=RETIRED_NUMBER_RULE_DETAIL,
+    )
+
+
+@router.delete('/companies/{company_id}/numbering-rules', status_code=status.HTTP_409_CONFLICT, dependencies=[Depends(require_permission('organization.manage'))])
+def delete_number_rule(
+    company_id: UUID,
+    category_id: UUID | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=RETIRED_NUMBER_RULE_DETAIL,
+    )
+
+
+@router.delete('/companies/{company_id}/numbering-rules/{rule_id}', status_code=status.HTTP_409_CONFLICT, dependencies=[Depends(require_permission('organization.manage'))])
+def delete_number_rule_by_id(
+    company_id: UUID,
+    rule_id: UUID,
+    db: Session = Depends(get_db),
+):
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=RETIRED_NUMBER_RULE_DETAIL,
+    )

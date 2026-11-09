@@ -249,6 +249,11 @@ class NumberRuleRead(Record):
     separator: str
     padding: int
     updated_at: datetime
+    is_legacy: bool = True
+    is_authoritative: bool = False
+    status_note: str = (
+        'Legacy configuration. Asset reference numbering is centrally managed by ReferenceNumberService.'
+    )
 
 
 class AssetCreate(BaseModel):
@@ -336,6 +341,7 @@ class ImportRowError(BaseModel):
     field: str
     value: str | None = None
     message: str
+    code: str | None = None
 
 
 class ImportRowWarning(BaseModel):

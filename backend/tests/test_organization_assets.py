@@ -49,14 +49,22 @@ def test_asset_numbering_precedence_manual_duplicate_and_invalid_rule(client):
     desktop = next(category for category in categories if category['code'] == 'DESKTOP')
     server = next(category for category in categories if category['code'] == 'SERVER')
 
+    # 1. Read-only legacy numbering rule is marked legacy and non-authoritative
     default_rule = client.get(f"/api/v1/companies/{company['id']}/numbering-rules").json()[0]
     assert default_rule['prefix'] == 'DEFAULT'
+    assert default_rule['is_legacy'] is True
+    assert default_rule['is_authoritative'] is False
+    assert 'Legacy configuration' in default_rule['status_note']
+
+    # 2. Legacy write operations are retired with HTTP 409 Conflict
     category_rule = client.put(
         f"/api/v1/companies/{company['id']}/numbering-rules?category_id={laptop['id']}",
         json={'prefix': 'LAP', 'separator': '-', 'padding': 4},
     )
-    assert category_rule.status_code == 200
+    assert category_rule.status_code == 409
+    assert 'Legacy numbering rules are retired' in category_rule.json()['detail']
 
+    # Under centralized reference numbering, assets allocate sequentially from ReferenceNumberService
     first = client.post(
         f"/api/v1/companies/{company['id']}/assets",
         json={'category_id': laptop['id'], 'serial_number': 'SN-1'},
@@ -67,46 +75,61 @@ def test_asset_numbering_precedence_manual_duplicate_and_invalid_rule(client):
     )
     assert first.status_code == 201, first.text
     assert second.status_code == 201, second.text
-    assert first.json()['asset_number'] == 'LAP-0001'
-    assert second.json()['asset_number'] == 'DEFAULT-000002'
+    assert first.json()['asset_number'] == 'DEFAULT-AST-000001'
+    assert second.json()['asset_number'] == 'DEFAULT-AST-000002'
     assert first.json()['id'] != second.json()['id']
 
-    same_prefix_rule = client.put(
-        f"/api/v1/companies/{company['id']}/numbering-rules?category_id={server['id']}",
-        json={'prefix': 'LAP', 'separator': '-', 'padding': 4},
-    )
-    assert same_prefix_rule.status_code == 200
     third = client.post(
         f"/api/v1/companies/{company['id']}/assets",
         json={'category_id': server['id']},
     )
     assert third.status_code == 201, third.text
-    assert third.json()['asset_number'] == 'LAP-0003'
+    assert third.json()['asset_number'] == 'DEFAULT-AST-000003'
     assert len({first.json()['asset_number'], second.json()['asset_number'], third.json()['asset_number']}) == 3
 
+    # Manual numbering with external identifier is preserved and does not alter central sequence
     manually_numbered = client.post(
         f"/api/v1/companies/{company['id']}/assets",
-        json={'category_id': desktop['id'], 'asset_number': 'LAP-0004'},
+        json={'category_id': desktop['id'], 'asset_number': 'EXT-CUSTOM-001'},
     )
+    assert manually_numbered.status_code == 201, manually_numbered.text
+    assert manually_numbered.json()['asset_number'] == 'EXT-CUSTOM-001'
+
+    # Next auto-generated asset continues central sequence without gaps or resets
     fourth = client.post(
         f"/api/v1/companies/{company['id']}/assets",
         json={'category_id': server['id']},
     )
-    assert manually_numbered.status_code == 201, manually_numbered.text
     assert fourth.status_code == 201, fourth.text
-    assert fourth.json()['asset_number'] == 'LAP-0005'
+    assert fourth.json()['asset_number'] == 'DEFAULT-AST-000004'
+
+    # Manual numbering attempting to hijack the managed prefix namespace is rejected (HTTP 422)
+    managed_prefix_collision = client.post(
+        f"/api/v1/companies/{company['id']}/assets",
+        json={'category_id': desktop['id'], 'asset_number': 'DEFAULT-AST-999999'},
+    )
+    assert managed_prefix_collision.status_code == 422
+    assert 'conflicts with the managed sequence prefix' in managed_prefix_collision.json()['detail']
 
     duplicate = client.post(
         f"/api/v1/companies/{company['id']}/assets",
-        json={'category_id': desktop['id'], 'asset_number': first.json()['asset_number']},
+        json={'category_id': desktop['id'], 'asset_number': manually_numbered.json()['asset_number']},
     )
     assert duplicate.status_code == 409
 
-    invalid_rule = client.put(
-        f"/api/v1/companies/{company['id']}/numbering-rules?category_id={desktop['id']}",
-        json={'prefix': 'bad prefix', 'separator': '-', 'padding': 3},
+    # Additional write operations to numbering rules all return 409 Conflict
+    post_rule = client.post(
+        f"/api/v1/companies/{company['id']}/numbering-rules",
+        json={'prefix': 'NEW', 'separator': '-', 'padding': 6},
     )
-    assert invalid_rule.status_code == 422
+    assert post_rule.status_code == 409
+    assert 'Legacy numbering rules are retired' in post_rule.json()['detail']
+
+    delete_rule = client.delete(
+        f"/api/v1/companies/{company['id']}/numbering-rules",
+    )
+    assert delete_rule.status_code == 409
+    assert 'Legacy numbering rules are retired' in delete_rule.json()['detail']
 
 
 def test_assets_validate_company_relationships_and_preserve_fields(client):
