@@ -433,6 +433,7 @@ def seed_demo_data(db: Session, options: SeederOptions) -> SeedingSummary:
             company_id=company.id,
             supplier_id=supplier_map['DEMO-DELL'].id,
             order_number='DEMO-PO-2026-001',
+            origin='INTERNAL',
             status='received',
             ordered_date=today - timedelta(days=180),
             expected_date=today - timedelta(days=165),
@@ -530,6 +531,7 @@ def seed_demo_data(db: Session, options: SeederOptions) -> SeedingSummary:
             company_id=company.id,
             supplier_id=supplier_map['DEMO-APPLE'].id,
             order_number='DEMO-PO-2026-002',
+            origin='INTERNAL',
             status='partially_received',
             ordered_date=today - timedelta(days=60),
             expected_date=today - timedelta(days=45),
@@ -625,6 +627,7 @@ def seed_demo_data(db: Session, options: SeederOptions) -> SeedingSummary:
             company_id=company.id,
             supplier_id=supplier_map['DEMO-CISCO'].id,
             order_number='DEMO-PO-2026-003',
+            origin='INTERNAL',
             status='open',
             ordered_date=today - timedelta(days=25),
             expected_date=today - timedelta(days=3),  # 3 days overdue!

@@ -603,7 +603,6 @@ def test_tenant_procurement_isolation(client, isolation_data, db_session):
         f"/api/v1/companies/{data['comp_a_id']}/purchase-orders",
         json={
             'supplier_id': str(data['supplier_b'].id),
-            'order_number': 'PO-A-CROSS-1',
             'ordered_date': str(date.today()),
             'lines': [{
                 'category_id': str(data['cat_a_id']),
@@ -621,7 +620,6 @@ def test_tenant_procurement_isolation(client, isolation_data, db_session):
         f"/api/v1/companies/{data['comp_a_id']}/purchase-orders",
         json={
             'supplier_id': str(data['supplier_a'].id),
-            'order_number': 'PO-A-CROSS-2',
             'ordered_date': str(date.today()),
             'lines': [{
                 'category_id': str(data['cat_b_id']),
@@ -638,7 +636,6 @@ def test_tenant_procurement_isolation(client, isolation_data, db_session):
     gr_cross_po = client.post(
         f"/api/v1/companies/{data['comp_a_id']}/purchase-orders/{data['po_b'].id}/goods-receipts",
         json={
-            'receipt_number': 'GR-HACK-01',
             'received_date': str(date.today()),
             'lines': [{
                 'purchase_order_line_id': str(data['po_line_b'].id),

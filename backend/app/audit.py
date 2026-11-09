@@ -60,12 +60,13 @@ _AUDITED_FIELDS: dict[type, tuple[str, ...]] = {
     ),
     Supplier: ('company_id', 'code', 'name', 'email', 'phone', 'notes', 'is_active'),
     PurchaseOrder: (
-        'company_id', 'supplier_id', 'order_number', 'status', 'ordered_date',
+        'company_id', 'supplier_id', 'order_number', 'origin', 'source_system',
+        'source_instance_id', 'external_reference', 'status', 'ordered_date',
         'expected_date', 'notes',
     ),
     PurchaseOrderLine: (
         'company_id', 'purchase_order_id', 'category_id', 'description',
-        'quantity_ordered', 'unit_cost',
+        'quantity_ordered', 'unit_cost', 'external_line_id', 'line_number',
     ),
     GoodsReceipt: (
         'company_id', 'purchase_order_id', 'receipt_number', 'received_date',

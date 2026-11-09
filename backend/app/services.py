@@ -6,6 +6,9 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models import (
+    GoodsReceiptLine,
+    PurchaseOrder,
+    PurchaseOrderLine,
     Asset,
     AssetCategory,
     AssetDepartmentUsage,
@@ -252,3 +255,79 @@ def get_page(db: Session, query, page: int, page_size: int):
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     items = db.scalars(query.offset((page - 1) * page_size).limit(page_size)).all()
     return {'items': items, 'total': total, 'page': page, 'page_size': page_size}
+
+def calculate_purchase_order_status(db: Session, order: PurchaseOrder) -> str:
+    """
+    Authoritative line-level status determination for a Purchase Order.
+
+    Status determination rules:
+    1. OPEN:
+       - No active PO line has any received quantity (or PO has no active lines).
+    2. PARTIALLY_RECEIVED:
+       - At least one active PO line has received quantity (> 0), AND
+       - At least one active PO line still has outstanding quantity (received < ordered).
+    3. RECEIVED:
+       - Every active PO line has been fully received (received >= ordered, for all lines, with line count > 0).
+       - Over-receipt on one line must NEVER compensate for under-receipt on another line.
+
+    Received quantity aggregation is calculated directly from actual GoodsReceiptLine records.
+    """
+    if order.status == 'cancelled':
+        return 'cancelled'
+    db.flush()
+    stmt = (
+        select(
+            PurchaseOrderLine.id,
+            PurchaseOrderLine.quantity_ordered,
+            func.coalesce(
+                func.sum(
+                    GoodsReceiptLine.quantity_received
+                    - GoodsReceiptLine.quantity_rejected
+                ),
+                0,
+            ).label('received_qty'),
+        )
+        .outerjoin(
+            GoodsReceiptLine,
+            (GoodsReceiptLine.purchase_order_line_id == PurchaseOrderLine.id)
+            & (GoodsReceiptLine.company_id == PurchaseOrderLine.company_id),
+        )
+        .where(
+            PurchaseOrderLine.company_id == order.company_id,
+            PurchaseOrderLine.purchase_order_id == order.id,
+        )
+        .group_by(PurchaseOrderLine.id, PurchaseOrderLine.quantity_ordered)
+    )
+    results = db.execute(stmt).all()
+
+    if not results:
+        return 'open'
+
+    has_any_received = False
+    all_fully_received = True
+
+    for _, qty_ordered, qty_received in results:
+        if qty_received > 0:
+            has_any_received = True
+        if qty_received < qty_ordered:
+            all_fully_received = False
+
+    if all_fully_received:
+        return 'received'
+    elif has_any_received:
+        return 'partially_received'
+    else:
+        return 'open'
+
+
+def recalculate_purchase_order_status(db: Session, order: PurchaseOrder) -> str:
+    """
+    Recalculates and updates order.status using authoritative line-level status rules.
+    Returns the updated status string.
+    """
+    if order.status == 'cancelled':
+        return 'cancelled'
+    new_status = calculate_purchase_order_status(db, order)
+    order.status = new_status
+    return new_status
+

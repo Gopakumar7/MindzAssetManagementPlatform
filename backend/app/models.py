@@ -351,8 +351,29 @@ class PurchaseOrder(Base):
         UniqueConstraint('company_id', 'id', name='uq_purchase_orders_company_id_id'),
         UniqueConstraint('company_id', 'order_number', name='uq_purchase_orders_company_number'),
         CheckConstraint(
-            "status IN ('open', 'partially_received', 'received')",
+            "status IN ('open', 'partially_received', 'received', 'cancelled')",
             name='ck_purchase_orders_status',
+        ),
+        CheckConstraint(
+            "origin IN ('INTERNAL', 'EXTERNAL')",
+            name='ck_purchase_orders_origin',
+        ),
+        CheckConstraint(
+            "(origin = 'INTERNAL' AND source_system IS NULL AND source_instance_id IS NULL AND external_reference IS NULL AND external_system_id IS NULL AND external_last_synced_at IS NULL AND external_updated_at IS NULL AND external_payload_hash IS NULL) OR "
+            "(origin = 'EXTERNAL' AND source_system IS NOT NULL AND source_instance_id IS NOT NULL AND external_reference IS NOT NULL)",
+            name='ck_purchase_orders_origin_fields',
+        ),
+        Index(
+            'uq_purchase_orders_company_source_ext_id',
+            'company_id', 'source_system', 'source_instance_id', 'external_system_id',
+            unique=True,
+            postgresql_where=text("external_system_id IS NOT NULL"),
+        ),
+        Index(
+            'uq_purchase_orders_company_source_ext_ref',
+            'company_id', 'source_system', 'source_instance_id', 'external_reference',
+            unique=True,
+            postgresql_where=text("external_system_id IS NULL AND external_reference IS NOT NULL"),
         ),
         ForeignKeyConstraint(['company_id', 'supplier_id'], ['suppliers.company_id', 'suppliers.id'], ondelete='RESTRICT'),
     )
@@ -361,11 +382,22 @@ class PurchaseOrder(Base):
     company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
     supplier_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
     order_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False, default='INTERNAL', server_default='INTERNAL')
+    source_system: Mapped[str | None] = mapped_column(String(64))
+    source_instance_id: Mapped[str | None] = mapped_column(String(64))
+    external_reference: Mapped[str | None] = mapped_column(String(64))
+    external_system_id: Mapped[str | None] = mapped_column(String(128))
+    external_last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    external_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    external_payload_hash: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(24), nullable=False, default='open')
     ordered_date: Mapped[date] = mapped_column(Date, nullable=False)
     expected_date: Mapped[date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_by_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'))
+    cancellation_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class PurchaseOrderLine(Base):
@@ -374,6 +406,19 @@ class PurchaseOrderLine(Base):
         UniqueConstraint('company_id', 'purchase_order_id', 'id', name='uq_purchase_order_lines_company_order_id'),
         CheckConstraint('quantity_ordered > 0', name='ck_purchase_order_lines_quantity'),
         CheckConstraint('unit_cost >= 0', name='ck_purchase_order_lines_unit_cost'),
+        CheckConstraint('line_number IS NULL OR line_number > 0', name='ck_purchase_order_lines_line_number'),
+        Index(
+            'uq_purchase_order_lines_order_ext_line',
+            'purchase_order_id', 'external_line_id',
+            unique=True,
+            postgresql_where=text("external_line_id IS NOT NULL"),
+        ),
+        Index(
+            'uq_purchase_order_lines_order_line_num',
+            'purchase_order_id', 'line_number',
+            unique=True,
+            postgresql_where=text("line_number IS NOT NULL"),
+        ),
         ForeignKeyConstraint(
             ['company_id', 'purchase_order_id'],
             ['purchase_orders.company_id', 'purchase_orders.id'],
@@ -393,6 +438,8 @@ class PurchaseOrderLine(Base):
     description: Mapped[str] = mapped_column(String(300), nullable=False)
     quantity_ordered: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_cost: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
+    external_line_id: Mapped[str | None] = mapped_column(String(64))
+    line_number: Mapped[int | None] = mapped_column(Integer)
 
 
 class GoodsReceipt(Base):

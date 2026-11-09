@@ -31,7 +31,6 @@ def test_purchase_order_receipt_registers_assets_and_preserves_audit(client, db_
         f"/api/v1/companies/{company['id']}/purchase-orders",
         json={
             'supplier_id': supplier['id'],
-            'order_number': 'PO-DEMO-1',
             'ordered_date': '2026-10-16',
             'lines': [{
                 'category_id': category['id'],
@@ -47,7 +46,6 @@ def test_purchase_order_receipt_registers_assets_and_preserves_audit(client, db_
     receipt_response = client.post(
         f"/api/v1/companies/{company['id']}/purchase-orders/{order['id']}/goods-receipts",
         json={
-            'receipt_number': 'GRN-DEMO-1',
             'received_date': '2026-10-16',
             'delivery_reference': 'DN-55',
             'lines': [{
@@ -107,7 +105,6 @@ def test_receipt_over_ordered_quantity_is_rejected_without_partial_data(client, 
         f"/api/v1/companies/{company['id']}/purchase-orders",
         json={
             'supplier_id': supplier['id'],
-            'order_number': 'PO-DEMO-2',
             'ordered_date': '2026-10-16',
             'lines': [{
                 'category_id': category['id'],
@@ -120,7 +117,6 @@ def test_receipt_over_ordered_quantity_is_rejected_without_partial_data(client, 
     response = client.post(
         f"/api/v1/companies/{company['id']}/purchase-orders/{order['id']}/goods-receipts",
         json={
-            'receipt_number': 'GRN-OVER',
             'received_date': '2026-10-16',
             'lines': [{
                 'purchase_order_line_id': order['lines'][0]['id'],
@@ -131,18 +127,18 @@ def test_receipt_over_ordered_quantity_is_rejected_without_partial_data(client, 
     assert response.status_code == 422
     assert 'exceeds the remaining ordered quantity' in response.json()['detail']
     db_session.expire_all()
-    assert db_session.scalar(select(GoodsReceipt).where(GoodsReceipt.receipt_number == 'GRN-OVER')) is None
+    assert db_session.scalar(select(GoodsReceipt).where(GoodsReceipt.company_id == UUID(company['id']))) is None
     assert db_session.scalar(select(Asset).where(Asset.company_id == UUID(company['id']))) is None
 
 
 def test_procurement_enforces_company_scope_and_management_permission(client, db_session):
     first_company = client.post(
         '/api/v1/companies',
-        json={'code': 'PROC3', 'name': 'Procurement company three'},
+        json={'code': 'PROC3', 'name': 'Procurement company three', 'number_prefix': 'PR3'},
     ).json()
     second_company = client.post(
         '/api/v1/companies',
-        json={'code': 'PROC4', 'name': 'Procurement company four'},
+        json={'code': 'PROC4', 'name': 'Procurement company four', 'number_prefix': 'PR4'},
     ).json()
     supplier = client.post(
         f"/api/v1/companies/{first_company['id']}/suppliers",
@@ -153,7 +149,6 @@ def test_procurement_enforces_company_scope_and_management_permission(client, db
         f"/api/v1/companies/{second_company['id']}/purchase-orders",
         json={
             'supplier_id': supplier['id'],
-            'order_number': 'PO-CROSS',
             'ordered_date': '2026-10-16',
             'lines': [{
                 'category_id': category['id'],
@@ -213,7 +208,6 @@ def test_multiline_purchase_order_creation_totals_and_distinct_categories(client
         f"/api/v1/companies/{company['id']}/purchase-orders",
         json={
             'supplier_id': supplier['id'],
-            'order_number': 'PO-MULTI-001',
             'ordered_date': '2026-10-18',
             'expected_date': '2026-10-25',
             'notes': 'Multi-line office refresh',
@@ -274,7 +268,8 @@ def test_multiline_purchase_order_creation_totals_and_distinct_categories(client
     get_res = client.get(f"/api/v1/companies/{company['id']}/purchase-orders/{order['id']}")
     assert get_res.status_code == 200
     fetched = get_res.json()
-    assert fetched['order_number'] == 'PO-MULTI-001'
+    assert fetched['order_number'] == order['order_number']
+    assert fetched['order_number'].startswith('MLP-PO-')
     assert fetched['total_quantity'] == 23
     assert fetched['total_amount'] == '11305.00'
     assert len(fetched['lines']) == 3
@@ -308,7 +303,6 @@ def test_update_open_purchase_order_add_edit_remove_lines_and_validations(client
         f"/api/v1/companies/{company['id']}/purchase-orders",
         json={
             'supplier_id': supplier['id'],
-            'order_number': 'PO-EDIT-001',
             'ordered_date': '2026-10-18',
             'lines': [
                 {'category_id': cat1['id'], 'description': 'Item A', 'quantity_ordered': 2, 'unit_cost': '100.00'},
@@ -324,7 +318,7 @@ def test_update_open_purchase_order_add_edit_remove_lines_and_validations(client
         f"/api/v1/companies/{company['id']}/purchase-orders/{order['id']}",
         json={
             'supplier_id': supplier['id'],
-            'order_number': 'PO-EDIT-001',
+            'order_number': order['order_number'],
             'ordered_date': '2026-10-18',
             'expected_date': '2026-10-30',
             'notes': 'Updated order notes',
@@ -393,7 +387,6 @@ def test_multiline_goods_receipt_partial_deliveries_and_over_receipt_protection(
         f"/api/v1/companies/{company['id']}/purchase-orders",
         json={
             'supplier_id': supplier['id'],
-            'order_number': 'PO-RCV-001',
             'ordered_date': '2026-10-18',
             'lines': [
                 {'category_id': cat_laptop['id'], 'description': 'Workstation Laptop', 'quantity_ordered': 5, 'unit_cost': '1500.00'},
@@ -409,7 +402,6 @@ def test_multiline_goods_receipt_partial_deliveries_and_over_receipt_protection(
     rcv1_res = client.post(
         f"/api/v1/companies/{company['id']}/purchase-orders/{order['id']}/goods-receipts",
         json={
-            'receipt_number': 'GRN-PARTIAL-1',
             'received_date': '2026-10-19',
             'lines': [
                 {
@@ -451,13 +443,12 @@ def test_multiline_goods_receipt_partial_deliveries_and_over_receipt_protection(
         },
     )
     assert edit_attempt.status_code == 409
-    assert 'only open purchase orders may be modified' in edit_attempt.json()['detail']
+    assert any(m in edit_attempt.json()['detail'] for m in ['because goods have already been received against it', 'only open purchase orders may be modified'])
 
     # Attempt over-receipt on Line 1: ordered 5, received 2, remaining 3. Trying to receive 4 -> 422
     over_res = client.post(
         f"/api/v1/companies/{company['id']}/purchase-orders/{order['id']}/goods-receipts",
         json={
-            'receipt_number': 'GRN-OVER-ATTEMPT',
             'received_date': '2026-10-19',
             'lines': [
                 {
@@ -475,7 +466,6 @@ def test_multiline_goods_receipt_partial_deliveries_and_over_receipt_protection(
     rcv2_res = client.post(
         f"/api/v1/companies/{company['id']}/purchase-orders/{order['id']}/goods-receipts",
         json={
-            'receipt_number': 'GRN-PARTIAL-2',
             'received_date': '2026-10-19',
             'lines': [
                 {
@@ -517,7 +507,6 @@ def test_multiline_goods_receipt_partial_deliveries_and_over_receipt_protection(
     late_rcv = client.post(
         f"/api/v1/companies/{company['id']}/purchase-orders/{order['id']}/goods-receipts",
         json={
-            'receipt_number': 'GRN-LATE',
             'received_date': '2026-10-19',
             'lines': [{'purchase_order_line_id': line_laptop['id'], 'quantity_received': 1}],
         },
@@ -546,7 +535,6 @@ def test_postgresql_multiline_procurement_verification(client, db_session):
         f"/api/v1/companies/{company['id']}/purchase-orders",
         json={
             'supplier_id': supplier['id'],
-            'order_number': 'PO-PGV-001',
             'ordered_date': '2026-10-18',
             'expected_date': '2026-10-28',
             'notes': 'Verification PO with 3 distinct categories',
@@ -611,7 +599,6 @@ def test_postgresql_multiline_procurement_verification(client, db_session):
     rcv1_res = client.post(
         f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}/goods-receipts",
         json={
-            'receipt_number': 'GRN-PGV-01',
             'received_date': '2026-10-19',
             'delivery_reference': 'DEL-01',
             'lines': [
@@ -639,7 +626,6 @@ def test_postgresql_multiline_procurement_verification(client, db_session):
     over_res = client.post(
         f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}/goods-receipts",
         json={
-            'receipt_number': 'GRN-OVER-ATTEMPT',
             'received_date': '2026-10-19',
             'lines': [
                 {
@@ -659,8 +645,7 @@ def test_postgresql_multiline_procurement_verification(client, db_session):
         'Network Laser Printer': 0,
     }
 
-    # Scenario 7: Verify that retrying a receipt cannot create duplicate assets
-    # Retrying the exact receipt is rejected with 409 Conflict
+    # Scenario 7: Verify that manual receipt numbers are rejected and cannot create duplicate assets
     retry_dup_number = client.post(
         f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}/goods-receipts",
         json={
@@ -676,8 +661,8 @@ def test_postgresql_multiline_procurement_verification(client, db_session):
             ],
         },
     )
-    assert retry_dup_number.status_code == 409
-    assert 'already exists' in retry_dup_number.json()['detail']
+    assert retry_dup_number.status_code == 422
+    assert 'Manual goods receipt numbers are not permitted' in retry_dup_number.json()['detail']
 
     # Total assets in database must still be exactly 2 (no duplicate assets created)
     db_session.expire_all()
@@ -688,7 +673,6 @@ def test_postgresql_multiline_procurement_verification(client, db_session):
     rcv2_res = client.post(
         f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}/goods-receipts",
         json={
-            'receipt_number': 'GRN-PGV-02',
             'received_date': '2026-10-19',
             'lines': [
                 {
@@ -714,7 +698,6 @@ def test_postgresql_multiline_procurement_verification(client, db_session):
     rcv3_res = client.post(
         f"/api/v1/companies/{company['id']}/purchase-orders/{order_id}/goods-receipts",
         json={
-            'receipt_number': 'GRN-PGV-03',
             'received_date': '2026-10-19',
             'lines': [
                 {

@@ -20,6 +20,7 @@ _PERMISSIONS = {
     'asset.assignment.manage': 'Manage asset assignments, handovers, returns, and transfers',
     'procurement.read': 'Read company suppliers, purchase orders, and goods receipts',
     'procurement.manage': 'Manage company suppliers, purchase orders, and goods receipts',
+    'procurement.import': 'Import purchase orders from authorized external ERP integrations',
     'maintenance.read': 'Read company service contracts and maintenance requests',
     'maintenance.manage': 'Manage company service contracts and maintenance requests',
     'asset.history.read': 'Read asset history',
@@ -41,7 +42,7 @@ _ROLE_PERMISSIONS = {
         'company.read', 'company.update', 'company.members.manage',
         'organization.read', 'organization.manage', 'asset.read', 'asset.create',
         'asset.update', 'asset.usage.manage', 'asset.history.read', 'audit.read',
-        'asset.assignment.manage', 'procurement.read', 'procurement.manage',
+        'asset.assignment.manage', 'procurement.read', 'procurement.manage', 'procurement.import',
         'maintenance.read', 'maintenance.manage', 'dashboard.read',
         'verification.read', 'verification.manage',
         'finance.read', 'finance.manage',
@@ -51,7 +52,7 @@ _ROLE_PERMISSIONS = {
     ('company', 'asset_manager'): {
         'company.read', 'organization.read', 'organization.manage', 'asset.read',
         'asset.create', 'asset.update', 'asset.usage.manage', 'asset.assignment.manage',
-        'asset.history.read', 'procurement.read', 'procurement.manage',
+        'asset.history.read', 'procurement.read', 'procurement.manage', 'procurement.import',
         'maintenance.read', 'maintenance.manage', 'dashboard.read',
         'verification.read', 'verification.manage',
         'finance.read', 'finance.manage',
@@ -95,6 +96,7 @@ def seed_security_defaults(db: Session, *, commit: bool = True) -> None:
             permission = Permission(code=code, description=description)
             db.add(permission)
             permissions[code] = permission
+    db.flush()
 
     roles = {(row.scope, row.code): row for row in db.scalars(select(Role)).all()}
     for (scope, code), permission_codes in _ROLE_PERMISSIONS.items():
