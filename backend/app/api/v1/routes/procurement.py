@@ -12,22 +12,32 @@ from app.models import (
     AssetCategory,
     GoodsReceipt,
     GoodsReceiptLine,
+    GoodsReceiptReversal,
+    GoodsReceiptReversalAsset,
+    GoodsReceiptReversalLine,
     PurchaseOrder,
     PurchaseOrderLine,
     Supplier,
 )
 from app.schemas import (
     AssetCreate,
+    AssetEligibilityCheckItem,
     ExternalPurchaseOrderImportPayload,
     GoodsReceiptCreate,
+    GoodsReceiptLineEligibilitySummary,
     GoodsReceiptLineRead,
     GoodsReceiptRead,
+    GoodsReceiptReversalCreate,
+    GoodsReceiptReversalEligibilityResponse,
+    GoodsReceiptReversalRead,
     PurchaseOrderCancel,
     PurchaseOrderCreate,
     PurchaseOrderLineRead,
     PurchaseOrderRead,
     PurchaseOrderUpdate,
     ReceivedAssetRead,
+    ReversalAssetRead,
+    ReversalLineRead,
     SupplierCreate,
     SupplierRead,
 )
@@ -35,6 +45,7 @@ from app.security import CurrentActor, current_actor, require_permission
 from app.erp_ingestion_service import import_external_purchase_order
 from app.services import (
     calculate_purchase_order_status,
+    check_asset_reversal_eligibility,
     create_asset,
     get_company,
     recalculate_purchase_order_status,
@@ -68,7 +79,9 @@ def order_read(db: Session, order: PurchaseOrder) -> PurchaseOrderRead:
     read_lines = []
     for line in lines:
         received_qty = db.scalar(
-            select(func.coalesce(func.sum(GoodsReceiptLine.quantity_received), 0)).where(
+            select(func.coalesce(func.sum(
+                GoodsReceiptLine.quantity_received - GoodsReceiptLine.quantity_rejected - GoodsReceiptLine.quantity_reversed
+            ), 0)).where(
                 GoodsReceiptLine.company_id == order.company_id,
                 GoodsReceiptLine.purchase_order_line_id == line.id,
             )
@@ -125,6 +138,7 @@ def receipt_read(db: Session, receipt: GoodsReceipt) -> GoodsReceiptRead:
                 purchase_order_line_id=line.purchase_order_line_id,
                 quantity_received=line.quantity_received,
                 quantity_rejected=line.quantity_rejected,
+                quantity_reversed=line.quantity_reversed,
                 discrepancy_notes=line.discrepancy_notes,
                 assets=[ReceivedAssetRead(
                     id=asset.id,
@@ -137,7 +151,7 @@ def receipt_read(db: Session, receipt: GoodsReceipt) -> GoodsReceiptRead:
     return GoodsReceiptRead(
         **{key: getattr(receipt, key) for key in (
             'id', 'company_id', 'purchase_order_id', 'receipt_number',
-            'received_date', 'delivery_reference', 'notes', 'created_at',
+            'received_date', 'delivery_reference', 'notes', 'status', 'created_at',
         )},
         lines=response_lines,
     )
@@ -748,7 +762,9 @@ def receive_goods(
     for line_payload in payload.lines:
         order_line = order_lines[line_payload.purchase_order_line_id]
         already_received = db.scalar(
-            select(func.coalesce(func.sum(GoodsReceiptLine.quantity_received), 0)).where(
+            select(func.coalesce(func.sum(
+                GoodsReceiptLine.quantity_received - GoodsReceiptLine.quantity_reversed
+            ), 0)).where(
                 GoodsReceiptLine.company_id == company_id,
                 GoodsReceiptLine.purchase_order_line_id == order_line.id,
             )
@@ -830,3 +846,425 @@ def receive_goods(
     commit(db)
     db.refresh(receipt)
     return receipt_read(db, receipt)
+
+
+
+def reversal_read(db: Session, reversal: GoodsReceiptReversal) -> GoodsReceiptReversalRead:
+    lines = db.scalars(
+        select(GoodsReceiptReversalLine).where(
+            GoodsReceiptReversalLine.company_id == reversal.company_id,
+            GoodsReceiptReversalLine.reversal_id == reversal.id,
+        )
+    ).all()
+    read_lines = []
+    for line in lines:
+        assets = db.scalars(
+            select(GoodsReceiptReversalAsset).where(
+                GoodsReceiptReversalAsset.company_id == line.company_id,
+                GoodsReceiptReversalAsset.reversal_line_id == line.id,
+            ).order_by(GoodsReceiptReversalAsset.asset_number)
+        ).all()
+        read_lines.append(
+            ReversalLineRead(
+                id=line.id,
+                company_id=line.company_id,
+                reversal_id=line.reversal_id,
+                goods_receipt_line_id=line.goods_receipt_line_id,
+                purchase_order_line_id=line.purchase_order_line_id,
+                quantity_reversed=line.quantity_reversed,
+                notes=line.notes,
+                created_at=line.created_at,
+                assets=[
+                    ReversalAssetRead(
+                        id=a.id,
+                        company_id=a.company_id,
+                        reversal_id=a.reversal_id,
+                        reversal_line_id=a.reversal_line_id,
+                        goods_receipt_line_id=a.goods_receipt_line_id,
+                        asset_id=a.asset_id,
+                        asset_number=a.asset_number,
+                        serial_number=a.serial_number,
+                        created_at=a.created_at,
+                    )
+                    for a in assets
+                ],
+            )
+        )
+    return GoodsReceiptReversalRead(
+        id=reversal.id,
+        company_id=reversal.company_id,
+        goods_receipt_id=reversal.goods_receipt_id,
+        purchase_order_id=reversal.purchase_order_id,
+        reversal_reference=reversal.reversal_reference,
+        reversed_at=reversal.reversed_at,
+        reversed_by_id=reversal.reversed_by_id,
+        reason=reversal.reason,
+        created_at=reversal.created_at,
+        lines=read_lines,
+    )
+
+
+@router.get(
+    '/goods-receipts/{goods_receipt_id}/reversal-check',
+    response_model=GoodsReceiptReversalEligibilityResponse,
+    dependencies=[Depends(require_permission('procurement.read'))],
+)
+def check_goods_receipt_reversal_eligibility(
+    company_id: UUID,
+    goods_receipt_id: UUID,
+    db: Session = Depends(get_db),
+):
+    get_company(db, company_id)
+    receipt = db.scalar(
+        select(GoodsReceipt).where(
+            GoodsReceipt.company_id == company_id,
+            GoodsReceipt.id == goods_receipt_id,
+        )
+    )
+    if receipt is None:
+        raise HTTPException(status_code=404, detail='Goods receipt not found')
+
+    lines = db.scalars(
+        select(GoodsReceiptLine).where(
+            GoodsReceiptLine.company_id == company_id,
+            GoodsReceiptLine.goods_receipt_id == receipt.id,
+        )
+    ).all()
+
+    line_summaries = []
+    all_asset_items = []
+    total_accepted = 0
+    total_reversed = 0
+
+    for line in lines:
+        accepted_qty = line.quantity_received - line.quantity_rejected
+        unreversed_accepted = max(0, accepted_qty - line.quantity_reversed)
+        total_accepted += accepted_qty
+        total_reversed += line.quantity_reversed
+
+        assets = db.scalars(
+            select(Asset).where(
+                Asset.company_id == company_id,
+                Asset.goods_receipt_line_id == line.id,
+            ).order_by(Asset.asset_number)
+        ).all()
+
+        eligible_count = 0
+        for asset in assets:
+            violations = check_asset_reversal_eligibility(db, asset)
+            is_eligible = len(violations) == 0
+            if is_eligible:
+                eligible_count += 1
+            all_asset_items.append(
+                AssetEligibilityCheckItem(
+                    asset_id=asset.id,
+                    asset_number=asset.asset_number,
+                    serial_number=asset.serial_number,
+                    status=asset.status,
+                    is_eligible=is_eligible,
+                    blocking_reasons=violations,
+                )
+            )
+
+        line_summaries.append(
+            GoodsReceiptLineEligibilitySummary(
+                goods_receipt_line_id=line.id,
+                purchase_order_line_id=line.purchase_order_line_id,
+                quantity_received=line.quantity_received,
+                quantity_rejected=line.quantity_rejected,
+                quantity_reversed=line.quantity_reversed,
+                unreversed_accepted_quantity=unreversed_accepted,
+                eligible_asset_count=eligible_count,
+            )
+        )
+
+    unreversed_total = max(0, total_accepted - total_reversed)
+    is_reversible = (unreversed_total > 0) and any(item.is_eligible for item in all_asset_items)
+
+    return GoodsReceiptReversalEligibilityResponse(
+        goods_receipt_id=receipt.id,
+        receipt_number=receipt.receipt_number,
+        status=receipt.status,
+        is_reversible=is_reversible,
+        total_accepted_quantity=total_accepted,
+        total_quantity_reversed=total_reversed,
+        unreversed_accepted_quantity=unreversed_total,
+        lines=line_summaries,
+        assets=all_asset_items,
+    )
+
+
+@router.get(
+    '/goods-receipts/{goods_receipt_id}/reversals',
+    response_model=list[GoodsReceiptReversalRead],
+    dependencies=[Depends(require_permission('procurement.read'))],
+)
+def list_goods_receipt_reversals(
+    company_id: UUID,
+    goods_receipt_id: UUID,
+    db: Session = Depends(get_db),
+):
+    get_company(db, company_id)
+    receipt = db.scalar(
+        select(GoodsReceipt).where(
+            GoodsReceipt.company_id == company_id,
+            GoodsReceipt.id == goods_receipt_id,
+        )
+    )
+    if receipt is None:
+        raise HTTPException(status_code=404, detail='Goods receipt not found')
+    reversals = db.scalars(
+        select(GoodsReceiptReversal)
+        .where(
+            GoodsReceiptReversal.company_id == company_id,
+            GoodsReceiptReversal.goods_receipt_id == goods_receipt_id,
+        )
+        .order_by(GoodsReceiptReversal.created_at)
+    ).all()
+    return [reversal_read(db, r) for r in reversals]
+
+
+@router.post(
+    '/goods-receipts/{goods_receipt_id}/reverse',
+    response_model=GoodsReceiptReversalRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def reverse_goods_receipt(
+    company_id: UUID,
+    goods_receipt_id: UUID,
+    payload: GoodsReceiptReversalCreate,
+    db: Session = Depends(get_db),
+    actor: CurrentActor = Depends(require_permission('procurement.reverse')),
+):
+    get_company(db, company_id, active=True)
+
+    # 1. First find receipt metadata to know the parent purchase_order_id
+    receipt_meta = db.scalar(
+        select(GoodsReceipt.purchase_order_id).where(
+            GoodsReceipt.company_id == company_id,
+            GoodsReceipt.id == goods_receipt_id,
+        )
+    )
+    if receipt_meta is None:
+        raise HTTPException(status_code=404, detail='Goods receipt not found')
+
+    po_id = receipt_meta
+
+    # 2. Strict hierarchical locking:
+    # Tier 1: Lock PurchaseOrder by primary key
+    order = db.scalar(
+        select(PurchaseOrder)
+        .where(PurchaseOrder.company_id == company_id, PurchaseOrder.id == po_id)
+        .with_for_update()
+    )
+    if order is None:
+        raise HTTPException(status_code=404, detail='Purchase order not found')
+
+    # Tier 2: Lock PurchaseOrderLines ordered by id ASC
+    po_lines = db.scalars(
+        select(PurchaseOrderLine)
+        .where(
+            PurchaseOrderLine.company_id == company_id,
+            PurchaseOrderLine.purchase_order_id == order.id,
+        )
+        .order_by(PurchaseOrderLine.id)
+        .with_for_update()
+    ).all()
+
+    # Tier 3: Lock GoodsReceipt by primary key
+    receipt = db.scalar(
+        select(GoodsReceipt)
+        .where(GoodsReceipt.company_id == company_id, GoodsReceipt.id == goods_receipt_id)
+        .with_for_update()
+    )
+    if receipt is None:
+        raise HTTPException(status_code=404, detail='Goods receipt not found')
+
+    if receipt.status == 'reversed':
+        raise HTTPException(status_code=409, detail=f'Goods receipt "{receipt.receipt_number}" is already fully reversed')
+
+    # Tier 4: Lock GoodsReceiptLines for this receipt ordered by id ASC
+    grn_lines_list = db.scalars(
+        select(GoodsReceiptLine)
+        .where(
+            GoodsReceiptLine.company_id == company_id,
+            GoodsReceiptLine.goods_receipt_id == receipt.id,
+        )
+        .order_by(GoodsReceiptLine.id)
+        .with_for_update()
+    ).all()
+    grn_lines_by_id = {line.id: line for line in grn_lines_list}
+
+    # Validate line references and uniqueness in request
+    requested_line_ids = [line.goods_receipt_line_id for line in payload.lines]
+    if len(requested_line_ids) != len(set(requested_line_ids)):
+        raise HTTPException(status_code=422, detail='Duplicate goods receipt lines in reversal payload')
+
+    for req_line in payload.lines:
+        if req_line.goods_receipt_line_id not in grn_lines_by_id:
+            raise HTTPException(
+                status_code=404,
+                detail=f'Goods receipt line {req_line.goods_receipt_line_id} not found in this receipt',
+            )
+
+    # Collect and validate all requested asset IDs
+    all_asset_ids = []
+    for req_line in payload.lines:
+        if not req_line.asset_ids:
+            raise HTTPException(
+                status_code=422,
+                detail=f'At least one asset must be specified for line {req_line.goods_receipt_line_id}',
+            )
+        all_asset_ids.extend(req_line.asset_ids)
+
+    if len(all_asset_ids) != len(set(all_asset_ids)):
+        raise HTTPException(status_code=422, detail='Duplicate asset IDs in reversal payload')
+
+    # Tier 5: Lock Assets ordered by id ASC
+    assets_list = db.scalars(
+        select(Asset)
+        .where(
+            Asset.company_id == company_id,
+            Asset.id.in_(all_asset_ids),
+        )
+        .order_by(Asset.id)
+        .with_for_update()
+    ).all()
+    assets_by_id = {asset.id: asset for asset in assets_list}
+
+    if len(assets_by_id) != len(all_asset_ids):
+        missing_ids = set(all_asset_ids) - set(assets_by_id.keys())
+        raise HTTPException(status_code=404, detail=f'Asset(s) not found in this company: {missing_ids}')
+
+    # Validate each line and asset eligibility
+    for req_line in payload.lines:
+        target_line = grn_lines_by_id[req_line.goods_receipt_line_id]
+        unreversed_accepted = (target_line.quantity_received - target_line.quantity_rejected) - target_line.quantity_reversed
+        req_qty = len(req_line.asset_ids)
+
+        if req_qty > unreversed_accepted:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f'Reversal quantity ({req_qty}) exceeds eligible unreversed accepted quantity '
+                    f'({unreversed_accepted}) for line {target_line.id}'
+                ),
+            )
+
+        for asset_id in req_line.asset_ids:
+            asset = assets_by_id[asset_id]
+            # Referential integrity: Asset must originate from this exact GRN line
+            if asset.goods_receipt_line_id != target_line.id:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f'Asset "{asset.asset_number}" does not originate from goods receipt line '
+                        f'{target_line.id}'
+                    ),
+                )
+
+            # 6-Gate eligibility check
+            violations = check_asset_reversal_eligibility(db, asset)
+            if violations:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f'Asset "{asset.asset_number}" is not eligible for reversal: {"; ".join(violations)}',
+                )
+
+    # All validations passed: Perform reversal atomically
+    now = datetime.now(timezone.utc)
+    reversal = GoodsReceiptReversal(
+        id=uuid4(),
+        company_id=company_id,
+        goods_receipt_id=receipt.id,
+        purchase_order_id=order.id,
+        reversal_reference=None,  # Reserved for Milestone 2E.3 GRR
+        reversed_at=now,
+        reversed_by_id=actor.user.id,
+        reason=payload.reason.strip(),
+        created_at=now,
+    )
+    db.add(reversal)
+    db.flush()
+
+    total_reversed_in_op = 0
+    affected_asset_numbers = []
+
+    for req_line in payload.lines:
+        target_line = grn_lines_by_id[req_line.goods_receipt_line_id]
+        line_qty = len(req_line.asset_ids)
+        total_reversed_in_op += line_qty
+
+        rev_line = GoodsReceiptReversalLine(
+            id=uuid4(),
+            company_id=company_id,
+            reversal_id=reversal.id,
+            goods_receipt_line_id=target_line.id,
+            purchase_order_line_id=target_line.purchase_order_line_id,
+            quantity_reversed=line_qty,
+            notes=req_line.notes,
+            created_at=now,
+        )
+        db.add(rev_line)
+        db.flush()
+
+        for asset_id in req_line.asset_ids:
+            asset = assets_by_id[asset_id]
+            rev_asset = GoodsReceiptReversalAsset(
+                id=uuid4(),
+                company_id=company_id,
+                reversal_id=reversal.id,
+                reversal_line_id=rev_line.id,
+                goods_receipt_line_id=target_line.id,
+                asset_id=asset.id,
+                asset_number=asset.asset_number,
+                serial_number=asset.serial_number,
+                created_at=now,
+            )
+            db.add(rev_asset)
+            # Update asset status to 'reversed' to prevent subsequent assignments or conflicting operations
+            asset.status = 'reversed'
+            affected_asset_numbers.append(asset.asset_number)
+
+        # Update cached quantity_reversed on GRN line
+        target_line.quantity_reversed += line_qty
+
+    # Update receipt status
+    total_accepted_grn = sum(l.quantity_received - l.quantity_rejected for l in grn_lines_list)
+    total_reversed_grn = sum(l.quantity_reversed for l in grn_lines_list)
+
+    if total_reversed_grn >= total_accepted_grn:
+        receipt.status = 'reversed'
+    elif total_reversed_grn > 0:
+        receipt.status = 'partially_reversed'
+    else:
+        receipt.status = 'completed'
+
+    db.flush()
+
+    # Authoritative line-level PO status recalculation (cancelled PO remains cancelled)
+    recalculate_purchase_order_status(db, order)
+
+    # Security Audit Event
+    record_security_event(
+        db,
+        action='goods_receipt_reversed',
+        entity_type='GoodsReceipt',
+        entity_id=str(receipt.id),
+        actor_id=actor.user.id,
+        company_id=company_id,
+        changes={
+            'reversal_id': str(reversal.id),
+            'purchase_order_id': str(order.id),
+            'receipt_number': receipt.receipt_number,
+            'total_quantity_reversed': total_reversed_in_op,
+            'affected_asset_numbers': affected_asset_numbers,
+            'reason': payload.reason,
+            'new_receipt_status': receipt.status,
+            'po_status': order.status,
+        },
+    )
+
+    commit(db)
+    db.refresh(reversal)
+    return reversal_read(db, reversal)

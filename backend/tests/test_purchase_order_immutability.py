@@ -23,7 +23,7 @@ def create_test_company_with_prefix(client, code: str, prefix: str):
     res = client.post(
         "/api/v1/companies",
         json={
-            "code": code,
+            "code": prefix,
             "name": f"Company {code}",
             "number_prefix": prefix,
             "is_active": True,

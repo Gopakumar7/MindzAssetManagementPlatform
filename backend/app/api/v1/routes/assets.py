@@ -312,6 +312,11 @@ def read_asset(company_id: UUID, asset_id: UUID, db: Session = Depends(get_db)):
 @router.patch('/{asset_id}', response_model=AssetRead, dependencies=[Depends(require_permission('asset.update'))])
 def edit_asset(company_id: UUID, asset_id: UUID, payload: AssetUpdate, db: Session = Depends(get_db)):
     asset = lock_asset(db, company_id, asset_id)
+    if asset.status == 'reversed':
+        raise HTTPException(
+            status_code=409,
+            detail='Reversed assets are protected and cannot be modified or returned to operational stock',
+        )
     changes = payload.model_dump(exclude_unset=True)
     current_assignment = active_assignment(db, asset.id)
     if current_assignment is not None:
@@ -613,6 +618,11 @@ def list_asset_usages(
 @router.post('/{asset_id}/usages', response_model=UsageRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission('asset.usage.manage'))])
 def start_asset_usage(company_id: UUID, asset_id: UUID, payload: UsageCreate, db: Session = Depends(get_db)):
     asset = get_scoped(db, Asset, company_id, asset_id, 'Asset')
+    if asset.status == 'reversed':
+        raise HTTPException(
+            status_code=409,
+            detail='Reversed assets cannot be allocated for department usage',
+        )
     department = get_scoped(db, Department, company_id, payload.department_id, 'Department')
     if not department.is_active:
         raise HTTPException(status_code=422, detail='Department is inactive')

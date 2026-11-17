@@ -192,7 +192,7 @@ def test_procurement_enforces_company_scope_and_management_permission(client, db
 def test_multiline_purchase_order_creation_totals_and_distinct_categories(client, db_session):
     company = client.post(
         '/api/v1/companies',
-        json={'code': 'MLPO1', 'name': 'Multi-line PO Company', 'number_prefix': 'MLP'},
+        json={'code': 'MLP', 'name': 'Multi-line PO Company', 'number_prefix': 'MLP'},
     ).json()
     categories = client.get(f"/api/v1/companies/{company['id']}/categories").json()
     assert len(categories) >= 3, 'Should have at least 3 default categories'

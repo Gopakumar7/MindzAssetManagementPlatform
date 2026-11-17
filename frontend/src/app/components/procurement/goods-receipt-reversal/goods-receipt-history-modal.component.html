@@ -1,0 +1,95 @@
+<div class="modal-backdrop" (click)="onClose()">
+  <div class="modal-dialog history-dialog" (click)="$event.stopPropagation()" role="dialog" aria-modal="true" aria-labelledby="history-modal-title">
+    <div class="modal-header">
+      <div class="modal-title-group">
+        <p class="eyebrow">Audit & Lineage History</p>
+        <h3 id="history-modal-title">Reversal History: {{ receipt.receipt_number }}</h3>
+      </div>
+      <button type="button" class="close-btn" (click)="onClose()" aria-label="Close dialog">✕</button>
+    </div>
+
+    @if (loading) {
+      <div class="modal-body">
+        <div class="loading">Loading reversal records…</div>
+      </div>
+    }
+
+    @if (error) {
+      <div class="notice error" role="alert">
+        {{ error }}
+        <button type="button" class="secondary small-btn" style="margin-left: 1rem;" (click)="loadHistory()">Retry</button>
+      </div>
+    }
+
+    @if (!loading && !error) {
+      <div class="modal-body">
+        @if (reversals.length === 0) {
+          <div class="empty-state">
+            <p>No reversal operations have been recorded against Goods Receipt <strong>{{ receipt.receipt_number }}</strong>.</p>
+          </div>
+        }
+
+        @for (reversal of reversals; track reversal.id) {
+          <div class="reversal-card">
+            <div class="reversal-card-header">
+              <div class="reference-badge">
+                <span class="ref-label">Reversal Ref:</span>
+                <strong>{{ reversal.reversal_reference || ('REV-' + reversal.id.slice(0, 8)) }}</strong>
+              </div>
+              <time class="reversal-date" [attr.datetime]="reversal.reversed_at">
+                {{ reversal.reversed_at | date:'medium' }}
+              </time>
+            </div>
+
+            <div class="reversal-reason-box">
+              <span class="field-label">Reason:</span>
+              <p class="reason-text">{{ reversal.reason }}</p>
+            </div>
+
+            <div class="lines-container">
+              <span class="field-label">Reversed Assets ({{ reversal.lines.length }} lines):</span>
+              <div class="table-wrap">
+                <table class="history-lines-table">
+                  <thead>
+                    <tr>
+                      <th>Quantity Reversed</th>
+                      <th>Notes</th>
+                      <th>Assets Affected</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (line of reversal.lines; track line.id) {
+                      <tr>
+                        <td><strong>{{ line.quantity_reversed }}</strong></td>
+                        <td>{{ line.notes || '—' }}</td>
+                        <td>
+                          <div class="asset-pills-wrap">
+                            @for (asset of line.assets; track asset.id) {
+                              <span class="asset-pill">
+                                <strong>{{ asset.asset_number || 'Asset' }}</strong>
+                                @if (asset.serial_number) {
+                                  <span class="sn"> (SN: {{ asset.serial_number }})</span>
+                                }
+                              </span>
+                            }
+                            @if (line.assets.length === 0) {
+                              <span class="muted">—</span>
+                            }
+                          </div>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+    }
+
+    <div class="modal-footer">
+      <button type="button" class="secondary" (click)="onClose()">Close</button>
+    </div>
+  </div>
+</div>

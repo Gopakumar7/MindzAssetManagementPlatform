@@ -8,6 +8,7 @@ import { AuthService, CurrentUser } from '../../services/auth.service';
 import {
   Asset,
   AssetAssignment,
+  AssetNumbering,
   Company,
   CompanyRole,
   GoodsReceipt,
@@ -40,6 +41,18 @@ import {
 } from '../../services/registry.service';
 
 import { RegistryComponent, serializeCsvCell } from './registry.component';
+
+const defaultAssetNumbering: AssetNumbering = {
+  prefix: 'ACME-AST',
+  separator: '-',
+  padding: 6,
+  next_number: 1,
+  next_reference_preview: 'ACME-AST-000001',
+  issued_count: 0,
+  is_locked: false,
+  allowed_separators: ['-', '/'],
+  lock_note: null
+};
 
 const defaultAlertSummary: AssetAlertSummary = {
   total_open: 0,
@@ -90,6 +103,9 @@ describe('RegistryComponent user access navigation', () => {
       'companies',
       'listMaster',
       'listNumberRules',
+      'getAssetNumbering',
+      'saveAssetNumbering',
+      'createCompany',
       'companyMembers',
       'companyRoles',
       'listAssets',
@@ -110,6 +126,8 @@ describe('RegistryComponent user access navigation', () => {
       'suppliers',
       'purchaseOrders',
       'getPurchaseOrder',
+      'createPurchaseOrder',
+      'updatePurchaseOrder',
       'goodsReceipts',
       'createSupplier',
       'createPurchaseOrder',
@@ -134,6 +152,7 @@ describe('RegistryComponent user access navigation', () => {
       'updateVerificationCampaign',
       'transitionVerificationCampaignStatus',
       'getVerificationExpectedAssets',
+      'getVerificationExpectedAssetsPreview',
       'recordVerificationObservation',
       'getVerificationDiscrepancies',
       'resolveVerificationDiscrepancy',
@@ -179,6 +198,7 @@ describe('RegistryComponent user access navigation', () => {
     registry.companies.and.returnValue(of([company]));
     registry.listMaster.and.returnValue(of([]));
     registry.listNumberRules.and.returnValue(of([]));
+    registry.getAssetNumbering.and.returnValue(of(defaultAssetNumbering));
     registry.companyMembers.and.returnValue(of([]));
     registry.companyRoles.and.returnValue(of(roles));
     registry.listAssets.and.returnValue(of({ items: [], total: 0, page: 1, page_size: 15 }));
@@ -192,6 +212,8 @@ describe('RegistryComponent user access navigation', () => {
     registry.suppliers.and.returnValue(of([]));
     registry.purchaseOrders.and.returnValue(of([]));
     registry.getPurchaseOrder.and.returnValue(of({} as any));
+    registry.createPurchaseOrder.and.returnValue(of({} as any));
+    registry.updatePurchaseOrder.and.returnValue(of({} as any));
     registry.goodsReceipts.and.returnValue(of([]));
     registry.createSupplier.and.returnValue(of({} as any));
     registry.createPurchaseOrder.and.returnValue(of({} as any));
@@ -222,6 +244,7 @@ describe('RegistryComponent user access navigation', () => {
     registry.updateVerificationCampaign.and.returnValue(of(testCampaign));
     registry.transitionVerificationCampaignStatus.and.returnValue(of(testCampaign));
     registry.getVerificationExpectedAssets.and.returnValue(of([testExpectedAsset]));
+    registry.getVerificationExpectedAssetsPreview.and.returnValue(of([{ ...testExpectedAsset, is_preview: true }]));
     registry.recordVerificationObservation.and.returnValue(of(testObservation));
     registry.getVerificationDiscrepancies.and.returnValue(of([testDiscrepancy]));
     registry.resolveVerificationDiscrepancy.and.returnValue(of(testDiscrepancy));
@@ -371,7 +394,7 @@ describe('RegistryComponent user access navigation', () => {
       id: 'receipt-1',
       company_id: company.id,
       purchase_order_id: order.id,
-      receipt_number: 'GRN-1',
+      receipt_number: 'GRN-00001',
       received_date: '2026-10-16',
       delivery_reference: null,
       notes: null,
@@ -399,7 +422,6 @@ describe('RegistryComponent user access navigation', () => {
     fixture.detectChanges();
 
     expect(registry.receiveGoods).toHaveBeenCalledWith(company.id, order.id, jasmine.objectContaining({
-      receipt_number: 'GRN-1',
       lines: [jasmine.objectContaining({
         purchase_order_line_id: 'line-1',
         quantity_received: 1
@@ -449,15 +471,11 @@ describe('RegistryComponent user access navigation', () => {
     expect(component.errorMessage).toBe('Please choose a supplier.');
     expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
 
-    // 2. Missing order number
+    // 2. Order number is auto-generated upon creation; blank order_number does not trigger validation error
     component.purchaseOrderForm.supplier_id = 'sup-1';
     component.purchaseOrderForm.order_number = '   ';
-    component.createPurchaseOrder();
-    expect(component.errorMessage).toBe('Please enter an order number.');
-    expect(registry.createPurchaseOrder).not.toHaveBeenCalled();
 
     // 3. Expected date before ordered date
-    component.purchaseOrderForm.order_number = 'PO-001';
     component.purchaseOrderForm.ordered_date = '2026-10-15';
     component.purchaseOrderForm.expected_date = '2026-10-10';
     component.createPurchaseOrder();
@@ -1268,7 +1286,6 @@ describe('RegistryComponent user access navigation', () => {
     expect(registry.createPurchaseOrder).toHaveBeenCalledWith(
       company.id,
       jasmine.objectContaining({
-        order_number: 'PO-MULTI-001',
         supplier_id: 'sup-1',
         lines: jasmine.arrayContaining([
           jasmine.objectContaining({ category_id: 'cat-1', description: 'Dell Latitude', quantity_ordered: 5, unit_cost: 1200 }),
@@ -1277,6 +1294,7 @@ describe('RegistryComponent user access navigation', () => {
         ])
       })
     );
+    expect((registry.createPurchaseOrder.calls.mostRecent().args[1] as any).order_number).toBeUndefined();
     expect(component.purchaseOrders[0]).toEqual(createdOrder);
     expect(component.successMessage).toContain('Purchase order PO-MULTI-001 created.');
     expect(component.purchaseOrderForm.order_number).toBe('');
@@ -1374,13 +1392,13 @@ describe('RegistryComponent user access navigation', () => {
       company.id,
       'po-edit-1',
       jasmine.objectContaining({
-        order_number: 'PO-EDIT-1',
         lines: jasmine.arrayContaining([
           jasmine.objectContaining({ category_id: 'cat-1', description: 'Original Laptop line' }),
           jasmine.objectContaining({ category_id: 'cat-2', description: 'Added Monitor line', quantity_ordered: 4 })
         ])
       })
     );
+    expect((registry.updatePurchaseOrder.calls.mostRecent().args[2] as any).order_number).toBeUndefined();
     expect(component.editingPurchaseOrderId).toBe('');
     expect(component.successMessage).toContain('Purchase order PO-EDIT-1 updated.');
     expect(component.purchaseOrders[0].lines.length).toBe(2);
@@ -1541,6 +1559,165 @@ describe('RegistryComponent user access navigation', () => {
     );
     expect(registry.receiveGoods).not.toHaveBeenCalled();
   });
+
+  describe('Company directory selection and editing', () => {
+    const second: Company = { id: 'company-2', reference_number: 'CMP-0002', code: 'BETA', name: 'Beta Ltd', is_active: true };
+    const first: Company = { ...company, reference_number: 'CMP-0001' };
+
+    function openDirectory(extraPermissions: string[] = ['company.update', 'system.companies.manage']): void {
+      extraPermissions.forEach((item) => permissions.add(item));
+      const component = fixture.componentInstance;
+      component.companies = [first, second];
+      component.selectCompany(first.id);
+      component.setView('company');
+      fixture.detectChanges();
+    }
+
+    function rows(): HTMLTableRowElement[] {
+      return Array.from(fixture.nativeElement.querySelectorAll('tr.company-row') as NodeListOf<HTMLTableRowElement>);
+    }
+
+    it('replaces the text link with a visible Edit button in the Actions column', () => {
+      openDirectory();
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).not.toContain('Select / edit');
+      const headers = Array.from(fixture.nativeElement.querySelectorAll('th') as NodeListOf<HTMLElement>).map((h) => h.textContent?.trim());
+      expect(headers).toContain('Actions');
+      const buttons = Array.from(fixture.nativeElement.querySelectorAll('button.company-edit-button') as NodeListOf<HTMLButtonElement>);
+      expect(buttons.map((b) => b.textContent?.trim())).toEqual(['Edit', 'Edit']);
+      expect(buttons[1].getAttribute('aria-label')).toBe('Edit Beta Ltd');
+      expect(buttons[1].type).toBe('button');
+    });
+
+    it('selects a company and loads it into the settings form when its row is clicked', async () => {
+      openDirectory();
+      (rows()[1].querySelectorAll('td')[1] as HTMLElement).click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const component = fixture.componentInstance;
+      expect(component.companyId).toBe('company-2');
+      expect(component.creatingCompany).toBeFalse();
+      expect(component.companyForm.name).toBe('Beta Ltd');
+      const nameInput = fixture.nativeElement.querySelector('input[name="currentCompanyName"]') as HTMLInputElement;
+      expect(nameInput.value).toBe('Beta Ltd');
+    });
+
+    it('selects exactly once when the Edit button is clicked', () => {
+      openDirectory();
+      const component = fixture.componentInstance;
+      const spy = spyOn(component, 'selectCompanyForEdit').and.callThrough();
+      (rows()[1].querySelector('button.company-edit-button') as HTMLButtonElement).click();
+      fixture.detectChanges();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(second);
+      expect(component.companyId).toBe('company-2');
+    });
+
+    it('does not trigger row selection for clicks that originate on another interactive element', () => {
+      openDirectory();
+      const component = fixture.componentInstance;
+      const spy = spyOn(component, 'selectCompanyForEdit');
+      const inner = document.createElement('button');
+      const cell = document.createElement('td');
+      cell.appendChild(inner);
+      const event = { target: inner } as unknown as Event;
+      component.onCompanyRowClick(event, second);
+      expect(spy).not.toHaveBeenCalled();
+      component.onCompanyRowClick({ target: cell } as unknown as Event, second);
+      expect(spy).toHaveBeenCalledWith(second);
+    });
+
+    it('highlights only the selected row and exposes it via aria-current', () => {
+      openDirectory();
+      expect(rows()[0].classList).toContain('selected-row');
+      expect(rows()[0].getAttribute('aria-current')).toBe('true');
+      expect(rows()[1].classList).not.toContain('selected-row');
+      expect(rows()[1].getAttribute('aria-current')).toBeNull();
+
+      (rows()[1].querySelector('button.company-edit-button') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(rows()[0].classList).not.toContain('selected-row');
+      expect(rows()[1].classList).toContain('selected-row');
+      expect(rows()[1].textContent).toContain('Selected');
+    });
+
+    it('distinguishes edit mode from Add company mode and clears the row highlight in add mode', () => {
+      openDirectory();
+      const badge = () => fixture.nativeElement.querySelector('[data-testid="company-mode-badge"]') as HTMLElement;
+      expect(badge().textContent).toContain('Editing: Acme (CMP-0001)');
+
+      fixture.componentInstance.beginCompanyCreate();
+      fixture.detectChanges();
+      expect(badge().textContent).toContain('Adding a new company');
+      expect(fixture.nativeElement.querySelector('h2')?.textContent).toContain('Create a company');
+      expect(rows().some((row) => row.classList.contains('selected-row'))).toBeFalse();
+      expect(fixture.nativeElement.querySelector('input[name="companyName"]')).toBeTruthy();
+    });
+
+    it('keeps the company reference number read-only', async () => {
+      openDirectory();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const ref = fixture.nativeElement.querySelector('input[name="currentCompanyRef"]') as HTMLInputElement;
+      expect(ref.disabled).toBeTrue();
+      expect(ref.readOnly).toBeTrue();
+      expect(ref.value).toBe('CMP-0001');
+    });
+
+    it('shows a View button and read-only details for users without company.update', () => {
+      permissions.clear();
+      permissions.add('company.read');
+      openDirectory([]);
+      const button = fixture.nativeElement.querySelector('button.company-edit-button') as HTMLButtonElement;
+      expect(button.textContent?.trim()).toBe('View');
+      expect(fixture.nativeElement.querySelector('[data-testid="company-readonly-details"]')).toBeTruthy();
+      expect(fixture.nativeElement.querySelector('input[name="currentCompanyName"]')).toBeNull();
+    });
+
+    it('derives header, prefix field, next sequence number and live preview consistently from the API for MO', async () => {
+      const moNumbering: AssetNumbering = {
+        prefix: 'MO-AST',
+        separator: '-',
+        padding: 6,
+        next_number: 1,
+        next_reference_preview: 'MO-AST-000001',
+        issued_count: 0,
+        is_locked: false,
+        allowed_separators: ['-', '/'],
+        lock_note: null
+      };
+      registry.getAssetNumbering.and.returnValue(of(moNumbering));
+      const mo: Company = { id: 'company-mo', reference_number: 'CMP-0002', code: 'MO', name: 'Madhuradhipate Organics', is_active: true };
+      permissions.add('organization.read');
+      permissions.add('organization.manage');
+      permissions.add('company.update');
+      const component = fixture.componentInstance;
+      component.companies = [mo];
+      component.selectCompany(mo.id);
+      component.setView('company');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const prefixInput = fixture.nativeElement.querySelector('input[name="rulePrefix"]') as HTMLInputElement;
+      const nextInput = fixture.nativeElement.querySelector('input[name="ruleNext"]') as HTMLInputElement;
+      expect(prefixInput.value).toBe('MO-AST');
+      expect(nextInput.value).toBe('1');
+      expect(component.ruleFormPreview).toBe('MO-AST-000001');
+      expect(fixture.nativeElement.textContent).toContain('Next asset reference: MO-AST-000001');
+      expect(fixture.nativeElement.textContent).toContain('Preview: MO-AST-000001');
+      expect(fixture.nativeElement.textContent).not.toMatch(/(?<![A-Z0-9-])AST-000001/);
+
+      // Rejects duplicated prefix segment such as MO-MO-AST before calling API
+      component.ruleForm.prefix = 'MO-MO-AST';
+      component.saveNumberRule();
+      expect(component.errorMessage).toContain('no duplicated segments');
+      expect(registry.saveAssetNumbering).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('serializeCsvCell security and formatting', () => {
@@ -1617,6 +1794,9 @@ describe('RegistryComponent Physical Asset Verification', () => {
       'companies',
       'listMaster',
       'listNumberRules',
+      'getAssetNumbering',
+      'saveAssetNumbering',
+      'createCompany',
       'companyMembers',
       'companyRoles',
       'listAssets',
@@ -1637,6 +1817,8 @@ describe('RegistryComponent Physical Asset Verification', () => {
       'suppliers',
       'purchaseOrders',
       'getPurchaseOrder',
+      'createPurchaseOrder',
+      'updatePurchaseOrder',
       'goodsReceipts',
       'createSupplier',
       'createPurchaseOrder',
@@ -1661,6 +1843,7 @@ describe('RegistryComponent Physical Asset Verification', () => {
       'updateVerificationCampaign',
       'transitionVerificationCampaignStatus',
       'getVerificationExpectedAssets',
+      'getVerificationExpectedAssetsPreview',
       'recordVerificationObservation',
       'getVerificationDiscrepancies',
       'resolveVerificationDiscrepancy',
@@ -1706,6 +1889,7 @@ describe('RegistryComponent Physical Asset Verification', () => {
     registry.companies.and.returnValue(of([company]));
     registry.listMaster.and.returnValue(of([]));
     registry.listNumberRules.and.returnValue(of([]));
+    registry.getAssetNumbering.and.returnValue(of(defaultAssetNumbering));
     registry.companyMembers.and.returnValue(of([]));
     registry.companyRoles.and.returnValue(of([]));
     registry.listAssets.and.returnValue(of({ items: [], total: 0, page: 1, page_size: 15 }));
@@ -1719,6 +1903,8 @@ describe('RegistryComponent Physical Asset Verification', () => {
     registry.suppliers.and.returnValue(of([]));
     registry.purchaseOrders.and.returnValue(of([]));
     registry.getPurchaseOrder.and.returnValue(of({} as any));
+    registry.createPurchaseOrder.and.returnValue(of({} as any));
+    registry.updatePurchaseOrder.and.returnValue(of({} as any));
     registry.goodsReceipts.and.returnValue(of([]));
     registry.serviceContracts.and.returnValue(of([]));
     registry.maintenanceUsers.and.returnValue(of([]));
@@ -1736,6 +1922,7 @@ describe('RegistryComponent Physical Asset Verification', () => {
     registry.updateVerificationCampaign.and.returnValue(of(testCampaign));
     registry.transitionVerificationCampaignStatus.and.returnValue(of({ ...testCampaign, status: 'in_progress' }));
     registry.getVerificationExpectedAssets.and.returnValue(of([testExpectedAsset]));
+    registry.getVerificationExpectedAssetsPreview.and.returnValue(of([{ ...testExpectedAsset, is_preview: true }]));
     registry.recordVerificationObservation.and.returnValue(of(testObservation));
     registry.getVerificationDiscrepancies.and.returnValue(of([testDiscrepancy]));
     registry.resolveVerificationDiscrepancy.and.returnValue(of({ ...testDiscrepancy, status: 'resolved' }));
@@ -1842,13 +2029,19 @@ describe('RegistryComponent Physical Asset Verification', () => {
   });
 
   it('selects a campaign and loads expected assets, discrepancies, unregistered items, and dashboard', () => {
+    // Draft campaign loads preview
     component.selectVerificationCampaign(testCampaign);
     expect(component.selectedCampaign).toBe(testCampaign);
     expect(component.verificationSubView).toBe('expected');
     expect(registry.getVerificationDashboard).toHaveBeenCalledWith(component.companyId, testCampaign.id);
-    expect(registry.getVerificationExpectedAssets).toHaveBeenCalledWith(component.companyId, testCampaign.id, jasmine.any(Object));
+    expect(registry.getVerificationExpectedAssetsPreview).toHaveBeenCalledWith(component.companyId, testCampaign.id, jasmine.any(Object));
     expect(registry.getVerificationDiscrepancies).toHaveBeenCalledWith(component.companyId, testCampaign.id, jasmine.any(Object));
     expect(registry.getUnregisteredAssets).toHaveBeenCalledWith(component.companyId, testCampaign.id, undefined);
+
+    // In-progress campaign loads frozen expected-assets snapshot
+    const activeCampaign = { ...testCampaign, id: 'camp-active-1', status: 'in_progress' };
+    component.selectVerificationCampaign(activeCampaign);
+    expect(registry.getVerificationExpectedAssets).toHaveBeenCalledWith(component.companyId, activeCampaign.id, jasmine.any(Object));
   });
 
   it('creates a new verification campaign successfully', () => {
@@ -2024,6 +2217,212 @@ describe('RegistryComponent Physical Asset Verification', () => {
     expect(csv).toContain('Discrepancy ID');
     expect(csv).toContain('disc-1');
     expect(csv).toContain('location_mismatch');
+  });
+
+  describe('Verification Campaign Sub-Tabs and Draft Preview UI', () => {
+    beforeEach(() => {
+      component.setView('verification');
+      component.selectVerificationCampaign(testCampaign);
+      fixture.detectChanges();
+    });
+
+    it('switches between all three sub-views and maintains state without redundant reload', () => {
+      expect(component.verificationSubView).toBe('expected');
+
+      // Clear spy call counts from initial load
+      registry.getVerificationExpectedAssetsPreview.calls.reset();
+      registry.getVerificationExpectedAssets.calls.reset();
+      registry.getVerificationDiscrepancies.calls.reset();
+      registry.getUnregisteredAssets.calls.reset();
+
+      // Switch to discrepancies
+      component.setVerificationSubView('discrepancies');
+      expect(component.verificationSubView).toBe('discrepancies');
+      fixture.detectChanges();
+
+      // Verify no redundant network reloads occurred on tab switch
+      expect(registry.getVerificationDiscrepancies).not.toHaveBeenCalled();
+
+      // Switch to unregistered
+      component.setVerificationSubView('unregistered');
+      expect(component.verificationSubView).toBe('unregistered');
+      fixture.detectChanges();
+
+      expect(registry.getUnregisteredAssets).not.toHaveBeenCalled();
+
+      // Same tab switch is a no-op
+      component.setVerificationSubView('unregistered');
+      expect(component.verificationSubView).toBe('unregistered');
+
+      // Switch back to expected
+      component.setVerificationSubView('expected');
+      expect(component.verificationSubView).toBe('expected');
+      fixture.detectChanges();
+    });
+
+    it('updates active tab styling and ARIA accessibility attributes immediately', () => {
+      const tabExpected = fixture.nativeElement.querySelector('#tab-verification-expected');
+      const tabDiscrepancies = fixture.nativeElement.querySelector('#tab-verification-discrepancies');
+      const tabUnregistered = fixture.nativeElement.querySelector('#tab-verification-unregistered');
+
+      expect(tabExpected).toBeTruthy();
+      expect(tabDiscrepancies).toBeTruthy();
+      expect(tabUnregistered).toBeTruthy();
+
+      // Initially 'expected' is active
+      expect(tabExpected.classList.contains('active')).toBeTrue();
+      expect(tabExpected.getAttribute('aria-selected')).toBe('true');
+      expect(tabDiscrepancies.classList.contains('active')).toBeFalse();
+      expect(tabDiscrepancies.getAttribute('aria-selected')).toBe('false');
+
+      // Click discrepancies tab
+      tabDiscrepancies.click();
+      fixture.detectChanges();
+
+      expect(component.verificationSubView).toBe('discrepancies');
+      expect(tabDiscrepancies.classList.contains('active')).toBeTrue();
+      expect(tabDiscrepancies.getAttribute('aria-selected')).toBe('true');
+      expect(tabExpected.classList.contains('active')).toBeFalse();
+      expect(tabExpected.getAttribute('aria-selected')).toBe('false');
+
+      // Panel exists and is labelled
+      const panelDiscrepancies = fixture.nativeElement.querySelector('#panel-verification-discrepancies');
+      expect(panelDiscrepancies).toBeTruthy();
+      expect(panelDiscrepancies.getAttribute('role')).toBe('tabpanel');
+
+      // Click unregistered tab
+      tabUnregistered.click();
+      fixture.detectChanges();
+
+      expect(component.verificationSubView).toBe('unregistered');
+      expect(tabUnregistered.classList.contains('active')).toBeTrue();
+      expect(tabUnregistered.getAttribute('aria-selected')).toBe('true');
+      expect(tabDiscrepancies.classList.contains('active')).toBeFalse();
+
+      const panelUnregistered = fixture.nativeElement.querySelector('#panel-verification-unregistered');
+      expect(panelUnregistered).toBeTruthy();
+      expect(panelUnregistered.getAttribute('role')).toBe('tabpanel');
+    });
+
+    it('supports keyboard navigation across tablist', () => {
+      expect(component.verificationSubView).toBe('expected');
+
+      // ArrowRight advances to discrepancies
+      const eventRight = new KeyboardEvent('keydown', { key: 'ArrowRight' });
+      spyOn(eventRight, 'preventDefault');
+      component.onVerificationTabKeydown(eventRight);
+      expect(component.verificationSubView).toBe('discrepancies');
+      expect(eventRight.preventDefault).toHaveBeenCalled();
+
+      // ArrowRight advances to unregistered
+      component.onVerificationTabKeydown(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+      expect(component.verificationSubView).toBe('unregistered');
+
+      // ArrowRight wraps to expected
+      component.onVerificationTabKeydown(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+      expect(component.verificationSubView).toBe('expected');
+
+      // ArrowLeft wraps to unregistered
+      component.onVerificationTabKeydown(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+      expect(component.verificationSubView).toBe('unregistered');
+
+      // Home jumps to expected
+      component.onVerificationTabKeydown(new KeyboardEvent('keydown', { key: 'Home' }));
+      expect(component.verificationSubView).toBe('expected');
+
+      // End jumps to unregistered
+      component.onVerificationTabKeydown(new KeyboardEvent('keydown', { key: 'End' }));
+      expect(component.verificationSubView).toBe('unregistered');
+    });
+
+    it('renders provisional preview banner and badges for draft campaigns without altering status', () => {
+      component.selectedCampaign = { ...testCampaign, status: 'draft' };
+      component.campaignExpectedAssets = [{ ...testExpectedAsset, is_preview: true, is_verified: false }];
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('Provisional Scope Preview');
+      expect(text).toContain('The official expected-asset snapshot will be frozen and locked when the campaign is started');
+      expect(text).toContain('Live preview');
+
+      // Check preview badge in table
+      const previewBadge = fixture.nativeElement.querySelector('.status-draft');
+      expect(previewBadge).toBeTruthy();
+      expect(previewBadge.textContent).toContain('Preview');
+
+      // Ensure campaign status has not been mutated
+      expect(component.selectedCampaign.status).toBe('draft');
+      expect(registry.transitionVerificationCampaignStatus).not.toHaveBeenCalled();
+    });
+
+    it('displays informative empty states in draft mode across all three tabs', () => {
+      component.selectedCampaign = { ...testCampaign, status: 'draft' };
+      component.campaignExpectedAssets = [];
+      component.campaignDiscrepancies = [];
+      component.campaignUnregisteredAssets = [];
+
+      // Tab 1: Expected Assets empty state
+      component.setVerificationSubView('expected');
+      fixture.detectChanges();
+      let text = fixture.nativeElement.textContent;
+      expect(text).toContain("No active assets currently match this campaign's category and location scope");
+      expect(text).toContain('This preview will lock into the official snapshot upon campaign start');
+
+      // Tab 2: Discrepancies empty state
+      component.setVerificationSubView('discrepancies');
+      fixture.detectChanges();
+      text = fixture.nativeElement.textContent;
+      expect(text).toContain('No discrepancies recorded. Discrepancies will appear as physical verification observations are recorded once the campaign is started');
+
+      // Tab 3: Unregistered Assets empty state
+      component.setVerificationSubView('unregistered');
+      fixture.detectChanges();
+      text = fixture.nativeElement.textContent;
+      expect(text).toContain('No unregistered assets recorded. In-field equipment discovered during physical audits will be logged here once the campaign begins');
+
+      // Zero accidental status transitions
+      expect(registry.transitionVerificationCampaignStatus).not.toHaveBeenCalled();
+      expect(component.selectedCampaign.status).toBe('draft');
+    });
+
+    it('hides the Verification Status filter in Draft mode and displays it in active mode', () => {
+      // In draft mode: verification status filter is hidden
+      component.selectedCampaign = { ...testCampaign, status: 'draft' };
+      component.setVerificationSubView('expected');
+      fixture.detectChanges();
+
+      const selectLabels = fixture.nativeElement.querySelectorAll('#panel-verification-expected label');
+      const hasStatusFilter = Array.from(selectLabels).some((el: any) => el.textContent?.includes('Verification Status'));
+      expect(hasStatusFilter).toBeFalse();
+
+      // In in_progress mode: verification status filter is visible
+      component.selectedCampaign = { ...testCampaign, status: 'in_progress' };
+      fixture.detectChanges();
+
+      const updatedLabels = fixture.nativeElement.querySelectorAll('#panel-verification-expected label');
+      const hasStatusFilterNow = Array.from(updatedLabels).some((el: any) => el.textContent?.includes('Verification Status'));
+      expect(hasStatusFilterNow).toBeTrue();
+    });
+
+    it('forwards search, category, and location filters to preview endpoint in Draft mode', () => {
+      component.selectedCampaign = { ...testCampaign, status: 'draft' };
+      registry.getVerificationExpectedAssetsPreview.calls.reset();
+
+      component.expectedSearch = 'SN-PREVIEW-001';
+      component.expectedCategoryFilter = 'cat-123';
+      component.expectedLocationFilter = 'loc-456';
+      component.loadExpectedAssets();
+
+      expect(registry.getVerificationExpectedAssetsPreview).toHaveBeenCalledWith(
+        component.companyId,
+        testCampaign.id,
+        {
+          search: 'SN-PREVIEW-001',
+          category_id: 'cat-123',
+          location_id: 'loc-456'
+        }
+      );
+    });
   });
 });
 
@@ -2366,6 +2765,9 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
       'companies',
       'listMaster',
       'listNumberRules',
+      'getAssetNumbering',
+      'saveAssetNumbering',
+      'createCompany',
       'companyMembers',
       'companyRoles',
       'listAssets',
@@ -2386,6 +2788,8 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
       'suppliers',
       'purchaseOrders',
       'getPurchaseOrder',
+      'createPurchaseOrder',
+      'updatePurchaseOrder',
       'goodsReceipts',
       'serviceContracts',
       'maintenanceUsers',
@@ -2402,6 +2806,7 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
       'updateVerificationCampaign',
       'transitionVerificationCampaignStatus',
       'getVerificationExpectedAssets',
+      'getVerificationExpectedAssetsPreview',
       'recordVerificationObservation',
       'getVerificationDiscrepancies',
       'resolveVerificationDiscrepancy',
@@ -2447,6 +2852,7 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
     registry.companies.and.returnValue(of([company]));
     registry.listMaster.and.returnValue(of([]));
     registry.listNumberRules.and.returnValue(of([]));
+    registry.getAssetNumbering.and.returnValue(of(defaultAssetNumbering));
     registry.companyMembers.and.returnValue(of([]));
     registry.companyRoles.and.returnValue(of([]));
     registry.listAssets.and.returnValue(of({ items: [testAsset], total: 1, page: 1, page_size: 15 }));
@@ -2460,6 +2866,8 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
     registry.suppliers.and.returnValue(of([]));
     registry.purchaseOrders.and.returnValue(of([]));
     registry.getPurchaseOrder.and.returnValue(of({} as any));
+    registry.createPurchaseOrder.and.returnValue(of({} as any));
+    registry.updatePurchaseOrder.and.returnValue(of({} as any));
     registry.goodsReceipts.and.returnValue(of([]));
     registry.serviceContracts.and.returnValue(of([]));
     registry.maintenanceUsers.and.returnValue(of([]));
@@ -2488,6 +2896,7 @@ describe('RegistryComponent Asset Financial Lifecycle', () => {
     registry.updateVerificationCampaign.and.returnValue(of({} as any));
     registry.transitionVerificationCampaignStatus.and.returnValue(of({} as any));
     registry.getVerificationExpectedAssets.and.returnValue(of([]));
+    registry.getVerificationExpectedAssetsPreview.and.returnValue(of([]));
     registry.recordVerificationObservation.and.returnValue(of({} as any));
     registry.getVerificationDiscrepancies.and.returnValue(of([]));
     registry.resolveVerificationDiscrepancy.and.returnValue(of({} as any));
@@ -2745,6 +3154,9 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       'companies',
       'listMaster',
       'listNumberRules',
+      'getAssetNumbering',
+      'saveAssetNumbering',
+      'createCompany',
       'companyMembers',
       'companyRoles',
       'listAssets',
@@ -2765,6 +3177,8 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       'suppliers',
       'purchaseOrders',
       'getPurchaseOrder',
+      'createPurchaseOrder',
+      'updatePurchaseOrder',
       'goodsReceipts',
       'serviceContracts',
       'maintenanceUsers',
@@ -2781,6 +3195,7 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       'updateVerificationCampaign',
       'transitionVerificationCampaignStatus',
       'getVerificationExpectedAssets',
+      'getVerificationExpectedAssetsPreview',
       'recordVerificationObservation',
       'getVerificationDiscrepancies',
       'resolveVerificationDiscrepancy',
@@ -2826,6 +3241,7 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
     registry.companies.and.returnValue(of([company]));
     registry.listMaster.and.returnValue(of([]));
     registry.listNumberRules.and.returnValue(of([]));
+    registry.getAssetNumbering.and.returnValue(of(defaultAssetNumbering));
     registry.companyMembers.and.returnValue(of([]));
     registry.companyRoles.and.returnValue(of([]));
     registry.listAssets.and.returnValue(of({ items: [testAsset], total: 1, page: 1, page_size: 15 }));
@@ -2839,6 +3255,8 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
     registry.suppliers.and.returnValue(of([]));
     registry.purchaseOrders.and.returnValue(of([]));
     registry.getPurchaseOrder.and.returnValue(of({} as any));
+    registry.createPurchaseOrder.and.returnValue(of({} as any));
+    registry.updatePurchaseOrder.and.returnValue(of({} as any));
     registry.goodsReceipts.and.returnValue(of([]));
     registry.serviceContracts.and.returnValue(of([]));
     registry.maintenanceUsers.and.returnValue(of([]));
@@ -2855,6 +3273,7 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
     registry.updateVerificationCampaign.and.returnValue(of({} as any));
     registry.transitionVerificationCampaignStatus.and.returnValue(of({} as any));
     registry.getVerificationExpectedAssets.and.returnValue(of([]));
+    registry.getVerificationExpectedAssetsPreview.and.returnValue(of([]));
     registry.recordVerificationObservation.and.returnValue(of({} as any));
     registry.getVerificationDiscrepancies.and.returnValue(of([]));
     registry.resolveVerificationDiscrepancy.and.returnValue(of({} as any));
@@ -3605,6 +4024,7 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       // Mock listMaster, listNumberRules, listAssets for selectCompany
       registry.listMaster.and.returnValue(of([]));
       registry.listNumberRules.and.returnValue(of([]));
+      registry.getAssetNumbering.and.returnValue(of(defaultAssetNumbering));
       registry.listAssets.and.returnValue(of({ items: [], total: 0, page: 1, page_size: 25 }));
       registry.lookupAsset.and.returnValue(of(targetAsset));
 
@@ -3633,6 +4053,7 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
 
       registry.listMaster.and.returnValue(of([]));
       registry.listNumberRules.and.returnValue(of([]));
+      registry.getAssetNumbering.and.returnValue(of(defaultAssetNumbering));
       registry.listAssets.and.returnValue(of({ items: [], total: 0, page: 1, page_size: 25 }));
       registry.lookupAsset.and.returnValue(
         throwError(() => new HttpErrorResponse({
@@ -3666,6 +4087,641 @@ describe('RegistryComponent Asset Lifecycle Alerts and Action Centre', () => {
       // Simulate scanning/opening the same asset again
       queryParamMapSubject.next(convertToParamMap({ lookup: 'MZ-000016' }));
       expect(registry.lookupAsset).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('Goods Receipt Reversals', () => {
+    const testReceipt: GoodsReceipt = {
+      id: 'receipt-1',
+      company_id: 'company-1',
+      purchase_order_id: 'po-1',
+      receipt_number: 'GRN-001',
+      received_date: '2026-11-07',
+      delivery_reference: 'DEL-1',
+      notes: null,
+      status: 'completed',
+      created_at: '2026-11-07T10:00:00Z',
+      lines: [
+        {
+          id: 'line-1',
+          purchase_order_line_id: 'po-line-1',
+          quantity_received: 5,
+          quantity_rejected: 1,
+          quantity_reversed: 2,
+          discrepancy_notes: null,
+          assets: [],
+        },
+      ],
+    };
+
+    it('calculates unreversed accepted count and total reversed count correctly', () => {
+      // Accepted = 5 - 1 = 4. Reversed = 2. Unreversed = 4 - 2 = 2.
+      expect(component.receiptUnreversedAcceptedCount(testReceipt)).toBe(2);
+      expect(component.receiptTotalReversedCount(testReceipt)).toBe(2);
+    });
+
+    it('opens and closes the reversal modal', () => {
+      expect(component.reversingReceipt).toBeNull();
+      component.openReversalModal(testReceipt);
+      expect(component.reversingReceipt).toBe(testReceipt);
+
+      component.closeReversalModal();
+      expect(component.reversingReceipt).toBeNull();
+    });
+
+    it('opens and closes the reversal history modal', () => {
+      expect(component.historyReceipt).toBeNull();
+      component.openReversalHistoryModal(testReceipt);
+      expect(component.historyReceipt).toBe(testReceipt);
+
+      component.closeReversalHistoryModal();
+      expect(component.historyReceipt).toBeNull();
+    });
+
+    it('handles reversal completion and reloads procurement', () => {
+      spyOn(component, 'loadProcurement');
+      component.openReversalModal(testReceipt);
+
+      component.onReversalCompleted({
+        id: 'rev-1',
+        company_id: 'company-1',
+        goods_receipt_id: 'receipt-1',
+        purchase_order_id: 'po-1',
+        reversal_reference: 'REV-001',
+        reversed_at: '2026-11-07T12:00:00Z',
+        reversed_by_id: 'user-1',
+        reason: 'Defective batch',
+        created_at: '2026-11-07T12:00:00Z',
+        lines: [],
+      });
+
+      expect(component.reversingReceipt).toBeNull();
+      expect(component.successMessage).toContain('REV-001');
+      expect(component.loadProcurement).toHaveBeenCalled();
+    });
+
+    it('switches procurement sub-tabs correctly', () => {
+      expect(component.procurementSubTab).toBe('orders');
+      component.setProcurementSubTab('receipts');
+      expect(component.procurementSubTab).toBe('receipts');
+      component.setProcurementSubTab('returns');
+      expect(component.procurementSubTab).toBe('returns');
+      // Idempotent
+      component.setProcurementSubTab('returns');
+      expect(component.procurementSubTab).toBe('returns');
+    });
+
+    it('supports horizontal keyboard navigation, wrapping, and focus across procurement sub-tabs', () => {
+      component.activeView = 'procurement';
+      component.companyId = 'company-1';
+      component.procurementSubTab = 'orders';
+      fixture.detectChanges();
+
+      const ordersTab = document.getElementById('tab-procurement-orders');
+      const receiptsTab = document.getElementById('tab-procurement-receipts');
+      const returnsTab = document.getElementById('tab-procurement-returns');
+
+      // Initial state: orders is active (selected, tabindex 0)
+      expect(ordersTab?.getAttribute('aria-selected')).toBe('true');
+      expect(ordersTab?.getAttribute('tabindex')).toBe('0');
+      expect(receiptsTab?.getAttribute('aria-selected')).toBe('false');
+      expect(receiptsTab?.getAttribute('tabindex')).toBe('-1');
+      expect(returnsTab?.getAttribute('aria-selected')).toBe('false');
+      expect(returnsTab?.getAttribute('tabindex')).toBe('-1');
+
+      // 1. ArrowRight advances to receipts
+      const eventRight = new KeyboardEvent('keydown', { key: 'ArrowRight' });
+      spyOn(eventRight, 'preventDefault');
+      component.onProcurementTabKeydown(eventRight);
+      expect(component.procurementSubTab).toBe('receipts');
+      expect(eventRight.preventDefault).toHaveBeenCalled();
+
+      // 2. ArrowRight advances to returns
+      component.onProcurementTabKeydown(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+      expect(component.procurementSubTab).toBe('returns');
+
+      // 3. ArrowRight wraps from returns (last) to orders (first)
+      component.onProcurementTabKeydown(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+      expect(component.procurementSubTab).toBe('orders');
+
+      // 4. ArrowLeft wraps from orders (first) to returns (last)
+      const eventLeft = new KeyboardEvent('keydown', { key: 'ArrowLeft' });
+      spyOn(eventLeft, 'preventDefault');
+      component.onProcurementTabKeydown(eventLeft);
+      expect(component.procurementSubTab).toBe('returns');
+      expect(eventLeft.preventDefault).toHaveBeenCalled();
+
+      // 5. ArrowLeft moves back to receipts
+      component.onProcurementTabKeydown(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+      expect(component.procurementSubTab).toBe('receipts');
+
+      // 6. Home jumps to first tab (orders)
+      const eventHome = new KeyboardEvent('keydown', { key: 'Home' });
+      spyOn(eventHome, 'preventDefault');
+      component.onProcurementTabKeydown(eventHome);
+      expect(component.procurementSubTab).toBe('orders');
+      expect(eventHome.preventDefault).toHaveBeenCalled();
+
+      // 7. End jumps to last tab (returns)
+      const eventEnd = new KeyboardEvent('keydown', { key: 'End' });
+      spyOn(eventEnd, 'preventDefault');
+      component.onProcurementTabKeydown(eventEnd);
+      expect(component.procurementSubTab).toBe('returns');
+      expect(eventEnd.preventDefault).toHaveBeenCalled();
+
+      // Update DOM and verify roving tabindex & aria-selected
+      fixture.detectChanges();
+      expect(ordersTab?.getAttribute('aria-selected')).toBe('false');
+      expect(ordersTab?.getAttribute('tabindex')).toBe('-1');
+      expect(receiptsTab?.getAttribute('aria-selected')).toBe('false');
+      expect(receiptsTab?.getAttribute('tabindex')).toBe('-1');
+      expect(returnsTab?.getAttribute('aria-selected')).toBe('true');
+      expect(returnsTab?.getAttribute('tabindex')).toBe('0');
+    });
+
+    it('opens and closes Goods Return creation modal', () => {
+      expect(component.creatingGoodsReturn).toBeFalse();
+      expect(component.createReturnInitialReceipt).toBeNull();
+
+      component.openGoodsReturnCreateModal(testReceipt);
+      expect(component.creatingGoodsReturn).toBeTrue();
+      expect(component.createReturnInitialReceipt).toBe(testReceipt);
+
+      component.closeGoodsReturnCreateModal();
+      expect(component.creatingGoodsReturn).toBeFalse();
+      expect(component.createReturnInitialReceipt).toBeNull();
+    });
+
+    it('handles Goods Return creation completion, reloads procurement and switches to returns subtab', () => {
+      spyOn(component, 'loadProcurement');
+      component.setProcurementSubTab('orders');
+      component.openGoodsReturnCreateModal(testReceipt);
+
+      component.onGoodsReturnCreated({
+        id: 'grr-1',
+        company_id: 'company-1',
+        return_number: 'GRR-20261107-0001',
+        supplier_id: 'sup-1',
+        purchase_order_id: 'po-1',
+        original_goods_receipt_id: 'receipt-1',
+        goods_receipt_reversal_id: 'rev-1',
+        return_date: '2026-11-07',
+        status: 'draft',
+        return_reason: 'RMA return',
+        vendor_reference: null,
+        dispatch_reference: null,
+        transport_details: null,
+        notes: null,
+        policy_strict_approval_applied: null,
+        created_by_id: 'user-1',
+        created_at: '2026-11-07T12:00:00Z',
+        approved_by_id: null,
+        approved_at: null,
+        dispatched_by_id: null,
+        dispatched_at: null,
+        completed_by_id: null,
+        completed_at: null,
+        cancelled_by_id: null,
+        cancelled_at: null,
+        cancellation_reason: null,
+        lines: [],
+      });
+
+      expect(component.creatingGoodsReturn).toBeFalse();
+      expect(component.procurementSubTab).toBe('returns');
+      expect(component.successMessage).toContain('GRR-20261107-0001');
+      expect(component.loadProcurement).toHaveBeenCalled();
+    });
+
+    it('handles selection of a Goods Return and navigation back to list', () => {
+      const mockReturn = {
+        id: 'grr-1',
+        company_id: 'company-1',
+        return_number: 'GRR-20261107-0001',
+        supplier_id: 'sup-1',
+        purchase_order_id: 'po-1',
+        original_goods_receipt_id: 'receipt-1',
+        goods_receipt_reversal_id: 'rev-1',
+        return_date: '2026-11-07',
+        status: 'draft' as const,
+        return_reason: 'RMA return',
+        vendor_reference: null,
+        dispatch_reference: null,
+        transport_details: null,
+        notes: null,
+        policy_strict_approval_applied: null,
+        created_by_id: 'user-1',
+        created_at: '2026-11-07T12:00:00Z',
+        approved_by_id: null,
+        approved_at: null,
+        dispatched_by_id: null,
+        dispatched_at: null,
+        completed_by_id: null,
+        completed_at: null,
+        cancelled_by_id: null,
+        cancelled_at: null,
+        cancellation_reason: null,
+        lines: [],
+      };
+
+      expect(component.selectedGoodsReturn).toBeNull();
+      component.onSelectGoodsReturn(mockReturn);
+      expect(component.selectedGoodsReturn).toEqual(mockReturn);
+
+      // Detail update updates selected return
+      const updated = { ...mockReturn, status: 'approved' as const };
+      component.onGoodsReturnDetailUpdated(updated);
+      expect(component.selectedGoodsReturn?.status).toBe('approved');
+
+      // Back navigation clears selection
+      component.onBackFromGoodsReturnDetail();
+      expect(component.selectedGoodsReturn).toBeNull();
+    });
+  });
+
+  describe('Company Creation & Auto Code Generation', () => {
+    it('should automatically generate uppercase underscore code from company name', () => {
+      expect(component.generateCompanyCode('Madhuradhipate Organics')).toBe('MADHURADHIPATE_ORGANICS');
+    });
+
+    it('should replace unsupported characters with underscores and trim leading/trailing underscores', () => {
+      expect(component.generateCompanyCode('  Acme & Co. (Global) 100%  ')).toBe('ACME_CO_GLOBAL_100');
+    });
+
+    it('should enforce maximum length of 24 characters conforming to backend validation', () => {
+      const longName = 'Very Long Enterprise Corporation International Holdings Ltd';
+      const code = component.generateCompanyCode(longName);
+      expect(code.length).toBeLessThanOrEqual(24);
+      expect(code).toMatch(/^[A-Z0-9_-]+$/);
+    });
+
+    it('should suggest numeric suffix _2 if generated code already exists', () => {
+      component.companies = [
+        { id: 'c1', code: 'ACME_ORGANICS', name: 'Acme Organics', is_active: true } as any
+      ];
+      expect(component.generateCompanyCode('Acme Organics')).toBe('ACME_ORGANICS_2');
+    });
+
+    it('should suggest next available numeric suffix if _2 also already exists', () => {
+      component.companies = [
+        { id: 'c1', code: 'ACME_ORGANICS', name: 'Acme Organics', is_active: true } as any,
+        { id: 'c2', code: 'ACME_ORGANICS_2', name: 'Acme Organics 2', is_active: true } as any
+      ];
+      expect(component.generateCompanyCode('Acme Organics')).toBe('ACME_ORGANICS_3');
+    });
+
+    it('should automatically populate company code when company name changes and code is not manually edited', () => {
+      component.companyCodeManuallyEdited = false;
+      component.onCompanyNameChange('Madhuradhipate Organics');
+      expect(component.companyForm.name).toBe('Madhuradhipate Organics');
+      expect(component.companyForm.code).toBe('MADHURADHIPATE_ORGANICS');
+    });
+
+    it('should regenerate company code if company name changes before user manually edits code', () => {
+      component.companyCodeManuallyEdited = false;
+      component.onCompanyNameChange('First Name');
+      expect(component.companyForm.code).toBe('FIRST_NAME');
+
+      component.onCompanyNameChange('Second Name');
+      expect(component.companyForm.code).toBe('SECOND_NAME');
+    });
+
+    it('should not overwrite manually edited company code when company name changes', () => {
+      component.companyForm.code = 'MANUAL_OVERRIDE_CODE';
+      component.onCompanyCodeInput();
+      expect(component.companyCodeManuallyEdited).toBeTrue();
+
+      component.onCompanyNameChange('Totally Different Name');
+      expect(component.companyForm.code).toBe('MANUAL_OVERRIDE_CODE');
+    });
+
+    it('should resume auto-generation if user completely erases manual code', () => {
+      component.companyForm.code = 'SOME_CODE';
+      component.onCompanyCodeInput();
+      expect(component.companyCodeManuallyEdited).toBeTrue();
+
+      component.companyForm.code = '   ';
+      component.onCompanyCodeInput();
+      expect(component.companyCodeManuallyEdited).toBeFalse();
+
+      component.onCompanyNameChange('Resumed Generation Corp');
+      expect(component.companyForm.code).toBe('RESUMED_GENERATION_CORP');
+    });
+
+    it('should reject duplicate manually entered company code with clear error message', () => {
+      component.companies = [
+        { id: 'c1', code: 'EXISTING_CORP', name: 'Existing Corp', is_active: true } as any
+      ];
+      component.companyForm = { code: 'EXISTING_CORP', name: 'Duplicate Corp', is_active: true };
+
+      component.createCompany();
+
+      expect(component.errorMessage).toBe("Company code 'EXISTING_CORP' already exists. Please choose a unique company code.");
+      expect(registry.createCompany).not.toHaveBeenCalled();
+    });
+
+    it('should reject manually entered company code exceeding 24 characters', () => {
+      component.companies = [];
+      component.companyForm = { code: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', name: 'Too Long Code Corp', is_active: true };
+
+      component.createCompany();
+
+      expect(component.errorMessage).toContain('exceeds the maximum supported length of 24 characters');
+      expect(registry.createCompany).not.toHaveBeenCalled();
+    });
+
+    it('should submit company creation with only code and name and handle success', () => {
+      component.companies = [];
+      component.companyForm = { code: 'NEW_CORP', name: 'New Corporation', is_active: true };
+      const createdCompany = {
+        id: 'new-id',
+        code: 'NEW_CORP',
+        name: 'New Corporation',
+        reference_number: 'CMP-0001',
+        is_active: true
+      };
+      registry.createCompany.and.returnValue(of(createdCompany as any));
+      spyOn(component, 'selectCompany');
+
+      component.createCompany();
+
+      expect(registry.createCompany).toHaveBeenCalledWith({
+        code: 'NEW_CORP',
+        name: 'New Corporation'
+      });
+      expect(component.saving).toBeFalse();
+      expect(component.successMessage).toContain('CMP-0001');
+      expect(component.companyCodeManuallyEdited).toBeFalse();
+      expect(component.selectCompany).toHaveBeenCalledWith('new-id');
+    });
+  });
+
+  describe('Internal purchase order auto-numbering and external workflow preservation', () => {
+    beforeEach(() => {
+      permissions = new Set(['company.read', 'asset.read', 'procurement.read', 'procurement.manage']);
+      component.companyId = company.id;
+      component.company = company;
+      fixture.detectChanges();
+    });
+
+    it('1. succeeds in internal PO creation without user-entered number and 2. omits order_number from create request', () => {
+      const component = fixture.componentInstance;
+      component.suppliers = [{ id: 'sup-1', company_id: company.id, code: 'SUP1', name: 'Supplier 1', is_active: true, email: null, phone: null, notes: null, created_at: '' }];
+      component.categories = [{ id: 'cat-1', company_id: company.id, code: 'CAT1', name: 'Laptops', is_active: true }];
+      component.purchaseOrderForm = {
+        supplier_id: 'sup-1',
+        order_number: '',
+        ordered_date: '2026-11-17',
+        expected_date: '2026-11-20',
+        notes: 'Test PO notes',
+        lines: [{
+          category_id: 'cat-1',
+          description: 'MacBook Pro 16',
+          quantity_ordered: 3,
+          unit_cost: 2500,
+          discount: 0,
+          tax_rate: 18,
+          tax_amount: 1350
+        }]
+      };
+
+      const backendAllocatedOrder: PurchaseOrder = {
+        id: 'po-allocated-1',
+        company_id: company.id,
+        supplier_id: 'sup-1',
+        order_number: 'MO-PO-2026-27-00001',
+        origin: 'INTERNAL',
+        status: 'open',
+        ordered_date: '2026-11-17',
+        expected_date: '2026-11-20',
+        notes: 'Test PO notes',
+        total_amount: '8850.00',
+        total_tax: '1350.00',
+        created_at: '2026-11-17T10:00:00Z',
+        lines: [{
+          id: 'line-alloc-1',
+          company_id: company.id,
+          purchase_order_id: 'po-allocated-1',
+          category_id: 'cat-1',
+          description: 'MacBook Pro 16',
+          quantity_ordered: 3,
+          unit_cost: '2500.00',
+          quantity_received: 0,
+          quantity_remaining: 3,
+          discount: '0.00',
+          tax_rate: '18.00',
+          tax_amount: '1350.00',
+          line_subtotal: '7500.00',
+          line_total: '8850.00'
+        }]
+      };
+
+      registry.createPurchaseOrder.and.returnValue(of(backendAllocatedOrder));
+
+      component.createPurchaseOrder();
+
+      expect(registry.createPurchaseOrder).toHaveBeenCalled();
+      const dispatchedPayload = registry.createPurchaseOrder.calls.mostRecent().args[1] as any;
+      expect(dispatchedPayload.order_number).toBeUndefined();
+      expect(dispatchedPayload.supplier_id).toBe('sup-1');
+      expect(dispatchedPayload.lines.length).toBe(1);
+      expect(component.successMessage).toBe('Purchase order MO-PO-2026-27-00001 created.');
+      expect(component.purchaseOrders[0].order_number).toBe('MO-PO-2026-27-00001');
+    });
+
+    it('3. does not show required-number error when order number is blank in form', () => {
+      const component = fixture.componentInstance;
+      component.suppliers = [{ id: 'sup-1', company_id: company.id, code: 'SUP1', name: 'Supplier 1', is_active: true, email: null, phone: null, notes: null, created_at: '' }];
+      component.categories = [{ id: 'cat-1', company_id: company.id, code: 'CAT1', name: 'Laptops', is_active: true }];
+      component.purchaseOrderForm.supplier_id = 'sup-1';
+      component.purchaseOrderForm.order_number = '';
+      component.purchaseOrderForm.ordered_date = '2026-11-17';
+      component.purchaseOrderForm.lines = [{
+        category_id: 'cat-1',
+        description: 'ThinkPad X1',
+        quantity_ordered: 2,
+        unit_cost: 1800,
+        discount: 0,
+        tax_rate: 0,
+        tax_amount: 0
+      }];
+
+      registry.createPurchaseOrder.and.returnValue(of({
+        id: 'po-1',
+        company_id: company.id,
+        supplier_id: 'sup-1',
+        order_number: 'MO-PO-2026-27-00002',
+        origin: 'INTERNAL',
+        status: 'open',
+        ordered_date: '2026-11-17',
+        lines: []
+      } as any));
+
+      component.createPurchaseOrder();
+
+      expect(component.errorMessage).not.toContain('Please enter an order number');
+      expect(registry.createPurchaseOrder).toHaveBeenCalled();
+    });
+
+    it('4. displays existing PO reference read-only during editing and omits order_number from update request', () => {
+      const component = fixture.componentInstance;
+      component.suppliers = [{ id: 'sup-1', company_id: company.id, code: 'SUP1', name: 'Supplier 1', is_active: true, email: null, phone: null, notes: null, created_at: '' }];
+      component.categories = [{ id: 'cat-1', company_id: company.id, code: 'CAT1', name: 'Laptops', is_active: true }];
+      component.activeView = 'procurement';
+      const existingOrder: PurchaseOrder = {
+        id: 'po-existing-99',
+        company_id: company.id,
+        supplier_id: 'sup-1',
+        order_number: 'MO-PO-2026-27-00099',
+        origin: 'INTERNAL',
+        status: 'open',
+        ordered_date: '2026-11-10',
+        expected_date: '2026-11-15',
+        notes: 'Original note',
+        total_amount: '1000.00',
+        total_tax: '0.00',
+        created_at: '2026-11-10T09:00:00Z',
+        lines: [{
+          id: 'line-99',
+          company_id: company.id,
+          purchase_order_id: 'po-existing-99',
+          category_id: 'cat-1',
+          description: 'Keyboards',
+          quantity_ordered: 10,
+          unit_cost: '100.00',
+          quantity_received: 0,
+          quantity_remaining: 10,
+          discount: '0.00',
+          tax_rate: '0.00',
+          tax_amount: '0.00',
+          line_subtotal: '1000.00',
+          line_total: '1000.00'
+        }]
+      };
+      component.purchaseOrders = [existingOrder];
+      fixture.detectChanges();
+
+      component.editPurchaseOrder(existingOrder);
+      fixture.detectChanges();
+
+      expect(component.editingPurchaseOrderId).toBe('po-existing-99');
+      const inputEl: HTMLInputElement = fixture.nativeElement.querySelector('input[name="poNumber"]');
+      expect(inputEl).toBeTruthy();
+      expect(inputEl.readOnly).toBeTrue();
+      expect(inputEl.value).toBe('MO-PO-2026-27-00099');
+
+      registry.updatePurchaseOrder.and.returnValue(of({
+        ...existingOrder,
+        notes: 'Updated note'
+      }));
+
+      component.createPurchaseOrder();
+
+      expect(registry.updatePurchaseOrder).toHaveBeenCalledWith(
+        company.id,
+        'po-existing-99',
+        jasmine.objectContaining({
+          supplier_id: 'sup-1',
+          notes: 'Original note'
+        })
+      );
+      const updateDispatchedPayload = registry.updatePurchaseOrder.calls.mostRecent().args[2] as any;
+      expect(updateDispatchedPayload.order_number).toBeUndefined();
+    });
+
+    it('5. displays Auto-generated upon creation message in new internal PO form', () => {
+      const component = fixture.componentInstance;
+      component.activeView = 'procurement';
+      component.editingPurchaseOrderId = '';
+      fixture.detectChanges();
+
+      const inputEl: HTMLInputElement = fixture.nativeElement.querySelector('input[name="poNumber"]');
+      expect(inputEl).toBeTruthy();
+      expect(inputEl.readOnly).toBeTrue();
+      expect(inputEl.value).toBe('Auto-generated upon creation');
+    });
+
+    it('6. correctly displays backend 422 validation errors if manual PO number rejection is returned', () => {
+      const component = fixture.componentInstance;
+      component.suppliers = [{ id: 'sup-1', company_id: company.id, code: 'SUP1', name: 'Supplier 1', is_active: true, email: null, phone: null, notes: null, created_at: '' }];
+      component.categories = [{ id: 'cat-1', company_id: company.id, code: 'CAT1', name: 'Laptops', is_active: true }];
+      component.purchaseOrderForm.supplier_id = 'sup-1';
+      component.purchaseOrderForm.ordered_date = '2026-11-17';
+      component.purchaseOrderForm.lines = [{
+        category_id: 'cat-1',
+        description: 'Server Rack',
+        quantity_ordered: 1,
+        unit_cost: 5000,
+        discount: 0,
+        tax_rate: 0,
+        tax_amount: 0
+      }];
+
+      registry.createPurchaseOrder.and.returnValue(throwError(() => ({
+        status: 422,
+        error: {
+          detail: 'Manual purchase order numbers are not permitted for internal purchase orders. References are automatically generated by the reference numbering service.'
+        }
+      })));
+
+      component.createPurchaseOrder();
+
+      expect(component.saving).toBeFalse();
+      expect(component.errorMessage).toBe(
+        'Manual purchase order numbers are not permitted for internal purchase orders. References are automatically generated by the reference numbering service.'
+      );
+    });
+
+    it('7. preserves external PO workflows without applying internal creation numbering constraints', () => {
+      const component = fixture.componentInstance;
+      const externalPo: PurchaseOrder = {
+        id: 'po-ext-77',
+        company_id: company.id,
+        supplier_id: 'sup-1',
+        order_number: 'SAP-PO-2026-9901',
+        origin: 'EXTERNAL',
+        source_system: 'SAP_S4HANA',
+        source_instance_id: 'PRD_100',
+        external_reference: '4500012345',
+        status: 'open',
+        ordered_date: '2026-11-01',
+        expected_date: '2026-11-15',
+        notes: 'Imported via ERP Ingestion Service',
+        total_amount: '50000.00',
+        total_tax: '9000.00',
+        created_at: '2026-11-01T08:00:00Z',
+        lines: [{
+          id: 'line-ext-1',
+          company_id: company.id,
+          purchase_order_id: 'po-ext-77',
+          category_id: 'cat-1',
+          description: 'Datacenter Routers',
+          quantity_ordered: 2,
+          unit_cost: '25000.00',
+          quantity_received: 0,
+          quantity_remaining: 2,
+          discount: '0.00',
+          tax_rate: '18.00',
+          tax_amount: '9000.00',
+          line_subtotal: '50000.00',
+          line_total: '59000.00'
+        }]
+      };
+
+      component.suppliers = [{ id: 'sup-1', company_id: company.id, code: 'SUP1', name: 'Supplier 1', is_active: true, email: null, phone: null, notes: null, created_at: '' }];
+      component.purchaseOrders = [externalPo];
+      component.activeView = 'procurement';
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent).toContain('SAP-PO-2026-9901');
+
+      expect(component.canEditOrder(externalPo)).toBeTrue();
+      component.editPurchaseOrder(externalPo);
+      fixture.detectChanges();
+
+      const inputEl: HTMLInputElement = fixture.nativeElement.querySelector('input[name="poNumber"]');
+      expect(inputEl.value).toBe('SAP-PO-2026-9901');
+      expect(inputEl.readOnly).toBeTrue();
     });
   });
 });

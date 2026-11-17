@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.cli.seed_demo_data import SeederOptions, seed_demo_data
+from app.reference_service import ReferenceNumberService
 from app.models import (
     Asset,
     AssetAlert,
@@ -39,7 +40,12 @@ from app.models import (
 
 
 def _setup_target_company(db_session, code: str = 'TEST-SEED-CO') -> Company:
-    company = Company(code=code, name=f'Test Company {code}', is_active=True)
+    company = Company(
+        reference_number=ReferenceNumberService.allocate_company_reference(db_session),
+        code=code,
+        name=f'Test Company {code}',
+        is_active=True,
+    )
     db_session.add(company)
     db_session.commit()
     db_session.refresh(company)

@@ -62,7 +62,7 @@ def create_test_company(client, code: str, prefix: str):
     res = client.post(
         '/api/v1/companies',
         json={
-            'code': code,
+            'code': prefix,
             'name': f'Company {code}',
             'number_prefix': prefix,
         },

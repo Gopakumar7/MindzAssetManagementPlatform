@@ -1,0 +1,59 @@
+<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="cancel-modal-title">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="cancel-modal-title">Cancel Goods Return</h3>
+      <button type="button" class="close-btn" (click)="onClose()" [disabled]="submitting" aria-label="Close modal">×</button>
+    </div>
+
+    <div class="modal-body">
+      @if (error) {
+        <div class="error-banner" role="alert">
+          {{ error }}
+        </div>
+      }
+
+      <div class="warning-box" role="alert">
+        <div class="warning-title">⚠️ Terminal Outcome Warning</div>
+        <p>
+          Cancelling a Goods Return is a <strong>terminal, irreversible</strong> operation.
+          All <strong>{{ goodsReturn.lines.length }}</strong> active asset reservation(s) associated with this return
+          will be released back to unreserved inventory.
+        </p>
+      </div>
+
+      <div class="summary-details">
+        <p><strong>Return Reference:</strong> {{ goodsReturn.return_number }}</p>
+        <p><strong>Current Status:</strong> {{ goodsReturn.status }}</p>
+      </div>
+
+      <div class="form-group">
+        <label for="cancel-reason">Cancellation Reason <span class="required">*</span></label>
+        <textarea
+          id="cancel-reason"
+          class="form-control"
+          rows="3"
+          [(ngModel)]="cancellationReason"
+          placeholder="Explain the business reason for cancelling this goods return (minimum 3 characters)..."
+          [disabled]="submitting"
+        ></textarea>
+        <small class="form-hint" [class.hint-invalid]="cancellationReason.length > 0 && !isReasonValid">
+          Minimum 3 characters required. {{ cancellationReason.trim().length }}/3
+        </small>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" (click)="onClose()" [disabled]="submitting">
+        Keep Return
+      </button>
+      <button
+        type="button"
+        class="btn btn-danger"
+        (click)="onSubmit()"
+        [disabled]="!isFormValid"
+      >
+        @if (submitting) { Cancelling... } @else { Confirm Cancellation }
+      </button>
+    </div>
+  </div>
+</div>

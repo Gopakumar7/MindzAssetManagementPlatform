@@ -663,8 +663,11 @@ def test_dashboard_access_by_default_roles(client, db_session):
     from app.authentication import password_hasher
     import uuid
 
+    from app.reference_service import ReferenceNumberService
+
     company = Company(
         id=uuid.uuid4(),
+        reference_number=ReferenceNumberService.allocate_company_reference(db_session),
         code='ROLETEST',
         name='Role Dashboard Access Test',
         is_active=True,

@@ -1,0 +1,150 @@
+<div class="modal-backdrop" (click)="onClose()">
+  <div
+    class="modal-content complete-modal"
+    (click)="$event.stopPropagation()"
+    role="dialog"
+    aria-labelledby="complete-modal-title"
+    aria-modal="true"
+  >
+    <div class="modal-header">
+      <div>
+        <h3 id="complete-modal-title">Complete Goods Return — Vendor Acceptance</h3>
+        <span class="modal-subtitle">
+          Return: <strong>{{ goodsReturn.return_number }}</strong> | Supplier: <strong>{{ supplierName }}</strong>
+        </span>
+      </div>
+      <button
+        type="button"
+        class="close-btn"
+        (click)="onClose()"
+        [disabled]="submitting"
+        aria-label="Close modal"
+      >
+        &times;
+      </button>
+    </div>
+
+    <div class="modal-body">
+      @if (error) {
+        <div class="error-banner" role="alert">
+          <strong>Error:</strong> {{ error }}
+        </div>
+      }
+
+      @if (validationError) {
+        <div class="validation-banner" role="alert">
+          {{ validationError }}
+        </div>
+      }
+
+      <!-- Asset Summary Counts Bar -->
+      <div class="summary-box completion-summary-bar">
+        <div class="summary-metric">
+          <span class="metric-label">Total Assets:</span>
+          <strong>{{ goodsReturn.lines.length }}</strong>
+        </div>
+        <div class="summary-metric">
+          <span class="metric-label">Warehouse Received:</span>
+          <strong>{{ receivedCount }}</strong>
+        </div>
+        <div class="summary-metric metric-highlight">
+          <span class="metric-label">Awaiting Vendor Acceptance:</span>
+          <strong>{{ outstandingLines.length }}</strong>
+        </div>
+      </div>
+
+      <!-- Critical Lifecycle Warning Notice -->
+      <div class="summary-box completion-warning-box">
+        <strong>⚠️ Terminal Lifecycle Action:</strong> Completing this Goods Return will:
+        <ul class="effects-list">
+          <li>Mark all <strong>{{ outstandingLines.length }}</strong> outstanding in-transit asset(s) as accepted by the vendor.</li>
+          <li>Permanently transition their asset status from <code>return_pending</code> to <code>returned_to_vendor</code>.</li>
+          <li>Release their active return reservations with reason <code>fulfilled</code>.</li>
+          <li>Leave previously received assets intact in warehouse inventory (<code>reversed</code> status).</li>
+          <li>Transition this Goods Return to terminal <strong>Completed</strong> status (cannot be reopened or undone).</li>
+        </ul>
+      </div>
+
+      <!-- Outstanding Assets Table -->
+      <div class="asset-selection-card">
+        <div class="asset-selection-header">
+          <h4>Assets to be Accepted by Vendor ({{ outstandingLines.length }})</h4>
+          <span class="selection-badge">{{ outstandingLines.length }} in-transit item{{ outstandingLines.length === 1 ? '' : 's' }}</span>
+        </div>
+        <div class="asset-table-wrap">
+          <table class="asset-selection-table">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Asset Tag</th>
+                <th scope="col">Serial Number</th>
+                <th scope="col">Return Condition</th>
+                <th scope="col">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (line of outstandingLines; track line.id; let idx = $index) {
+                <tr>
+                  <td>{{ idx + 1 }}</td>
+                  <td class="asset-tag-label">
+                    <strong>{{ line.asset_number || 'AST-N/A' }}</strong>
+                  </td>
+                  <td>{{ line.serial_number || '—' }}</td>
+                  <td>
+                    <span class="condition-badge">{{ line.return_condition }}</span>
+                  </td>
+                  <td>{{ line.notes || '—' }}</td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="5" class="empty-assets-state">
+                    No outstanding in-transit assets found.
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Explicit Confirmation Checkbox -->
+      <div class="confirmation-check">
+        <label class="checkbox-label" for="confirm-complete-check">
+          <input
+            type="checkbox"
+            id="confirm-complete-check"
+            [(ngModel)]="confirmed"
+            [disabled]="submitting"
+          />
+          <span>
+            I confirm that the vendor has accepted responsibility for all outstanding assets listed above,
+            and I understand that completing this return permanently marks them as returned to vendor.
+          </span>
+        </label>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button
+        type="button"
+        class="btn btn-secondary cancel-btn"
+        (click)="onClose()"
+        [disabled]="submitting"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="btn btn-success submit-complete-btn"
+        (click)="onSubmit()"
+        [disabled]="!isFormValid || submitting"
+      >
+        @if (submitting) {
+          <span>Completing Return...</span>
+        } @else {
+          <span>Confirm Vendor Acceptance & Complete</span>
+        }
+      </button>
+    </div>
+  </div>
+</div>

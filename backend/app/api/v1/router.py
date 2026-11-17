@@ -5,6 +5,7 @@ from app.api.v1.routes import (
     assets,
     auth,
     finance,
+    goods_returns,
     health,
     maintenance,
     notifications,
@@ -22,6 +23,7 @@ router.include_router(security_admin.router)
 router.include_router(organization.router)
 router.include_router(assets.router)
 router.include_router(procurement.router)
+router.include_router(goods_returns.router)
 router.include_router(maintenance.router)
 router.include_router(reports.router)
 router.include_router(verification.router)

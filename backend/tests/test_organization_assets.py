@@ -43,7 +43,7 @@ def test_company_scoped_masters_and_company_isolation(client):
 
 
 def test_asset_numbering_precedence_manual_duplicate_and_invalid_rule(client):
-    company = create_company(client, 'NUM', prefix='DEFAULT')
+    company = create_company(client, 'DEFAULT', prefix='DEFAULT')
     categories = client.get(f"/api/v1/companies/{company['id']}/categories").json()
     laptop = next(category for category in categories if category['code'] == 'LAPTOP')
     desktop = next(category for category in categories if category['code'] == 'DESKTOP')

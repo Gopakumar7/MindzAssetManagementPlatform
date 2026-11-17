@@ -606,3 +606,209 @@ def test_company_isolation_and_rbac(client, db_session):
         },
     )
     assert ro_post.status_code == 403
+
+
+def test_expected_assets_preview(client, db_session):
+    data = _setup_company_with_assets(client, db_session)
+    company_id = data['company']['id']
+    cat_laptops_id = str(data['cat_laptops'].id)
+    loc1_id = data['loc1']['id']
+
+    # Create a disposed asset in company 1 with matching scope (should be excluded from preview)
+    disposed_res = client.post(
+        f'/api/v1/companies/{company_id}/assets',
+        json={
+            'category_id': cat_laptops_id,
+            'site_id': data['site']['id'],
+            'location_id': loc1_id,
+            'manufacturer': 'Dell',
+            'model': 'Disposed Laptop',
+            'serial_number': 'SN-DISPOSED-001',
+            'status': 'disposed',
+        },
+    )
+    assert disposed_res.status_code == 201
+
+    # Create Company 2 with an asset in category/location to test tenant isolation
+    c2_res = client.post(
+        '/api/v1/companies',
+        json={'code': 'COMPPREV2', 'name': 'Preview Isolation Company', 'number_prefix': 'CPV2'},
+    )
+    assert c2_res.status_code == 201
+    c2 = c2_res.json()
+    c2_cats = db_session.scalars(
+        select(AssetCategory).where(AssetCategory.company_id == UUID(c2['id'])).order_by(AssetCategory.code)
+    ).all()
+    c2_site_res = client.post(f'/api/v1/companies/{c2["id"]}/sites', json={'code': 'HQ2', 'name': 'HQ 2'})
+    c2_site = c2_site_res.json()
+    c2_loc_res = client.post(
+        f'/api/v1/companies/{c2["id"]}/sites/{c2_site["id"]}/locations',
+        json={'site_id': c2_site['id'], 'code': 'R1', 'name': 'Room 1'},
+    )
+    c2_loc = c2_loc_res.json()
+    client.post(
+        f'/api/v1/companies/{c2["id"]}/assets',
+        json={
+            'category_id': str(c2_cats[0].id),
+            'site_id': c2_site['id'],
+            'location_id': c2_loc['id'],
+            'manufacturer': 'Dell',
+            'model': 'Company2 Laptop',
+            'serial_number': 'SN-C2-001',
+            'status': 'in_stock',
+        },
+    )
+
+    # Create draft verification campaign scoped to laptops & loc1
+    c_res = client.post(
+        f'/api/v1/companies/{company_id}/verification-campaigns',
+        json={
+            'campaign_reference': 'CMP-PREV-01',
+            'name': 'Preview Verification Test',
+            'start_date': str(date.today()),
+            'end_date': str(date.today() + timedelta(days=14)),
+            'scope_category_ids': [cat_laptops_id],
+            'scope_location_ids': [loc1_id],
+        },
+    )
+    assert c_res.status_code == 201
+    campaign = c_res.json()
+    camp_id = campaign['id']
+    assert campaign['status'] == 'draft'
+
+    # Call preview endpoint
+    preview_res = client.get(
+        f'/api/v1/companies/{company_id}/verification-campaigns/{camp_id}/expected-assets-preview'
+    )
+    assert preview_res.status_code == 200, preview_res.text
+    preview_items = preview_res.json()
+
+    # Scope verification: exactly 2 assets should match (a1 and a4)
+    # - a1: Laptop in Room 101 (in_stock)
+    # - a4: Laptop in Room 101 (assigned)
+    # - Excluded: a2 (Monitor), a3 (Server in Room 202), disposed asset, and company 2 asset
+    assert len(preview_items) == 2
+    returned_asset_ids = {item['asset_id'] for item in preview_items}
+    assert str(data['assets'][0]['id']) in returned_asset_ids
+    assert str(data['assets'][3]['id']) in returned_asset_ids
+
+    # Verify preview attributes
+    for item in preview_items:
+        assert item['is_preview'] is True
+        assert item['is_verified'] is False
+        assert item['company_id'] == company_id
+        assert item['campaign_id'] == camp_id
+
+    # Test preview query filtering: filter by specific category
+    p_cat_res = client.get(
+        f'/api/v1/companies/{company_id}/verification-campaigns/{camp_id}/expected-assets-preview?category_id={cat_laptops_id}'
+    )
+    assert p_cat_res.status_code == 200
+    assert len(p_cat_res.json()) == 2
+
+    # Test preview query filtering: filter by non-matching search
+    p_search_res = client.get(
+        f'/api/v1/companies/{company_id}/verification-campaigns/{camp_id}/expected-assets-preview?search=NONEXISTENT'
+    )
+    assert p_search_res.status_code == 200
+    assert len(p_search_res.json()) == 0
+
+    # Ensure NO snapshot records were inserted into VerificationExpectedAsset
+    expected_count = db_session.scalar(
+        select(VerificationExpectedAsset).where(VerificationExpectedAsset.campaign_id == UUID(camp_id))
+    )
+    assert expected_count is None
+
+    # Verify campaign is still in draft status
+    camp_db = db_session.get(VerificationCampaign, UUID(camp_id))
+    assert camp_db.status == 'draft'
+
+    # Calling the regular expected-assets endpoint on draft campaign returns empty list (no snapshot yet)
+    regular_res = client.get(
+        f'/api/v1/companies/{company_id}/verification-campaigns/{camp_id}/expected-assets'
+    )
+    assert regular_res.status_code == 200
+    assert len(regular_res.json()) == 0
+
+    # Cross-tenant access on preview endpoint returns 404
+    cross_preview = client.get(
+        f'/api/v1/companies/{c2["id"]}/verification-campaigns/{camp_id}/expected-assets-preview'
+    )
+    assert cross_preview.status_code == 404
+
+    # Now start the campaign - verify official snapshot creation
+    start_res = client.post(
+        f'/api/v1/companies/{company_id}/verification-campaigns/{camp_id}/status',
+        json={'status': 'in_progress'},
+    )
+    assert start_res.status_code == 200
+    assert start_res.json()['status'] == 'in_progress'
+
+    # Now the regular endpoint returns the frozen snapshot
+    frozen_res = client.get(
+        f'/api/v1/companies/{company_id}/verification-campaigns/{camp_id}/expected-assets'
+    )
+    assert frozen_res.status_code == 200
+    frozen_items = frozen_res.json()
+    assert len(frozen_items) == 2
+    for item in frozen_items:
+        assert item['is_preview'] is False
+
+    # 1. Preview endpoint rejects non-Draft campaigns (status is now in_progress)
+    non_draft_preview = client.get(
+        f'/api/v1/companies/{company_id}/verification-campaigns/{camp_id}/expected-assets-preview'
+    )
+    assert non_draft_preview.status_code == 400
+    assert 'only available for draft campaigns' in non_draft_preview.json()['detail']
+
+    # 2. Changing an asset's location or custodian after campaign start does not modify its frozen snapshot
+    a1_id = data['assets'][0]['id']
+    a1_frozen = next(x for x in frozen_items if x['asset_id'] == a1_id)
+    assert a1_frozen['expected_location_id'] == loc1_id
+
+    # Update asset a1 in the master asset registry
+    db_a1 = db_session.get(Asset, UUID(a1_id))
+    db_a1.location_id = UUID(data['loc2']['id'])
+    db_a1.custodian_name = 'newcustodian@example.invalid'
+    db_session.commit()
+
+    # Re-fetch the frozen snapshot from the campaign
+    refetched_snapshot_res = client.get(
+        f'/api/v1/companies/{company_id}/verification-campaigns/{camp_id}/expected-assets'
+    )
+    assert refetched_snapshot_res.status_code == 200
+    refetched_items = refetched_snapshot_res.json()
+    a1_refetched = next(x for x in refetched_items if x['asset_id'] == a1_id)
+    assert a1_refetched['expected_location_id'] == loc1_id
+    assert a1_refetched['expected_custodian_name'] != 'newcustodian@example.invalid'
+
+    # 3. Unscoped Draft campaign returns all eligible active assets for that company
+    unscoped_res = client.post(
+        f'/api/v1/companies/{company_id}/verification-campaigns',
+        json={
+            'campaign_reference': 'CMP-UNSCOPED-01',
+            'name': 'Unscoped Campaign Preview',
+            'start_date': str(date.today()),
+            'end_date': str(date.today() + timedelta(days=14)),
+            'scope_category_ids': None,
+            'scope_location_ids': None,
+        },
+    )
+    assert unscoped_res.status_code == 201
+    unscoped_camp_id = unscoped_res.json()['id']
+
+    unscoped_preview_res = client.get(
+        f'/api/v1/companies/{company_id}/verification-campaigns/{unscoped_camp_id}/expected-assets-preview'
+    )
+    assert unscoped_preview_res.status_code == 200
+    unscoped_items = unscoped_preview_res.json()
+    # All 4 active company assets should be returned
+    assert len(unscoped_items) == 4
+    unscoped_asset_ids = {x['asset_id'] for x in unscoped_items}
+    for orig_a in data['assets']:
+        assert orig_a['id'] in unscoped_asset_ids
+    # Disposed asset must NOT be in unscoped preview
+    assert disposed_res.json()['id'] not in unscoped_asset_ids
+    # Cross-company asset must NOT be in preview
+    for x in unscoped_items:
+        assert x['company_id'] == company_id

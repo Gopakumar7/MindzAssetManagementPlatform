@@ -54,7 +54,7 @@ def create_test_company_with_prefix(client, code: str, prefix: str):
     res = client.post(
         "/api/v1/companies",
         json={
-            "code": code,
+            "code": prefix,
             "name": f"Company {code}",
             "number_prefix": prefix,
             "is_active": True,
@@ -846,7 +846,7 @@ def test_concurrent_grn_creation_postgresql():
         seed_security_defaults(setup)
         comp = create_company(
             setup,
-            CompanyCreate(code=f"C-GRN-CONC-{uuid4().hex[:8]}", name="Conc GRN Company", number_prefix="CGC"),
+            CompanyCreate(code="CGC", name="Conc GRN Company", number_prefix="CGC"),
         )
         cat = setup.query(AssetCategory).filter_by(company_id=comp.id, code="LAPTOP").one()
         sup = Supplier(company_id=comp.id, code="SUP-CONC-GRN", name="Conc Supplier")

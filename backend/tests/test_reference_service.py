@@ -28,6 +28,7 @@ from sqlalchemy import delete, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Asset, AssetCategory, Company, ReferenceSequence, ReferenceSequenceAudit, User
+from app.reference_service import ReferenceNumberService
 from app.reference_service import (
     DEFAULT_TIMEZONE,
     PrefixImmutabilityError,
@@ -45,7 +46,13 @@ def create_test_company(
     provision: bool = True,
 ) -> Company:
     """Helper to create a test company, optionally provisioning default sequences."""
-    company = Company(id=uuid4(), code=code, name=name, is_active=True)
+    company = Company(
+        id=uuid4(),
+        reference_number=ReferenceNumberService.allocate_company_reference(db),
+        code=code,
+        name=name,
+        is_active=True,
+    )
     db.add(company)
     db.commit()
     db.refresh(company)

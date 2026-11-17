@@ -1,3 +1,5 @@
+import re
+from decimal import Decimal
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -6,25 +8,34 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models import (
-    GoodsReceiptLine,
-    PurchaseOrder,
-    PurchaseOrderLine,
     Asset,
+    AssetAssignment,
     AssetCategory,
     AssetDepartmentUsage,
+    AssetDepreciationEntry,
+    AssetDisposal,
+    AssetFinancial,
     AssetHistory,
     AssetNumberRule,
     Company,
     CostCenter,
     Department,
+    GoodsReceiptLine,
+    GoodsReceiptReversalAsset,
     Location,
+    MaintenanceRequest,
+    PurchaseOrder,
+    PurchaseOrderLine,
     ReferenceSequence,
     Site,
+    VerificationDiscrepancy,
 )
+from app.audit import record_security_event
 from app.reference_service import (
     ReferenceNumberService,
     ReservedPrefixCollisionError,
     SequenceNotFoundError,
+    normalize_company_prefix_base,
 )
 from app.schemas import AssetCreate, AssetUpdate, CompanyCreate
 
@@ -53,19 +64,35 @@ def get_scoped(db: Session, model, company_id: UUID, item_id: UUID, label: str):
 
 
 def create_company(db: Session, payload: CompanyCreate) -> Company:
-    prefix_base = (payload.number_prefix or "").strip().upper()
-    if not prefix_base:
-        raise HTTPException(
-            status_code=422,
-            detail="An explicit number_prefix is required for company creation and numbering provisioning.",
-        )
+    # 1. Allocate platform-wide system-generated company reference number (CMP-0001, etc.)
+    company_ref = ReferenceNumberService.allocate_company_reference(db)
 
-    company = Company(code=payload.code.strip(), name=payload.name.strip(), is_active=payload.is_active)
+    # 2. Derive prefix_base strictly from company.code.
+    # Standard convention: {COMPANY_CODE}-{ENTITY_IDENTIFIER}-{SEQUENCE} (e.g. MO-AST-000001, MO-PO-2026-27-00001).
+    # Legacy payload.number_prefix is accepted as a deprecated schema field for backward compatibility,
+    # but is NEVER allowed to override company.code. Company Name is never used as a numbering prefix.
+    try:
+        clean_prefix_base = normalize_company_prefix_base(payload.code.strip(), company_code=payload.code.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    company = Company(
+        reference_number=company_ref,
+        code=payload.code.strip(),
+        name=payload.name.strip(),
+        is_active=payload.is_active,
+    )
     db.add(company)
     db.flush()
 
     try:
-        ReferenceNumberService.provision_company_sequences(db, company.id, prefix_base=prefix_base)
+        ReferenceNumberService.provision_company_sequences(
+            db,
+            company.id,
+            prefix_base=clean_prefix_base,
+            asset_separator=payload.number_separator,
+            asset_padding=payload.number_padding,
+        )
     except Exception as exc:
         db.rollback()
         raise HTTPException(
@@ -76,7 +103,7 @@ def create_company(db: Session, payload: CompanyCreate) -> Company:
     db.add(
         AssetNumberRule(
             company_id=company.id,
-            prefix=prefix_base,
+            prefix=clean_prefix_base,
             separator=payload.number_separator,
             padding=payload.number_padding,
             next_value=1,
@@ -84,6 +111,24 @@ def create_company(db: Session, payload: CompanyCreate) -> Company:
     )
     for code, name in INITIAL_CATEGORIES:
         db.add(AssetCategory(company_id=company.id, code=code, name=name, is_active=True))
+
+    record_security_event(
+        db,
+        action='created',
+        entity_type='Company',
+        entity_id=str(company.id),
+        company_id=company.id,
+        changes={
+            'before': {},
+            'after': {
+                'reference_number': company.reference_number,
+                'code': company.code,
+                'name': company.name,
+                'is_active': company.is_active,
+            },
+        },
+    )
+
     db.commit()
     db.refresh(company)
     return company
@@ -256,6 +301,7 @@ def get_page(db: Session, query, page: int, page_size: int):
     items = db.scalars(query.offset((page - 1) * page_size).limit(page_size)).all()
     return {'items': items, 'total': total, 'page': page, 'page_size': page_size}
 
+
 def calculate_purchase_order_status(db: Session, order: PurchaseOrder) -> str:
     """
     Authoritative line-level status determination for a Purchase Order.
@@ -283,6 +329,7 @@ def calculate_purchase_order_status(db: Session, order: PurchaseOrder) -> str:
                 func.sum(
                     GoodsReceiptLine.quantity_received
                     - GoodsReceiptLine.quantity_rejected
+                    - GoodsReceiptLine.quantity_reversed
                 ),
                 0,
             ).label('received_qty'),
@@ -331,3 +378,104 @@ def recalculate_purchase_order_status(db: Session, order: PurchaseOrder) -> str:
     order.status = new_status
     return new_status
 
+
+
+def check_asset_reversal_eligibility(db: Session, asset: Asset) -> list[str]:
+    """
+    Evaluates an asset against the authoritative six-gate eligibility baseline
+    for Goods Receipt Note reversal.
+    Returns a list of blocking violation descriptions (empty if fully eligible).
+
+    Gates evaluated:
+    1. Status: asset.status == 'in_stock'
+    2. Custody: No active assignment in AssetAssignment (status == 'active' and ended_at IS NULL)
+    3. Maintenance: No open or in-progress MaintenanceRequest (status IN ('open', 'in_progress'))
+    4. Financial: No posted AssetDepreciationEntry records and no non-zero accumulated depreciation
+    5. Disposal: No AssetDisposal record
+    6. Verification: No open VerificationDiscrepancy (status == 'open')
+    + Integrity: Asset must not have already been reversed in GoodsReceiptReversalAsset
+    """
+    violations: list[str] = []
+
+    # Integrity check: Asset must not already be reversed
+    already_reversed = db.scalar(
+        select(GoodsReceiptReversalAsset.id).where(
+            GoodsReceiptReversalAsset.company_id == asset.company_id,
+            GoodsReceiptReversalAsset.asset_id == asset.id,
+        )
+    )
+    if already_reversed is not None:
+        violations.append(f"Asset '{asset.asset_number}' has already been reversed")
+
+    # Gate 1: Asset status is 'in_stock'
+    if asset.status != 'in_stock':
+        violations.append(f"Asset status is '{asset.status}' (must be 'in_stock')")
+
+    # Gate 2: No active asset assignment
+    active_assignment = db.scalar(
+        select(AssetAssignment.id).where(
+            AssetAssignment.company_id == asset.company_id,
+            AssetAssignment.asset_id == asset.id,
+            AssetAssignment.status == 'active',
+            AssetAssignment.ended_at.is_(None),
+        )
+    )
+    if active_assignment is not None:
+        violations.append("Asset has an active assignment record in asset_assignments")
+
+    # Gate 3: No open or in-progress maintenance request
+    active_maintenance = db.scalar(
+        select(MaintenanceRequest.id).where(
+            MaintenanceRequest.company_id == asset.company_id,
+            MaintenanceRequest.asset_id == asset.id,
+            MaintenanceRequest.status.in_(['open', 'in_progress']),
+        )
+    )
+    if active_maintenance is not None:
+        violations.append("Asset has an open or in-progress maintenance request")
+
+    # Gate 4: No posted depreciation entries and no accumulated depreciation
+    # Note: All records in AssetDepreciationEntry are posted entries (positive or zero amounts).
+    depreciation_count = db.scalar(
+        select(func.count(AssetDepreciationEntry.id)).where(
+            AssetDepreciationEntry.company_id == asset.company_id,
+            AssetDepreciationEntry.asset_id == asset.id,
+        )
+    ) or 0
+    if depreciation_count > 0:
+        violations.append(f"Asset has {depreciation_count} posted depreciation entries")
+
+    financial = db.scalar(
+        select(AssetFinancial).where(
+            AssetFinancial.company_id == asset.company_id,
+            AssetFinancial.asset_id == asset.id,
+        )
+    )
+    if financial is not None:
+        if financial.accumulated_depreciation > Decimal('0.00'):
+            violations.append(f"Asset has accumulated depreciation of {financial.accumulated_depreciation}")
+        elif financial.financial_status == 'fully_depreciated':
+            violations.append("Asset financial status is fully_depreciated")
+
+    # Gate 5: No disposal history
+    disposal = db.scalar(
+        select(AssetDisposal.id).where(
+            AssetDisposal.company_id == asset.company_id,
+            AssetDisposal.asset_id == asset.id,
+        )
+    )
+    if disposal is not None:
+        violations.append("Asset has an existing disposal record in asset_disposals")
+
+    # Gate 6: No open verification discrepancy
+    open_discrepancy = db.scalar(
+        select(VerificationDiscrepancy.id).where(
+            VerificationDiscrepancy.company_id == asset.company_id,
+            VerificationDiscrepancy.asset_id == asset.id,
+            VerificationDiscrepancy.status == 'open',
+        )
+    )
+    if open_discrepancy is not None:
+        violations.append("Asset has an unresolved physical verification discrepancy (status is open)")
+
+    return violations

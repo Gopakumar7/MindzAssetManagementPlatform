@@ -1,0 +1,166 @@
+<div class="modal-backdrop" (click)="onClose()">
+  <div
+    class="modal-content correction-modal"
+    (click)="$event.stopPropagation()"
+    role="dialog"
+    aria-labelledby="correction-modal-title"
+    aria-modal="true"
+  >
+    <div class="modal-header">
+      <div>
+        <h3 id="correction-modal-title">Correct Warehouse Receipt Intake</h3>
+        <span class="modal-subtitle">
+          Goods Return: <strong>{{ goodsReturn.return_number }}</strong> | Receipt: <strong>{{ receipt.receipt_number }}</strong>
+        </span>
+      </div>
+      <button
+        type="button"
+        class="close-btn"
+        (click)="onClose()"
+        [disabled]="submitting"
+        aria-label="Close modal"
+      >
+        &times;
+      </button>
+    </div>
+
+    <div class="modal-body">
+      @if (error) {
+        <div class="error-banner" role="alert">
+          <strong>Error:</strong> {{ error }}
+        </div>
+      }
+
+      @if (validationError) {
+        <div class="validation-banner" role="alert">
+          {{ validationError }}
+        </div>
+      }
+
+      <!-- Original Receipt Information (Read-Only) -->
+      <div class="original-receipt-card">
+        <div class="original-receipt-header">
+          <h4>Original Intake Record</h4>
+          <span class="original-tag">Recorded on {{ receipt.receipt_date }}</span>
+        </div>
+        <div class="original-receipt-grid">
+          <div class="info-item">
+            <label>Asset Tag</label>
+            <strong>{{ assetNumber || 'AST-N/A' }}</strong>
+          </div>
+          <div class="info-item">
+            <label>Serial Number</label>
+            <span>{{ serialNumber || '—' }}</span>
+          </div>
+          <div class="info-item">
+            <label>Receipt Number</label>
+            <span>{{ receipt.receipt_number }}</span>
+          </div>
+          <div class="info-item">
+            <label>Condition on Return</label>
+            <span class="condition-badge">{{ receiptLine.condition_on_return || 'intact' }}</span>
+          </div>
+          <div class="info-item full-width-info">
+            <label>Original Line Notes</label>
+            <span>{{ receiptLine.notes || 'None' }}</span>
+          </div>
+          @if (receipt.notes) {
+            <div class="info-item full-width-info">
+              <label>Receipt Notes</label>
+              <span>{{ receipt.notes }}</span>
+            </div>
+          }
+        </div>
+      </div>
+
+      <!-- Lifecycle Effects Summary Notice -->
+      <div class="summary-box correction-warning-box">
+        <strong>⚠️ Lifecycle Effects Notice:</strong> Submitting this correction will:
+        <ul class="effects-list">
+          <li>Mark this receipt line as corrected (immutable historical ledger preserved).</li>
+          <li>Revert the asset status from <code>reversed</code> back to <code>return_pending</code>.</li>
+          <li>Reactivate the vendor-return asset reservation.</li>
+          <li>Automatically recalculate parent Goods Return status.</li>
+        </ul>
+      </div>
+
+      <!-- Correction Inputs -->
+      <div class="form-group">
+        <label for="correction-reason">
+          Correction Reason <span class="required">*</span>
+        </label>
+        <textarea
+          id="correction-reason"
+          class="form-control"
+          rows="3"
+          [(ngModel)]="correctionReason"
+          placeholder="State the authoritative reason for correcting this physical intake (minimum 5 characters)..."
+          [disabled]="submitting"
+          required
+        ></textarea>
+        <div
+          class="char-counter"
+          [class.char-valid]="isReasonValid"
+          [class.char-invalid]="!isReasonValid && reasonLength > 0"
+        >
+          {{ reasonLength }} / 5 characters minimum
+          @if (reasonLength > 0 && !isReasonValid) {
+            <span>(Needs at least {{ 5 - reasonLength }} more character{{ 5 - reasonLength === 1 ? '' : 's' }})</span>
+          }
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="correction-notes">Supplementary Notes (Optional)</label>
+        <textarea
+          id="correction-notes"
+          class="form-control"
+          rows="2"
+          [(ngModel)]="notes"
+          placeholder="Additional context or notes regarding this correction..."
+          [disabled]="submitting"
+        ></textarea>
+      </div>
+
+      <!-- Explicit Confirmation Checkbox -->
+      <div class="confirmation-check">
+        <label class="checkbox-label" for="confirm-correction-check">
+          <input
+            type="checkbox"
+            id="confirm-correction-check"
+            [(ngModel)]="confirmed"
+            [disabled]="submitting"
+          />
+          <span>
+            I understand and confirm that this correction will mark the original intake line as corrected,
+            revert the asset status to <code>return_pending</code>, reactivate its return reservation,
+            and recalculate the parent Goods Return status.
+          </span>
+        </label>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button
+        type="button"
+        class="btn btn-secondary cancel-btn"
+        (click)="onClose()"
+        [disabled]="submitting"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="btn btn-warning submit-correction-btn"
+        (click)="onSubmit()"
+        [disabled]="!isFormValid || submitting"
+      >
+        @if (submitting) {
+          <span>Correcting Intake...</span>
+        } @else {
+          <span>Confirm Correction</span>
+        }
+      </button>
+    </div>
+  </div>
+</div>

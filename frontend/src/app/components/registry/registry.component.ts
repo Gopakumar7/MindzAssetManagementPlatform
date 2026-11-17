@@ -26,6 +26,7 @@ import {
   MaintenanceReportItem,
   MaintenanceRequest,
   MaintenanceStatus,
+  AssetNumbering,
   NumberRule,
   ProcurementReportItem,
   ProcurementSupplier,
@@ -68,6 +69,12 @@ import { AuthService } from '../../services/auth.service';
 import { ActionCentreComponent } from './action-centre/action-centre.component';
 import { AssetImportComponent } from './asset-import/asset-import.component';
 import { AssetLabelComponent } from './asset-label/asset-label.component';
+import { GoodsReceiptReversalModalComponent } from '../procurement/goods-receipt-reversal/goods-receipt-reversal-modal.component';
+import { GoodsReceiptHistoryModalComponent } from '../procurement/goods-receipt-reversal/goods-receipt-history-modal.component';
+import { GoodsReturnsListComponent } from '../procurement/goods-returns/goods-returns-list.component';
+import { GoodsReturnCreateModalComponent } from '../procurement/goods-returns/goods-return-create-modal.component';
+import { GoodsReturnDetailComponent } from '../procurement/goods-returns/goods-return-detail.component';
+import { GoodsReceiptReversalRead, GoodsReturn } from '../../services/goods-return.service';
 
 type ViewName = 'dashboard' | 'alerts' | 'assets' | 'reports' | 'departments' | 'sites' | 'categories' | 'cost-centers' | 'company' | 'users-access' | 'procurement' | 'maintenance' | 'verification';
 type MasterKind = 'departments' | 'sites' | 'categories' | 'cost-centers';
@@ -119,10 +126,22 @@ export function serializeCsvCell(value: unknown): string {
 }
 
 @Component({
-    selector: 'app-registry',
-    imports: [CommonModule, FormsModule, RouterLink, ActionCentreComponent, AssetImportComponent, AssetLabelComponent],
-    changeDetection: ChangeDetectionStrategy.Eager,
-    templateUrl: './registry.component.html'
+  selector: 'app-registry',
+  imports: [
+    CommonModule,
+    FormsModule,
+    RouterLink,
+    ActionCentreComponent,
+    AssetImportComponent,
+    AssetLabelComponent,
+    GoodsReceiptReversalModalComponent,
+    GoodsReceiptHistoryModalComponent,
+    GoodsReturnsListComponent,
+    GoodsReturnCreateModalComponent,
+    GoodsReturnDetailComponent,
+  ],
+  changeDetection: ChangeDetectionStrategy.Eager,
+  templateUrl: './registry.component.html'
 })
 export class RegistryComponent implements OnInit, OnDestroy {
   @ViewChild('assetDetail') private assetDetail?: ElementRef<HTMLElement>;
@@ -307,6 +326,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
   categories: MasterRecord[] = [];
   costCenters: MasterRecord[] = [];
   numberRules: NumberRule[] = [];
+  assetNumbering: AssetNumbering | null = null;
   assets: Asset[] = [];
   members: CompanyMember[] = [];
   companyRoles: CompanyRole[] = [];
@@ -329,6 +349,13 @@ export class RegistryComponent implements OnInit, OnDestroy {
   suppliers: ProcurementSupplier[] = [];
   purchaseOrders: PurchaseOrder[] = [];
   goodsReceipts: GoodsReceipt[] = [];
+  reversingReceipt: GoodsReceipt | null = null;
+  historyReceipt: GoodsReceipt | null = null;
+  procurementSubTab: 'orders' | 'receipts' | 'returns' = 'orders';
+  selectedGoodsReturn: GoodsReturn | null = null;
+  creatingGoodsReturn = false;
+  createReturnInitialReceipt: GoodsReceipt | null = null;
+  createReturnInitialReversal: GoodsReceiptReversalRead | null = null;
   procurementLoading = false;
   // Alert & Action Centre state
   alerts: AssetAlert[] = [];
@@ -425,12 +452,14 @@ export class RegistryComponent implements OnInit, OnDestroy {
   };
 
   filters = { search: '', category_id: '', status: '', site_id: '', location_id: '', department_id: '' };
-  companyForm = { code: '', name: '', number_prefix: 'AST', is_active: true };
+  companyForm = { code: '', name: '', is_active: true };
+  companyCodeManuallyEdited = false;
   masterForm = { code: '', name: '', description: '', address: '', details: '', is_active: true };
   selectedSiteId = '';
   editingMasterId = '';
   editingLocationId = '';
-  ruleForm = { category_id: '', prefix: 'AST', separator: '-', padding: 6 };
+  ruleForm = { category_id: '', prefix: '', separator: '-', padding: 6 };
+  readonly prefixPattern = /^[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)*$/;
   assetForm: Partial<Asset> = {
     category_id: '',
     serial_number: '',
@@ -487,7 +516,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
     readonly auth: AuthService,
     private readonly route: ActivatedRoute,
     private readonly router: Router
-  ) {}
+  ) { }
 
   ngOnInit(): void {
     this.initLookupSubscription();
@@ -582,6 +611,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
       this.suppliers = [];
       this.purchaseOrders = [];
       this.goodsReceipts = [];
+      this.selectedGoodsReturn = null;
       this.procurementLoading = false;
       this.serviceContracts = [];
       this.maintenanceRequests = [];
@@ -651,17 +681,9 @@ export class RegistryComponent implements OnInit, OnDestroy {
         this.categories = result.categories;
         this.costCenters = result.costCenters;
         this.numberRules = result.rules;
+        this.loadAssetNumbering();
         this.loading = false;
         this.loadCompanyMembers();
-        if (!this.ruleForm.category_id && result.rules.length) {
-          const defaultRule = result.rules.find((rule) => rule.category_id === null) ?? result.rules[0];
-          this.ruleForm = {
-            category_id: defaultRule.category_id ?? '',
-            prefix: defaultRule.prefix,
-            separator: defaultRule.separator,
-            padding: defaultRule.padding
-          };
-        }
         if (this.pendingLookupCode) {
           this.activeView = 'assets';
         } else if (this.activeView === 'dashboard' && !this.can('dashboard.read')) {
@@ -836,185 +858,185 @@ export class RegistryComponent implements OnInit, OnDestroy {
     });
   }
 
-      loadMaintenance(): void {
-        if (!this.companyId || !this.can('maintenance.read')) return;
-        const requestedCompanyId = this.companyId;
-        this.maintenanceLoading = true;
-        forkJoin({
-          requests: this.registry.maintenanceRequests(requestedCompanyId, this.maintenanceFilters),
-          users: this.registry.maintenanceUsers(requestedCompanyId),
-          assets: this.registry.listAssets(requestedCompanyId, { page: 1, page_size: 100 })
-        }).subscribe({
-          next: ({ requests, users, assets }) => {
-            if (requestedCompanyId !== this.companyId) return;
-            this.maintenanceRequests = requests;
-            this.maintenanceUsers = users;
-            this.maintenanceAssets = assets.items;
-            this.maintenanceLoading = false;
-            if (this.selectedMaintenanceRequest) {
-              this.selectedMaintenanceRequest = requests.find(
-                (request) => request.id === this.selectedMaintenanceRequest?.id
-              );
-              if (this.selectedMaintenanceRequest) this.selectMaintenanceRequest(this.selectedMaintenanceRequest);
-            }
-          },
-          error: (error) => {
-            if (requestedCompanyId !== this.companyId) return;
-            this.maintenanceLoading = false;
-            this.fail(error);
-          }
-        });
+  loadMaintenance(): void {
+    if (!this.companyId || !this.can('maintenance.read')) return;
+    const requestedCompanyId = this.companyId;
+    this.maintenanceLoading = true;
+    forkJoin({
+      requests: this.registry.maintenanceRequests(requestedCompanyId, this.maintenanceFilters),
+      users: this.registry.maintenanceUsers(requestedCompanyId),
+      assets: this.registry.listAssets(requestedCompanyId, { page: 1, page_size: 100 })
+    }).subscribe({
+      next: ({ requests, users, assets }) => {
+        if (requestedCompanyId !== this.companyId) return;
+        this.maintenanceRequests = requests;
+        this.maintenanceUsers = users;
+        this.maintenanceAssets = assets.items;
+        this.maintenanceLoading = false;
+        if (this.selectedMaintenanceRequest) {
+          this.selectedMaintenanceRequest = requests.find(
+            (request) => request.id === this.selectedMaintenanceRequest?.id
+          );
+          if (this.selectedMaintenanceRequest) this.selectMaintenanceRequest(this.selectedMaintenanceRequest);
+        }
+      },
+      error: (error) => {
+        if (requestedCompanyId !== this.companyId) return;
+        this.maintenanceLoading = false;
+        this.fail(error);
       }
+    });
+  }
 
-      applyMaintenanceFilters(): void {
-        this.selectedMaintenanceRequest = undefined;
-        this.loadMaintenance();
-      }
+  applyMaintenanceFilters(): void {
+    this.selectedMaintenanceRequest = undefined;
+    this.loadMaintenance();
+  }
 
-      selectMaintenanceRequest(request: MaintenanceRequest): void {
-        this.selectedMaintenanceRequest = request;
-        this.maintenanceUpdateForm = {
-          status: request.status,
-          assignee_id: request.assignee_id ?? '',
-          diagnosis: request.diagnosis ?? '',
-          work_performed: request.work_performed ?? '',
-          resolution_notes: request.resolution_notes ?? '',
-          completed_date: request.completed_date ?? '',
-          cost: request.cost === null ? null : Number(request.cost)
+  selectMaintenanceRequest(request: MaintenanceRequest): void {
+    this.selectedMaintenanceRequest = request;
+    this.maintenanceUpdateForm = {
+      status: request.status,
+      assignee_id: request.assignee_id ?? '',
+      diagnosis: request.diagnosis ?? '',
+      work_performed: request.work_performed ?? '',
+      resolution_notes: request.resolution_notes ?? '',
+      completed_date: request.completed_date ?? '',
+      cost: request.cost === null ? null : Number(request.cost)
+    };
+  }
+
+  createMaintenanceRequest(): void {
+    if (!this.companyId || this.saving || !this.can('maintenance.manage')) return;
+    this.saving = true;
+    this.registry.createMaintenanceRequest(this.companyId, {
+      ...this.maintenanceCreateForm,
+      title: this.maintenanceCreateForm.title.trim(),
+      issue_description: this.maintenanceCreateForm.issue_description.trim(),
+      assignee_id: this.maintenanceCreateForm.assignee_id || null
+    }).subscribe({
+      next: (request) => {
+        this.saving = false;
+        this.maintenanceCreateForm = {
+          asset_id: '',
+          title: '',
+          issue_description: '',
+          priority: 'normal',
+          reported_date: this.today(),
+          assignee_id: ''
         };
-      }
+        this.successMessage = `Maintenance request created for ${request.asset_number}.`;
+        this.errorMessage = '';
+        this.loadMaintenance();
+      },
+      error: (error) => this.fail(error)
+    });
+  }
 
-      createMaintenanceRequest(): void {
-        if (!this.companyId || this.saving || !this.can('maintenance.manage')) return;
-        this.saving = true;
-        this.registry.createMaintenanceRequest(this.companyId, {
-          ...this.maintenanceCreateForm,
-          title: this.maintenanceCreateForm.title.trim(),
-          issue_description: this.maintenanceCreateForm.issue_description.trim(),
-          assignee_id: this.maintenanceCreateForm.assignee_id || null
-        }).subscribe({
-          next: (request) => {
-            this.saving = false;
-            this.maintenanceCreateForm = {
-              asset_id: '',
-              title: '',
-              issue_description: '',
-              priority: 'normal',
-              reported_date: this.today(),
-              assignee_id: ''
-            };
-            this.successMessage = `Maintenance request created for ${request.asset_number}.`;
-            this.errorMessage = '';
-            this.loadMaintenance();
-          },
-          error: (error) => this.fail(error)
-        });
-      }
+  saveMaintenanceRequest(): void {
+    const request = this.selectedMaintenanceRequest;
+    if (!request || this.saving || !this.can('maintenance.manage')) return;
+    if (this.maintenanceUpdateForm.status !== request.status &&
+      !window.confirm(`Change request ${request.id.slice(0, 8)} from ${request.status} to ${this.maintenanceUpdateForm.status}?`)) {
+      return;
+    }
+    this.saving = true;
+    this.registry.updateMaintenanceRequest(this.companyId, request.id, {
+      ...this.maintenanceUpdateForm,
+      assignee_id: this.maintenanceUpdateForm.assignee_id || null,
+      diagnosis: this.maintenanceUpdateForm.diagnosis || null,
+      work_performed: this.maintenanceUpdateForm.work_performed || null,
+      resolution_notes: this.maintenanceUpdateForm.resolution_notes || null,
+      completed_date: this.maintenanceUpdateForm.completed_date || null,
+      cost: this.maintenanceUpdateForm.cost === null ? null : Number(this.maintenanceUpdateForm.cost)
+    }).subscribe({
+      next: (updated) => {
+        this.saving = false;
+        this.successMessage = `Maintenance request for ${updated.asset_number} updated.`;
+        this.errorMessage = '';
+        this.loadMaintenance();
+      },
+      error: (error) => this.fail(error)
+    });
+  }
 
-      saveMaintenanceRequest(): void {
-        const request = this.selectedMaintenanceRequest;
-        if (!request || this.saving || !this.can('maintenance.manage')) return;
-        if (this.maintenanceUpdateForm.status !== request.status &&
-            !window.confirm(`Change request ${request.id.slice(0, 8)} from ${request.status} to ${this.maintenanceUpdateForm.status}?`)) {
-          return;
-        }
-        this.saving = true;
-        this.registry.updateMaintenanceRequest(this.companyId, request.id, {
-          ...this.maintenanceUpdateForm,
-          assignee_id: this.maintenanceUpdateForm.assignee_id || null,
-          diagnosis: this.maintenanceUpdateForm.diagnosis || null,
-          work_performed: this.maintenanceUpdateForm.work_performed || null,
-          resolution_notes: this.maintenanceUpdateForm.resolution_notes || null,
-          completed_date: this.maintenanceUpdateForm.completed_date || null,
-          cost: this.maintenanceUpdateForm.cost === null ? null : Number(this.maintenanceUpdateForm.cost)
-        }).subscribe({
-          next: (updated) => {
-            this.saving = false;
-            this.successMessage = `Maintenance request for ${updated.asset_number} updated.`;
-            this.errorMessage = '';
-            this.loadMaintenance();
-          },
-          error: (error) => this.fail(error)
-        });
-      }
+  allowedMaintenanceStatuses(request: MaintenanceRequest): MaintenanceStatus[] {
+    switch (request.status) {
+      case 'open': return ['open', 'in_progress'];
+      case 'in_progress': return ['in_progress', 'resolved'];
+      case 'resolved': return ['resolved', 'closed'];
+      case 'closed': return ['closed'];
+    }
+  }
 
-      allowedMaintenanceStatuses(request: MaintenanceRequest): MaintenanceStatus[] {
-        switch (request.status) {
-          case 'open': return ['open', 'in_progress'];
-          case 'in_progress': return ['in_progress', 'resolved'];
-          case 'resolved': return ['resolved', 'closed'];
-          case 'closed': return ['closed'];
-        }
+  loadServiceContracts(): void {
+    const asset = this.selectedAsset;
+    if (!asset || !this.companyId || !this.can('maintenance.read')) {
+      this.serviceContracts = [];
+      return;
+    }
+    const requestedCompanyId = this.companyId;
+    const requestedAssetId = asset.id;
+    this.contractsLoading = true;
+    this.registry.serviceContracts(requestedCompanyId, requestedAssetId).subscribe({
+      next: (contracts) => {
+        if (requestedCompanyId !== this.companyId || requestedAssetId !== this.selectedAsset?.id) return;
+        this.serviceContracts = contracts;
+        this.contractsLoading = false;
+      },
+      error: (error) => {
+        if (requestedCompanyId !== this.companyId || requestedAssetId !== this.selectedAsset?.id) return;
+        this.contractsLoading = false;
+        this.fail(error);
       }
+    });
+  }
 
-      loadServiceContracts(): void {
-        const asset = this.selectedAsset;
-        if (!asset || !this.companyId || !this.can('maintenance.read')) {
-          this.serviceContracts = [];
-          return;
-        }
-        const requestedCompanyId = this.companyId;
-        const requestedAssetId = asset.id;
-        this.contractsLoading = true;
-        this.registry.serviceContracts(requestedCompanyId, requestedAssetId).subscribe({
-          next: (contracts) => {
-            if (requestedCompanyId !== this.companyId || requestedAssetId !== this.selectedAsset?.id) return;
-            this.serviceContracts = contracts;
-            this.contractsLoading = false;
-          },
-          error: (error) => {
-            if (requestedCompanyId !== this.companyId || requestedAssetId !== this.selectedAsset?.id) return;
-            this.contractsLoading = false;
-            this.fail(error);
-          }
-        });
-      }
+  createServiceContract(): void {
+    const asset = this.selectedAsset;
+    if (!asset || this.saving || !this.can('maintenance.manage')) return;
+    this.saving = true;
+    this.registry.createServiceContract(this.companyId, asset.id, {
+      ...this.contractForm,
+      provider_name: this.contractForm.provider_name.trim() || null,
+      reference_number: this.contractForm.reference_number.trim() || null,
+      coverage_description: this.contractForm.coverage_description.trim() || null,
+      support_contact: this.contractForm.support_contact.trim() || null,
+      notes: this.contractForm.notes.trim() || null
+    }).subscribe({
+      next: (contract) => {
+        this.saving = false;
+        this.contractForm = {
+          contract_type: 'warranty',
+          provider_name: '',
+          reference_number: '',
+          start_date: this.today(),
+          end_date: this.today(),
+          coverage_description: '',
+          support_contact: '',
+          notes: ''
+        };
+        this.successMessage = `${contract.contract_type === 'amc' ? 'AMC' : 'Warranty'} recorded for ${asset.asset_number}.`;
+        this.errorMessage = '';
+        this.loadServiceContracts();
+      },
+      error: (error) => this.fail(error)
+    });
+  }
 
-      createServiceContract(): void {
-        const asset = this.selectedAsset;
-        if (!asset || this.saving || !this.can('maintenance.manage')) return;
-        this.saving = true;
-        this.registry.createServiceContract(this.companyId, asset.id, {
-          ...this.contractForm,
-          provider_name: this.contractForm.provider_name.trim() || null,
-          reference_number: this.contractForm.reference_number.trim() || null,
-          coverage_description: this.contractForm.coverage_description.trim() || null,
-          support_contact: this.contractForm.support_contact.trim() || null,
-          notes: this.contractForm.notes.trim() || null
-        }).subscribe({
-          next: (contract) => {
-            this.saving = false;
-            this.contractForm = {
-              contract_type: 'warranty',
-              provider_name: '',
-              reference_number: '',
-              start_date: this.today(),
-              end_date: this.today(),
-              coverage_description: '',
-              support_contact: '',
-              notes: ''
-            };
-            this.successMessage = `${contract.contract_type === 'amc' ? 'AMC' : 'Warranty'} recorded for ${asset.asset_number}.`;
-            this.errorMessage = '';
-            this.loadServiceContracts();
-          },
-          error: (error) => this.fail(error)
-        });
-      }
-
-      cancelServiceContract(contract: AssetServiceContract): void {
-        if (!this.can('maintenance.manage') || contract.status === 'cancelled' ||
-            !window.confirm(`Cancel ${contract.contract_type} ${contract.reference_number || 'contract'}?`)) return;
-        this.saving = true;
-        this.registry.cancelServiceContract(this.companyId, contract.id).subscribe({
-          next: () => {
-            this.saving = false;
-            this.successMessage = 'Service contract cancelled; its record is retained.';
-            this.loadServiceContracts();
-          },
-          error: (error) => this.fail(error)
-        });
-      }
+  cancelServiceContract(contract: AssetServiceContract): void {
+    if (!this.can('maintenance.manage') || contract.status === 'cancelled' ||
+      !window.confirm(`Cancel ${contract.contract_type} ${contract.reference_number || 'contract'}?`)) return;
+    this.saving = true;
+    this.registry.cancelServiceContract(this.companyId, contract.id).subscribe({
+      next: () => {
+        this.saving = false;
+        this.successMessage = 'Service contract cancelled; its record is retained.';
+        this.loadServiceContracts();
+      },
+      error: (error) => this.fail(error)
+    });
+  }
 
   createSupplier(): void {
     if (!this.companyId || this.saving || !this.can('procurement.manage')) return;
@@ -1048,7 +1070,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
       tax_rate: number;
       tax_amount: number;
     }> = Array.isArray(rawLines) && rawLines.length > 0
-      ? rawLines.map((l: any) => ({
+        ? rawLines.map((l: any) => ({
           category_id: l.category_id || '',
           description: l.description || '',
           quantity_ordered: l.quantity_ordered !== undefined ? Number(l.quantity_ordered) : 1,
@@ -1057,7 +1079,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
           tax_rate: l.tax_rate !== undefined ? Number(l.tax_rate) : 0,
           tax_amount: l.tax_amount !== undefined ? Number(l.tax_amount) : 0,
         }))
-      : [{
+        : [{
           category_id: initial?.category_id || '',
           description: initial?.description || '',
           quantity_ordered: initial?.quantity_ordered !== undefined ? Number(initial.quantity_ordered) : 1,
@@ -1217,11 +1239,6 @@ export class RegistryComponent implements OnInit, OnDestroy {
       this.changeDetector.markForCheck();
       return;
     }
-    if (!this.purchaseOrderForm.order_number?.trim()) {
-      this.errorMessage = 'Please enter an order number.';
-      this.changeDetector.markForCheck();
-      return;
-    }
     if (!this.purchaseOrderForm.ordered_date) {
       this.errorMessage = 'Please choose an order date.';
       this.changeDetector.markForCheck();
@@ -1280,7 +1297,6 @@ export class RegistryComponent implements OnInit, OnDestroy {
 
     const payload = {
       supplier_id: this.purchaseOrderForm.supplier_id,
-      order_number: this.purchaseOrderForm.order_number.trim(),
       ordered_date: this.purchaseOrderForm.ordered_date,
       expected_date: this.purchaseOrderForm.expected_date || null,
       notes: this.purchaseOrderForm.notes || '',
@@ -1346,7 +1362,6 @@ export class RegistryComponent implements OnInit, OnDestroy {
       .filter(Boolean);
     this.saving = true;
     this.registry.receiveGoods(this.companyId, this.selectedPurchaseOrder.id, {
-      receipt_number: this.goodsReceiptForm.receipt_number.trim(),
       received_date: this.goodsReceiptForm.received_date,
       delivery_reference: this.goodsReceiptForm.delivery_reference,
       notes: this.goodsReceiptForm.notes,
@@ -1413,6 +1428,118 @@ export class RegistryComponent implements OnInit, OnDestroy {
       this.goodsReceiptForm.quantity_received = rem > 0 ? rem : 1;
     }
     this.changeDetector.markForCheck();
+  }
+
+  openReversalModal(receipt: GoodsReceipt): void {
+    this.reversingReceipt = receipt;
+    this.changeDetector.markForCheck();
+  }
+
+  closeReversalModal(): void {
+    this.reversingReceipt = null;
+    this.changeDetector.markForCheck();
+  }
+
+  onReversalCompleted(reversal: GoodsReceiptReversalRead): void {
+    this.reversingReceipt = null;
+    this.successMessage = `Goods receipt reversal ${reversal.reversal_reference || 'completed'} executed successfully.`;
+    this.loadProcurement();
+    this.changeDetector.markForCheck();
+  }
+
+  openReversalHistoryModal(receipt: GoodsReceipt): void {
+    this.historyReceipt = receipt;
+    this.changeDetector.markForCheck();
+  }
+
+  closeReversalHistoryModal(): void {
+    this.historyReceipt = null;
+    this.changeDetector.markForCheck();
+  }
+
+  setProcurementSubTab(tab: 'orders' | 'receipts' | 'returns'): void {
+    if (this.procurementSubTab === tab) return;
+    this.procurementSubTab = tab;
+    this.selectedGoodsReturn = null;
+    this.changeDetector.markForCheck();
+  }
+
+  onProcurementTabKeydown(event: KeyboardEvent): void {
+    const tabs: ('orders' | 'receipts' | 'returns')[] = ['orders', 'receipts', 'returns'];
+    const currentIndex = tabs.indexOf(this.procurementSubTab);
+    let nextIndex = -1;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      nextIndex = (currentIndex + 1) % tabs.length;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = tabs.length - 1;
+    }
+    if (nextIndex !== -1) {
+      event.preventDefault();
+      const nextTab = tabs[nextIndex];
+      this.setProcurementSubTab(nextTab);
+      const tabEl = document.getElementById(`tab-procurement-${nextTab}`);
+      tabEl?.focus();
+    }
+  }
+
+  openGoodsReturnCreateModal(receipt?: GoodsReceipt | null, reversal?: GoodsReceiptReversalRead | null): void {
+    this.createReturnInitialReceipt = receipt || null;
+    this.createReturnInitialReversal = reversal || null;
+    this.creatingGoodsReturn = true;
+    this.changeDetector.markForCheck();
+  }
+
+  closeGoodsReturnCreateModal(): void {
+    this.creatingGoodsReturn = false;
+    this.createReturnInitialReceipt = null;
+    this.createReturnInitialReversal = null;
+    this.changeDetector.markForCheck();
+  }
+
+  onGoodsReturnCreated(createdReturn: GoodsReturn): void {
+    this.closeGoodsReturnCreateModal();
+    this.successMessage = `Goods Return ${createdReturn.return_number} created successfully in draft status.`;
+    this.setProcurementSubTab('returns');
+    this.loadProcurement();
+    this.changeDetector.markForCheck();
+  }
+
+  onSelectGoodsReturn(grr: GoodsReturn): void {
+    this.selectedGoodsReturn = grr;
+    this.changeDetector.markForCheck();
+  }
+
+  onBackFromGoodsReturnDetail(): void {
+    this.selectedGoodsReturn = null;
+    this.changeDetector.markForCheck();
+  }
+
+  onGoodsReturnDetailUpdated(updated: GoodsReturn): void {
+    this.selectedGoodsReturn = updated;
+    this.changeDetector.markForCheck();
+  }
+
+  receiptUnreversedAcceptedCount(receipt: GoodsReceipt): number {
+    const accepted = (receipt.lines || []).reduce(
+      (sum, line) => sum + (line.quantity_received - line.quantity_rejected),
+      0
+    );
+    const reversed = (receipt.lines || []).reduce(
+      (sum, line) => sum + (line.quantity_reversed || 0),
+      0
+    );
+    return Math.max(0, accepted - reversed);
+  }
+
+  receiptTotalReversedCount(receipt: GoodsReceipt): number {
+    return (receipt.lines || []).reduce(
+      (sum, line) => sum + (line.quantity_reversed || 0),
+      0
+    );
   }
 
   supplierName(supplierId: string): string {
@@ -1635,18 +1762,97 @@ export class RegistryComponent implements OnInit, OnDestroy {
     });
   }
 
+  generateCompanyCode(name: string): string {
+    if (!name) return '';
+    // 1. Convert to uppercase
+    let code = name.toUpperCase();
+    // 2. Replace spaces and unsupported characters with underscores (backend allows ^[A-Za-z0-9_-]+$)
+    code = code.replace(/[^A-Z0-9_-]+/g, '_');
+    // 3. Remove leading/trailing underscores and collapse multiple underscores
+    code = code.replace(/^_+|_+$/g, '');
+    code = code.replace(/_+/g, '_');
+
+    if (!code) return '';
+
+    const maxLen = 24;
+    let baseCode = code.slice(0, maxLen).replace(/[_-]+$/g, '');
+
+    // Validate uniqueness against existing company codes (case-insensitive)
+    const existingCodes = new Set(
+      (this.companies || []).map((c) => (c.code || '').trim().toUpperCase())
+    );
+
+    if (!existingCodes.has(baseCode)) {
+      return baseCode;
+    }
+
+    // If exists, suggest numeric suffix: _2, _3, ...
+    let counter = 2;
+    while (true) {
+      const suffix = `_${counter}`;
+      const allowedBaseLen = maxLen - suffix.length;
+      const truncatedBase = baseCode.slice(0, allowedBaseLen).replace(/_+$/g, '');
+      const candidate = `${truncatedBase}${suffix}`;
+      if (!existingCodes.has(candidate)) {
+        return candidate;
+      }
+      counter++;
+    }
+  }
+
+  onCompanyNameChange(name: string): void {
+    this.companyForm.name = name;
+    if (!this.companyCodeManuallyEdited) {
+      this.companyForm.code = this.generateCompanyCode(name);
+    }
+  }
+
+  onCompanyCodeInput(): void {
+    if (!this.companyForm.code.trim()) {
+      this.companyCodeManuallyEdited = false;
+    } else {
+      this.companyCodeManuallyEdited = true;
+    }
+  }
+
   createCompany(): void {
+    const code = this.companyForm.code.trim().toUpperCase();
+    const name = this.companyForm.name.trim();
+
+    if (!name) {
+      this.errorMessage = 'Company name is required.';
+      return;
+    }
+    if (!code) {
+      this.errorMessage = 'Company code is required.';
+      return;
+    }
+    if (code.length > 24) {
+      this.errorMessage = `Company code '${code}' (${code.length} characters) exceeds the maximum supported length of 24 characters.`;
+      return;
+    }
+
+    // Frontend validation: check duplicate code against existing companies
+    const isDuplicate = (this.companies || []).some(
+      (c) => (c.code || '').trim().toUpperCase() === code
+    );
+    if (isDuplicate) {
+      this.errorMessage = `Company code '${code}' already exists. Please choose a unique company code.`;
+      return;
+    }
+
     this.saving = true;
+    this.errorMessage = '';
     this.registry.createCompany({
-      code: this.companyForm.code.trim(),
-      name: this.companyForm.name.trim(),
-      number_prefix: this.companyForm.number_prefix.trim()
+      code,
+      name,
     }).subscribe({
       next: (company) => {
         this.saving = false;
-        this.successMessage = 'Company created with its own default asset numbering rule and six initial categories.';
+        this.successMessage = `Company ${company.name} created successfully with reference ${company.reference_number || company.code}.`;
         this.companies = [...this.companies, company];
-        this.companyForm = { code: '', name: '', number_prefix: 'AST', is_active: true };
+        this.companyForm = { code: '', name: '', is_active: true };
+        this.companyCodeManuallyEdited = false;
         this.selectCompany(company.id);
       },
       error: (error) => this.fail(error)
@@ -1655,13 +1861,36 @@ export class RegistryComponent implements OnInit, OnDestroy {
 
   beginCompanyCreate(): void {
     this.creatingCompany = true;
-    this.companyForm = { code: '', name: '', number_prefix: 'AST', is_active: true };
+    this.companyCodeManuallyEdited = false;
+    this.companyForm = { code: '', name: '', is_active: true };
+    this.errorMessage = '';
     this.successMessage = '';
+  }
+
+  get isEditingCompany(): boolean {
+    return !!this.company && !this.creatingCompany;
+  }
+
+  isCompanySelected(item: Company): boolean {
+    return this.isEditingCompany && item.id === this.companyId;
+  }
+
+  /** Row click selects the company unless the click originated on another interactive element. */
+  onCompanyRowClick(event: Event, item: Company): void {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest?.('button, a, input, select, textarea, label, [role="button"]')) {
+      return;
+    }
+    this.selectCompanyForEdit(item);
   }
 
   selectCompanyForEdit(company: Company): void {
     this.selectCompany(company.id);
     this.creatingCompany = false;
+    this.companyCodeManuallyEdited = false;
+    this.errorMessage = '';
+    this.successMessage = '';
+    setTimeout(() => document.getElementById('company-edit-name')?.focus());
   }
 
   saveCompany(): void {
@@ -1678,25 +1907,57 @@ export class RegistryComponent implements OnInit, OnDestroy {
     });
   }
 
-  saveNumberRule(): void {
-    this.registry.saveNumberRule(
-      this.companyId,
-      { prefix: this.ruleForm.prefix.trim(), separator: this.ruleForm.separator, padding: Number(this.ruleForm.padding) },
-      this.ruleForm.category_id || undefined
-    ).subscribe({
-      next: (rule) => {
-        this.successMessage = 'Numbering rule saved. Existing asset numbers are not changed.';
-        this.numberRules = [...this.numberRules.filter((item) => item.category_id !== rule.category_id), rule];
+  loadAssetNumbering(): void {
+    if (!this.companyId) {
+      return;
+    }
+    this.registry.getAssetNumbering(this.companyId).subscribe({
+      next: (numbering) => {
+        this.assetNumbering = numbering;
+        this.ruleForm = { category_id: '', prefix: numbering.prefix, separator: numbering.separator, padding: numbering.padding };
       },
-      error: (error) => this.fail(error)
+      error: () => { this.assetNumbering = null; }
     });
   }
 
-  onRuleCategoryChange(categoryId: string): void {
-    const rule = this.numberRules.find((item) => item.category_id === (categoryId || null));
-    this.ruleForm = rule
-      ? { category_id: categoryId, prefix: rule.prefix, separator: rule.separator, padding: rule.padding }
-      : { category_id: categoryId, prefix: 'AST', separator: '-', padding: 6 };
+  get ruleFormPreview(): string {
+    if (!this.assetNumbering) {
+      return '';
+    }
+    const rawPrefix = (this.ruleForm.prefix || '').trim().toUpperCase();
+    const sep = this.ruleForm.separator || this.assetNumbering.separator;
+    const padding = Math.min(12, Math.max(1, Number(this.ruleForm.padding) || this.assetNumbering.padding));
+    if (
+      rawPrefix === this.assetNumbering.prefix &&
+      sep === this.assetNumbering.separator &&
+      padding === this.assetNumbering.padding
+    ) {
+      return this.assetNumbering.next_reference_preview;
+    }
+    const normalizedPrefix = rawPrefix && !rawPrefix.endsWith('-AST') ? `${rawPrefix}-AST` : rawPrefix;
+    return `${normalizedPrefix}${sep}${String(this.assetNumbering.next_number).padStart(padding, '0')}`;
+  }
+
+  saveNumberRule(): void {
+    const prefix = this.ruleForm.prefix.trim().toUpperCase();
+    const parts = prefix.split('-');
+    const hasDuplicateSegment = parts.length >= 2 && parts.some((p, i) => i < parts.length - 1 && p === parts[i + 1]);
+    if (!prefix || prefix.length > 28 || !this.prefixPattern.test(prefix) || hasDuplicateSegment) {
+      this.errorMessage = 'Prefix must be 1-28 letters or digits (with optional "-" or "_" between segments, e.g. "MO-AST", and no duplicated segments).';
+      return;
+    }
+    this.registry.saveAssetNumbering(
+      this.companyId,
+      { prefix, separator: this.ruleForm.separator, padding: Number(this.ruleForm.padding) }
+    ).subscribe({
+      next: (numbering) => {
+        this.assetNumbering = numbering;
+        this.ruleForm = { category_id: '', prefix: numbering.prefix, separator: numbering.separator, padding: numbering.padding };
+        this.errorMessage = '';
+        this.successMessage = 'Asset numbering saved. Existing asset numbers are not changed.';
+      },
+      error: (error) => this.fail(error)
+    });
   }
 
   createAsset(): void {
@@ -2607,7 +2868,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
         this.allLocations = results.flat();
         this.changeDetector.markForCheck();
       },
-      error: () => {}
+      error: () => { }
     });
   }
 
@@ -2679,7 +2940,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
         this.campaignDashboard = summary;
         this.changeDetector.markForCheck();
       },
-      error: () => {}
+      error: () => { }
     });
 
     this.loadExpectedAssets();
@@ -2687,20 +2948,62 @@ export class RegistryComponent implements OnInit, OnDestroy {
     this.loadUnregisteredAssets();
   }
 
+  setVerificationSubView(subView: 'expected' | 'discrepancies' | 'unregistered'): void {
+    if (this.verificationSubView === subView) return;
+    this.verificationSubView = subView;
+    this.changeDetector.markForCheck();
+  }
+
+  onVerificationTabKeydown(event: KeyboardEvent): void {
+    const tabs: ('expected' | 'discrepancies' | 'unregistered')[] = ['expected', 'discrepancies', 'unregistered'];
+    const currentIndex = tabs.indexOf(this.verificationSubView);
+    let nextIndex = -1;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      nextIndex = (currentIndex + 1) % tabs.length;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = tabs.length - 1;
+    }
+    if (nextIndex !== -1) {
+      event.preventDefault();
+      const nextSubView = tabs[nextIndex];
+      this.setVerificationSubView(nextSubView);
+      const tabEl = document.getElementById(`tab-verification-${nextSubView}`);
+      tabEl?.focus();
+    }
+  }
+
   loadExpectedAssets(): void {
     if (!this.companyId || !this.selectedCampaign) return;
-    this.registry.getVerificationExpectedAssets(this.companyId, this.selectedCampaign.id, {
-      search: this.expectedSearch.trim() || undefined,
-      verified: this.expectedVerifiedFilter,
-      category_id: this.expectedCategoryFilter || undefined,
-      location_id: this.expectedLocationFilter || undefined
-    }).subscribe({
-      next: (items) => {
-        this.campaignExpectedAssets = items;
-        this.changeDetector.markForCheck();
-      },
-      error: (err) => this.fail(err)
-    });
+    if (this.selectedCampaign.status === 'draft') {
+      this.registry.getVerificationExpectedAssetsPreview(this.companyId, this.selectedCampaign.id, {
+        search: this.expectedSearch.trim() || undefined,
+        category_id: this.expectedCategoryFilter || undefined,
+        location_id: this.expectedLocationFilter || undefined
+      }).subscribe({
+        next: (items) => {
+          this.campaignExpectedAssets = items;
+          this.changeDetector.markForCheck();
+        },
+        error: (err) => this.fail(err)
+      });
+    } else {
+      this.registry.getVerificationExpectedAssets(this.companyId, this.selectedCampaign.id, {
+        search: this.expectedSearch.trim() || undefined,
+        verified: this.expectedVerifiedFilter,
+        category_id: this.expectedCategoryFilter || undefined,
+        location_id: this.expectedLocationFilter || undefined
+      }).subscribe({
+        next: (items) => {
+          this.campaignExpectedAssets = items;
+          this.changeDetector.markForCheck();
+        },
+        error: (err) => this.fail(err)
+      });
+    }
   }
 
   loadDiscrepancies(): void {
@@ -3131,7 +3434,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
         this.financialDashboard = data;
         this.changeDetector.markForCheck();
       },
-      error: () => {}
+      error: () => { }
     });
   }
 
@@ -3357,7 +3660,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
         this.alertSummary = summary;
         this.changeDetector.markForCheck();
       },
-      error: () => {}
+      error: () => { }
     });
   }
 
@@ -3525,7 +3828,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
         this.unreadNotificationCount = res.unread_count;
         this.changeDetector.markForCheck();
       },
-      error: () => {}
+      error: () => { }
     });
   }
 
@@ -3565,7 +3868,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
         this.unreadNotificationCount = Math.max(0, this.unreadNotificationCount - 1);
         this.changeDetector.markForCheck();
       },
-      error: () => {}
+      error: () => { }
     });
   }
 
@@ -3581,7 +3884,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
         this.unreadNotificationCount = 0;
         this.changeDetector.markForCheck();
       },
-      error: () => {}
+      error: () => { }
     });
   }
 
@@ -3610,7 +3913,7 @@ export class RegistryComponent implements OnInit, OnDestroy {
         this.lastScheduledJob = job;
         this.changeDetector.markForCheck();
       },
-      error: () => {}
+      error: () => { }
     });
   }
 

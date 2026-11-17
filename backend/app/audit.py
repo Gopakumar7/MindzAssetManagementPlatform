@@ -45,7 +45,7 @@ from app.models import (
 )
 
 _AUDITED_FIELDS: dict[type, tuple[str, ...]] = {
-    Company: ('code', 'name', 'is_active'),
+    Company: ('reference_number', 'code', 'name', 'is_active'),
     Department: ('company_id', 'code', 'name', 'is_active'),
     Site: ('company_id', 'code', 'name', 'is_active'),
     Location: ('company_id', 'site_id', 'code', 'name', 'is_active'),

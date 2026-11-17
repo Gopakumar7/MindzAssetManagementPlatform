@@ -6,6 +6,7 @@ import { environment } from '../../environments/environment';
 
 export interface Company {
   id: string;
+  reference_number?: string;
   code: string;
   name: string;
   is_active: boolean;
@@ -46,6 +47,18 @@ export interface MasterRecord {
   details?: string | null;
   description?: string | null;
   site_id?: string;
+}
+
+export interface AssetNumbering {
+  prefix: string;
+  separator: string;
+  padding: number;
+  next_number: number;
+  next_reference_preview: string;
+  issued_count: number;
+  is_locked: boolean;
+  allowed_separators: string[];
+  lock_note: string | null;
 }
 
 export interface NumberRule {
@@ -216,6 +229,10 @@ export interface PurchaseOrder {
   company_id: string;
   supplier_id: string;
   order_number: string;
+  origin?: string;
+  source_system?: string | null;
+  source_instance_id?: string | null;
+  external_reference?: string | null;
   status: 'open' | 'partially_received' | 'received';
   ordered_date: string;
   expected_date: string | null;
@@ -241,6 +258,7 @@ export interface GoodsReceiptLine {
   purchase_order_line_id: string;
   quantity_received: number;
   quantity_rejected: number;
+  quantity_reversed?: number;
   discrepancy_notes: string | null;
   assets: GoodsReceiptAsset[];
 }
@@ -253,6 +271,7 @@ export interface GoodsReceipt {
   received_date: string;
   delivery_reference: string | null;
   notes: string | null;
+  status?: string;
   created_at: string;
   lines: GoodsReceiptLine[];
 }
@@ -475,13 +494,13 @@ export class RegistryService {
 
   private readonly base = `${environment.apiBaseUrl}`;
 
-  constructor(private readonly http: HttpClient) {}
+  constructor(private readonly http: HttpClient) { }
 
   companies(): Observable<Company[]> {
     return this.http.get<Company[]>(`${this.base}/companies`);
   }
 
-  createCompany(payload: { code: string; name: string; number_prefix: string }): Observable<Company> {
+  createCompany(payload: { code: string; name: string }): Observable<Company> {
     return this.http.post<Company>(`${this.base}/companies`, payload);
   }
 
@@ -559,6 +578,14 @@ export class RegistryService {
       `${this.base}/companies/${companyId}/sites/${siteId}/locations/${location.id}`,
       { is_active: false }
     );
+  }
+
+  getAssetNumbering(companyId: string): Observable<AssetNumbering> {
+    return this.http.get<AssetNumbering>(`${this.base}/companies/${companyId}/asset-numbering`);
+  }
+
+  saveAssetNumbering(companyId: string, payload: { prefix: string; separator: string; padding: number }): Observable<AssetNumbering> {
+    return this.http.put<AssetNumbering>(`${this.base}/companies/${companyId}/asset-numbering`, payload);
   }
 
   listNumberRules(companyId: string): Observable<NumberRule[]> {
@@ -734,7 +761,7 @@ export class RegistryService {
 
   createPurchaseOrder(companyId: string, payload: {
     supplier_id: string;
-    order_number: string;
+    order_number?: string;
     ordered_date: string;
     expected_date: string | null;
     notes: string;
@@ -778,7 +805,7 @@ export class RegistryService {
   }
 
   receiveGoods(companyId: string, purchaseOrderId: string, payload: {
-    receipt_number: string;
+    receipt_number?: string | null;
     received_date: string;
     delivery_reference: string;
     notes: string;
@@ -966,6 +993,18 @@ export class RegistryService {
 
   transitionVerificationCampaignStatus(companyId: string, campaignId: string, status: string): Observable<VerificationCampaign> {
     return this.http.post<VerificationCampaign>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}/status`, { status });
+  }
+
+  getVerificationExpectedAssetsPreview(companyId: string, campaignId: string, filters: {
+    search?: string;
+    category_id?: string;
+    location_id?: string;
+  } = {}): Observable<VerificationExpectedAsset[]> {
+    let params = new HttpParams();
+    if (filters.search) params = params.set('search', filters.search);
+    if (filters.category_id) params = params.set('category_id', filters.category_id);
+    if (filters.location_id) params = params.set('location_id', filters.location_id);
+    return this.http.get<VerificationExpectedAsset[]>(`${this.base}/companies/${companyId}/verification-campaigns/${campaignId}/expected-assets-preview`, { params });
   }
 
   getVerificationExpectedAssets(companyId: string, campaignId: string, filters: {
@@ -1252,6 +1291,7 @@ export interface VerificationExpectedAsset {
   observation_found?: boolean | null;
   has_discrepancy: boolean;
   discrepancy_types: string[];
+  is_preview?: boolean;
   created_at: string;
 }
 

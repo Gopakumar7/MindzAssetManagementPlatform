@@ -26,6 +26,7 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base
+from app.reference_service import ReferenceNumberService
 from app.models import (
     AssetCategory,
     Company,
@@ -49,7 +50,7 @@ def create_test_company_with_prefix(client, code: str, prefix: str):
     res = client.post(
         "/api/v1/companies",
         json={
-            "code": code,
+            "code": prefix,
             "name": f"Company {code}",
             "number_prefix": prefix,
             "is_active": True,
@@ -335,7 +336,7 @@ def test_concurrent_purchase_order_creation():
         seed_security_defaults(db)
         company = create_company(
             db,
-            CompanyCreate(code=f"CONCPO{uuid4().hex[:8]}", name="Conc PO Co", number_prefix="CPO"),
+            CompanyCreate(code="CPO", name="Conc PO Co", number_prefix="CPO"),
         )
         sup = Supplier(company_id=company.id, code="SUP-CONC", name="Conc Supplier")
         db.add(sup)
@@ -489,7 +490,12 @@ def test_unprovisioned_company_handling(client, db_session):
         receives a clear, controlled HTTP 422 error.
     """
     # Create company directly in DB without provisioning sequences
-    comp = Company(code="UNPROV-PO", name="Unprovisioned PO Co", is_active=True)
+    comp = Company(
+        reference_number=ReferenceNumberService.allocate_company_reference(db_session),
+        code="UNPROV-PO",
+        name="Unprovisioned PO Co",
+        is_active=True,
+    )
     db_session.add(comp)
     db_session.flush()
 

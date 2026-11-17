@@ -40,6 +40,8 @@ from app.models import (
     Site,
     Location,
     User,
+    VerificationCampaign,
+    VerificationUnregisteredAsset,
 )
 from app.reference_service import ReferenceNumberService
 from app.schemas import AssetCreate, CompanyCreate
@@ -50,7 +52,7 @@ from app.services import create_asset, create_company, next_asset_number
 def create_test_company_with_prefix(client, code: str, prefix: str) -> dict:
     resp = client.post(
         "/api/v1/companies",
-        json={"code": code, "name": f"{code} Corp", "number_prefix": prefix},
+        json={"code": prefix, "name": f"{code} Corp", "number_prefix": prefix},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -332,7 +334,7 @@ def test_concurrent_asset_creation_safety():
         seed_security_defaults(db)
         company = create_company(
             db,
-            CompanyCreate(code=f"CONC{uuid4().hex[:10]}", name="Concurrency Co", number_prefix="CCY"),
+            CompanyCreate(code="CCY", name="Concurrency Co", number_prefix="CCY"),
         )
         cat = db.query(AssetCategory).filter_by(company_id=company.id, code="LAPTOP").one()
         comp_id, cat_id = company.id, cat.id
@@ -404,6 +406,113 @@ def test_transaction_rollback_reverts_counter(client):
         assert a2.asset_number == "RBK-AST-000002"
     finally:
         app_db.close()
+
+
+def test_verification_unregistered_asset_registration(client):
+    """
+    10. Field verification unregistered asset registration:
+    - Auto-generated asset number allocates from centralized ReferenceNumberService.
+    - Manual external asset number succeeds.
+    - Managed prefix collision returns HTTP 422.
+    - Duplicate asset number returns HTTP 409.
+    """
+    comp = create_test_company_with_prefix(client, "VERIF", "VRF")
+    company_id = UUID(comp["id"])
+    cats = client.get(f"/api/v1/companies/{company_id}/categories").json()
+    cat_id = UUID(cats[0]["id"])
+
+    from app.database import get_db
+    app_db = next(client.app.dependency_overrides[get_db]())
+    try:
+        user = app_db.scalar(select(User).limit(1))
+        # Create campaign
+        campaign = VerificationCampaign(
+            id=uuid4(),
+            company_id=company_id,
+            campaign_reference="VRF-VC-2026-27-00001",
+            name="Q4 Verification",
+            status="in_progress",
+            start_date=date(2026, 11, 1),
+            end_date=date(2026, 11, 30),
+            started_at=datetime.now(timezone.utc),
+            created_by_id=user.id,
+        )
+        app_db.add(campaign)
+        app_db.flush()
+
+        # Create unregistered asset 1
+        unreg1 = VerificationUnregisteredAsset(
+            id=uuid4(),
+            campaign_id=campaign.id,
+            company_id=company_id,
+            category_id=cat_id,
+            serial_number="UNREG-SN-001",
+            description="Found Monitor",
+            status="pending",
+        )
+        # Create unregistered asset 2
+        unreg2 = VerificationUnregisteredAsset(
+            id=uuid4(),
+            campaign_id=campaign.id,
+            company_id=company_id,
+            category_id=cat_id,
+            serial_number="UNREG-SN-002",
+            description="Found Laptop",
+            status="pending",
+        )
+        # Create unregistered asset 3
+        unreg3 = VerificationUnregisteredAsset(
+            id=uuid4(),
+            campaign_id=campaign.id,
+            company_id=company_id,
+            category_id=cat_id,
+            serial_number="UNREG-SN-003",
+            description="Found Printer",
+            status="pending",
+        )
+        app_db.add_all([unreg1, unreg2, unreg3])
+        app_db.commit()
+
+        unreg1_id = unreg1.id
+        unreg2_id = unreg2.id
+        unreg3_id = unreg3.id
+        campaign_id_val = campaign.id
+    finally:
+        app_db.close()
+
+    # 1. Register unreg1 with auto-generated asset number
+    reg1 = client.post(
+        f"/api/v1/companies/{company_id}/verification-campaigns/{campaign_id_val}/unregistered-assets/{unreg1_id}/register",
+        json={"acquisition_cost": 500.0, "resolution_notes": "Registering found monitor"},
+    )
+    assert reg1.status_code == 200, reg1.text
+    # Should allocate VRF-AST-000001
+    assert reg1.json()["registered_asset_number"] == "VRF-AST-000001"
+
+    # 2. Register unreg2 with managed prefix collision -> 422
+    reg2_fail = client.post(
+        f"/api/v1/companies/{company_id}/verification-campaigns/{campaign_id_val}/unregistered-assets/{unreg2_id}/register",
+        json={"asset_number": "VRF-AST-000099", "resolution_notes": "Attempting managed prefix"},
+    )
+    assert reg2_fail.status_code == 422
+    assert "conflicts with the managed sequence prefix 'VRF-AST'" in reg2_fail.json()["detail"]
+
+    # 3. Register unreg2 with manual external identifier -> 200
+    reg2 = client.post(
+        f"/api/v1/companies/{company_id}/verification-campaigns/{campaign_id_val}/unregistered-assets/{unreg2_id}/register",
+        json={"asset_number": "EXT-FOUND-002", "resolution_notes": "Preserving tag"},
+    )
+    assert reg2.status_code == 200
+    assert reg2.json()["registered_asset_number"] == "EXT-FOUND-002"
+
+    # 4. Register unreg3 with duplicate asset number (EXT-FOUND-002) -> 409
+    reg3_dup = client.post(
+        f"/api/v1/companies/{company_id}/verification-campaigns/{campaign_id_val}/unregistered-assets/{unreg3_id}/register",
+        json={"asset_number": "EXT-FOUND-002", "resolution_notes": "Duplicate tag"},
+    )
+    assert reg3_dup.status_code == 409
+    assert 'already in use' in reg3_dup.json()["detail"]
+
 
 def test_company_creation_requires_explicit_prefix_and_provisions_all_sequences(client):
     """

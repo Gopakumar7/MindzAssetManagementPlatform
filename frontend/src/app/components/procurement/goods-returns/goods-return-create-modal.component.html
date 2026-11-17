@@ -1,0 +1,303 @@
+<div class="modal-backdrop" (click)="onClose()">
+  <div class="modal-dialog return-create-dialog" (click)="$event.stopPropagation()" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-header">
+      <div class="modal-title-group">
+        <p class="eyebrow">Goods Return to Vendor (GRR) Wizard</p>
+        <h3 id="modal-title">
+          {{ step === 'select_source' ? 'Step 1: Select Source Goods Receipt Reversal' : 'Step 2: Select Assets & Return Details' }}
+        </h3>
+      </div>
+      <button type="button" class="close-btn" (click)="onClose()" [disabled]="submitting" aria-label="Close dialog">✕</button>
+    </div>
+
+    @if (error) {
+      <div class="notice error" role="alert">
+        {{ error }}
+      </div>
+    }
+
+    @if (conflictWarning) {
+      <div class="notice warning" role="alert">
+        <strong>Reservation Conflict (409):</strong> {{ conflictWarning }}
+      </div>
+    }
+
+    <!-- STEP 1: Select Source Reversal -->
+    @if (step === 'select_source') {
+      <div class="modal-body">
+        <p class="helper-text">
+          Goods Returns must originate from authorized Goods Receipt Note (GRN) reversals. Select the source Goods Receipt and Reversal record.
+        </p>
+
+        <div class="form-section">
+          <label class="form-label" for="receipt-select">
+            Source Goods Receipt Note
+            <span class="required-indicator">*</span>
+          </label>
+          <select
+            id="receipt-select"
+            [(ngModel)]="selectedReceiptId"
+            (ngModelChange)="onReceiptSelected()"
+            class="form-select">
+            <option value="">Choose a goods receipt with reversals…</option>
+            @for (rcpt of receiptsWithReversals; track rcpt.id) {
+              <option [value]="rcpt.id">
+                {{ rcpt.receipt_number }} (Received: {{ rcpt.received_date }})
+              </option>
+            }
+          </select>
+          @if (receiptsWithReversals.length === 0) {
+            <span class="muted-note">No Goods Receipts with executed reversals were found for this company.</span>
+          }
+        </div>
+
+        @if (loadingReversals) {
+          <div class="loading">Loading reversals for selected receipt…</div>
+        }
+
+        @if (!loadingReversals && receiptReversals.length > 0) {
+          <div class="form-section">
+            <label class="form-label" for="reversal-select">
+              Select Specific Reversal Record
+              <span class="required-indicator">*</span>
+            </label>
+            <select
+              id="reversal-select"
+              [(ngModel)]="selectedReversalId"
+              class="form-select">
+              <option value="">Choose reversal…</option>
+              @for (rev of receiptReversals; track rev.id) {
+                <option [value]="rev.id">
+                  {{ rev.reversal_reference || ('REV-' + rev.id.slice(0, 8)) }} — {{ rev.reason }} ({{ rev.reversed_at | date:'short' }})
+                </option>
+              }
+            </select>
+          </div>
+        }
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="secondary" (click)="onClose()">Cancel</button>
+        <button
+          type="button"
+          class="primary"
+          (click)="proceedToAssets()"
+          [disabled]="!selectedReversalId">
+          Next: Select Assets →
+        </button>
+      </div>
+    }
+
+    <!-- STEP 2: Select Assets & Configure Return -->
+    @if (step === 'select_assets') {
+      <div class="modal-body">
+        @if (loadingAssets) {
+          <div class="loading">Retrieving authoritative asset eligibility & reservation status…</div>
+        } @else {
+          <!-- Eligibility Metrics -->
+          <div class="eligibility-summary-grid">
+            <div class="metric-card">
+              <span class="metric-label">Reversed Assets</span>
+              <span class="metric-value">{{ eligibleAssets.length }}</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Available for Return</span>
+              <span class="metric-value" [class.highlight-green]="selectableAssetCount > 0">
+                {{ selectableAssetCount }}
+              </span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Selected</span>
+              <span class="metric-value" [class.highlight-green]="selectedReversalAssetIds.size > 0">
+                {{ selectedReversalAssetIds.size }}
+              </span>
+            </div>
+          </div>
+
+          @if (selectableAssetCount === 0) {
+            <div class="notice warning" role="alert">
+              <strong>No Eligible Assets Available:</strong> All reversed assets in this reversal are either actively reserved by another Goods Return or locked.
+            </div>
+          }
+
+          <!-- Assets Selection Table -->
+          <div class="assets-selection-section">
+            <div class="section-toolbar">
+              <h4>Select Assets for Return</h4>
+              @if (selectableAssetCount > 0) {
+                <button
+                  type="button"
+                  class="select-all-btn"
+                  (click)="selectAllEligible()"
+                  [disabled]="submitting">
+                  {{ areAllSelectableSelected() ? 'Deselect All' : 'Select All Available (' + selectableAssetCount + ')' }}
+                </button>
+              }
+            </div>
+
+            <div class="table-wrap">
+              <table class="assets-table">
+                <thead>
+                  <tr>
+                    <th style="width: 44px;">Select</th>
+                    <th>Asset Number</th>
+                    <th>Serial Number</th>
+                    <th>Reservation / Status</th>
+                    <th>Condition on Return</th>
+                    <th>Line Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (asset of eligibleAssets; track asset.goods_receipt_reversal_asset_id) {
+                    <tr [class.selected-row]="isAssetSelected(asset.goods_receipt_reversal_asset_id)"
+                        [class.ineligible-row]="!asset.is_eligible || asset.is_actively_reserved">
+                      <td>
+                        <input
+                          type="checkbox"
+                          [checked]="isAssetSelected(asset.goods_receipt_reversal_asset_id)"
+                          (change)="toggleAsset(asset.goods_receipt_reversal_asset_id)"
+                          [disabled]="!asset.is_eligible || asset.is_actively_reserved || submitting"
+                          [attr.aria-label]="'Select ' + asset.asset_number">
+                      </td>
+                      <td><strong>{{ asset.asset_number }}</strong></td>
+                      <td>{{ asset.serial_number || '—' }}</td>
+                      <td>
+                        @if (asset.is_actively_reserved) {
+                          <span class="badge badge-warning">
+                            Reserved: {{ asset.active_reservation_return_number || 'Another Return' }}
+                          </span>
+                        } @else if (asset.is_eligible) {
+                          <span class="badge badge-success">Available</span>
+                        } @else {
+                          <span class="badge badge-danger">Ineligible</span>
+                          <div class="reason-pill">{{ asset.ineligibility_reason }}</div>
+                        }
+                      </td>
+                      <td>
+                        @if (isAssetSelected(asset.goods_receipt_reversal_asset_id)) {
+                          <select
+                            [(ngModel)]="assetConditions[asset.goods_receipt_reversal_asset_id]"
+                            [disabled]="submitting"
+                            class="condition-select">
+                            <option value="as_received">As Received</option>
+                            <option value="defective">Defective / Damaged</option>
+                            <option value="incorrect_spec">Incorrect Specification</option>
+                            <option value="damaged_in_transit">Damaged in Transit</option>
+                          </select>
+                        } @else {
+                          <span class="muted">—</span>
+                        }
+                      </td>
+                      <td>
+                        @if (isAssetSelected(asset.goods_receipt_reversal_asset_id)) {
+                          <input
+                            type="text"
+                            [(ngModel)]="assetNotes[asset.goods_receipt_reversal_asset_id]"
+                            placeholder="Optional line note"
+                            [disabled]="submitting"
+                            class="line-note-input" />
+                        } @else {
+                          <span class="muted">—</span>
+                        }
+                      </td>
+                    </tr>
+                  }
+                  @if (eligibleAssets.length === 0) {
+                    <tr>
+                      <td colspan="6" class="empty">No assets found in selected reversal.</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Return Header Details -->
+          <div class="form-grid-return">
+            <div class="form-section">
+              <label class="form-label" for="return-date">
+                Return Date
+                <span class="required-indicator">*</span>
+              </label>
+              <input
+                type="date"
+                id="return-date"
+                [(ngModel)]="returnDate"
+                required
+                [disabled]="submitting"
+                class="form-input" />
+            </div>
+
+            <div class="form-section">
+              <label class="form-label" for="vendor-reference">
+                Vendor RMA / Reference
+              </label>
+              <input
+                type="text"
+                id="vendor-reference"
+                [(ngModel)]="vendorReference"
+                placeholder="e.g. RMA-2026-9901"
+                maxlength="128"
+                [disabled]="submitting"
+                class="form-input" />
+            </div>
+
+            <div class="form-section wide">
+              <label class="form-label" for="return-reason">
+                Return Reason (Mandatory)
+                <span class="required-indicator">*</span>
+              </label>
+              <textarea
+                id="return-reason"
+                [(ngModel)]="returnReason"
+                rows="2"
+                placeholder="Explain the commercial/operational reason for returning these items to the vendor..."
+                required
+                [disabled]="submitting"
+                class="form-textarea"></textarea>
+            </div>
+
+            <div class="form-section wide">
+              <label class="form-label" for="return-notes">General Notes</label>
+              <textarea
+                id="return-notes"
+                [(ngModel)]="notes"
+                rows="2"
+                placeholder="Optional delivery or vendor coordination instructions..."
+                [disabled]="submitting"
+                class="form-textarea"></textarea>
+            </div>
+          </div>
+
+          <div class="consequence-box">
+            <p class="consequence-title">Transactional Guarantees</p>
+            <ul>
+              <li><strong>{{ selectedReversalAssetIds.size }}</strong> asset(s) will be actively reserved under a new Draft Goods Return.</li>
+              <li>A sequence-controlled return reference (<code>GRR-YYYYMMDD-XXXX</code>) will be allocated.</li>
+              <li>Reserved assets cannot be assigned to another return while this return is active.</li>
+            </ul>
+          </div>
+        }
+      </div>
+
+      <div class="modal-footer">
+        @if (!initialReversal) {
+          <button type="button" class="secondary" (click)="backToSource()" [disabled]="submitting">
+            ← Back to Source
+          </button>
+        }
+        <button type="button" class="secondary" (click)="onClose()" [disabled]="submitting">
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="primary"
+          (click)="submitReturn()"
+          [disabled]="!canSubmit()"
+          id="btn-submit-goods-return">
+          {{ submitting ? 'Creating Return…' : 'Create Goods Return (' + selectedReversalAssetIds.size + ' assets)' }}
+        </button>
+      </div>
+    }
+  </div>
+</div>

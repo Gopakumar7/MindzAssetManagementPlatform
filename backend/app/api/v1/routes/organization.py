@@ -1,13 +1,15 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import AssetCategory, AssetNumberRule, Company, CompanyMembership, CostCenter, Department, Location, Role, Site
+from app.audit import record_security_event
 from app.schemas import (
+    CompanySettingsUpdate,
     CategoryCreate,
     CategoryRead,
     CategoryUpdate,
@@ -26,11 +28,18 @@ from app.schemas import (
     MasterCreate,
     NumberRuleRead,
     NumberRuleWrite,
+    AssetNumberingRead,
     SiteCreate,
     SiteRead,
     SiteUpdate,
 )
 from app.services import create_company, get_company, get_scoped
+from app.reference_service import (
+    ALLOWED_NUMBER_SEPARATORS,
+    PrefixImmutabilityError,
+    ReferenceNumberService,
+    SequenceNotFoundError,
+)
 from app.security import CurrentActor, actor_has_permission, current_actor, require_permission
 
 router = APIRouter(tags=['organisation'], dependencies=[Depends(current_actor)])
@@ -74,6 +83,9 @@ def add_company(payload: CompanyCreate, db: Session = Depends(get_db)):
         return create_company(db, payload)
     except IntegrityError as exc:
         db.rollback()
+        err_msg = str(exc).lower()
+        if 'reference_number' in err_msg:
+            raise HTTPException(status_code=409, detail='Company reference number already exists') from exc
         raise HTTPException(status_code=409, detail='Company code already exists') from exc
 
 
@@ -85,11 +97,74 @@ def read_company(company_id: UUID, db: Session = Depends(get_db)):
 @router.patch('/companies/{company_id}', response_model=CompanyRead, dependencies=[Depends(require_permission('company.update'))])
 def edit_company(company_id: UUID, payload: CompanyUpdate, db: Session = Depends(get_db)):
     company = get_company(db, company_id)
-    for key, value in payload.model_dump(exclude_unset=True).items():
-        setattr(company, key, value)
+    update_data = payload.model_dump(exclude_unset=True)
+    if 'reference_number' in update_data and update_data['reference_number'] != company.reference_number:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail='Company reference number is system-generated and immutable.',
+        )
+    if 'code' in update_data and update_data['code'] != company.code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail='Company code is locked during normal company editing.',
+        )
+    for key, value in update_data.items():
+        if key not in ('reference_number', 'code'):
+            setattr(company, key, value)
     commit(db)
     db.refresh(company)
     return company
+
+
+@router.get('/companies/{company_id}/settings', response_model=dict, dependencies=[Depends(require_permission('company.read'))])
+def get_company_settings(company_id: UUID, db: Session = Depends(get_db)):
+    company = get_company(db, company_id)
+    return company.settings or {}
+
+
+@router.put('/companies/{company_id}/settings', response_model=dict, dependencies=[Depends(require_permission('company.update'))])
+def update_company_settings(
+    company_id: UUID,
+    payload: CompanySettingsUpdate,
+    actor: CurrentActor = Depends(current_actor),
+    db: Session = Depends(get_db),
+):
+    # Tier 0 lock: serialize with concurrent return approvals
+    company = db.scalar(
+        select(Company)
+        .where(Company.id == company_id)
+        .with_for_update()
+    )
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    settings_dict = dict(company.settings or {})
+    prev_value = settings_dict.get('procurement_different_person_return_approval', True)
+    new_value = payload.procurement_different_person_return_approval
+
+    if new_value is not None:
+        settings_dict['procurement_different_person_return_approval'] = new_value
+        company.settings = settings_dict
+        db.add(company)
+
+        record_security_event(
+            db,
+            action="company.setting_changed",
+            entity_type="Company",
+            entity_id=str(company.id),
+            actor_id=actor.user.id,
+            company_id=company.id,
+            changes={
+                "setting_key": "procurement_different_person_return_approval",
+                "previous_value": prev_value,
+                "new_value": new_value,
+                "reason": payload.reason,
+            },
+        )
+        commit(db)
+        db.refresh(company)
+
+    return company.settings
 
 
 def list_scoped(db: Session, model, company_id: UUID):
@@ -218,6 +293,133 @@ RETIRED_NUMBER_RULE_DETAIL = (
     'Legacy numbering rules are retired and cannot be created, modified, or deleted. '
     'Asset reference numbers are now centrally managed by ReferenceNumberService.'
 )
+
+
+def _asset_numbering_read(seq) -> AssetNumberingRead:
+    nxt = seq.current_value + 1
+    return AssetNumberingRead(
+        prefix=seq.prefix,
+        separator=seq.separator,
+        padding=seq.padding,
+        next_number=nxt,
+        next_reference_preview=f'{seq.prefix}{seq.separator}{nxt:0{seq.padding}d}',
+        issued_count=seq.current_value,
+        is_locked=seq.current_value > 0,
+        allowed_separators=list(ALLOWED_NUMBER_SEPARATORS),
+        lock_note=(
+            'References have been issued; prefix, separator and padding are locked. '
+            'Changes require the controlled support procedure with an audit ticket.'
+            if seq.current_value > 0 else None
+        ),
+    )
+
+
+@router.get('/companies/{company_id}/asset-numbering', response_model=AssetNumberingRead, dependencies=[Depends(require_permission('organization.read'))])
+def get_asset_numbering(company_id: UUID, db: Session = Depends(get_db)):
+    """Read-only access to the authoritative persisted asset numbering configuration."""
+    get_company(db, company_id)
+    try:
+        return _asset_numbering_read(ReferenceNumberService.get_asset_sequence(db, company_id))
+    except SequenceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post('/companies/{company_id}/asset-numbering/align', response_model=AssetNumberingRead, dependencies=[Depends(require_permission('organization.manage'))])
+def align_company_numbering(
+    company_id: UUID,
+    db: Session = Depends(get_db),
+    actor: CurrentActor = Depends(current_actor),
+):
+    """Explicitly aligns unissued legacy default sequences (current_value == 0) of an active company
+    to the company-code convention, recording one per-sequence AuditEvent per sequence changed.
+    """
+    get_company(db, company_id)
+    try:
+        ReferenceNumberService.align_unissued_company_sequences(
+            db,
+            company_id,
+            performed_by_id=actor.user.id,
+            allow_inactive_company=False,
+            commit=True,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return _asset_numbering_read(ReferenceNumberService.get_asset_sequence(db, company_id))
+
+
+@router.post('/companies/{company_id}/asset-numbering/admin-align', response_model=AssetNumberingRead)
+def admin_align_company_numbering(
+    company_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: CurrentActor = Depends(current_actor),
+):
+    """System Administrator procedure to align unissued legacy default sequences for any company
+    (including an inactive company while preserving its inactive status).
+    """
+    if not (
+        actor_has_permission(db, actor.user.id, None, 'system.companies.manage')
+        and actor_has_permission(db, actor.user.id, None, 'organization.manage')
+    ):
+        record_security_event(
+            db,
+            action='authz.denied',
+            entity_type='API',
+            entity_id=request.url.path,
+            actor_id=actor.user.id,
+            company_id=company_id,
+            outcome='denied',
+            changes={'permission': 'system.companies.manage'},
+        )
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='System Administrator permission required')
+
+    company = db.get(Company, company_id)
+    if company is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Company not found')
+
+    try:
+        ReferenceNumberService.align_unissued_company_sequences(
+            db,
+            company_id,
+            performed_by_id=actor.user.id,
+            allow_inactive_company=True,
+            commit=True,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return _asset_numbering_read(ReferenceNumberService.get_asset_sequence(db, company_id))
+
+
+@router.put('/companies/{company_id}/asset-numbering', response_model=AssetNumberingRead, dependencies=[Depends(require_permission('organization.manage'))])
+def put_asset_numbering(company_id: UUID, payload: NumberRuleWrite, db: Session = Depends(get_db)):
+    """Configure asset numbering before the first reference is issued; locked afterwards."""
+    get_company(db, company_id)
+    try:
+        seq, before = ReferenceNumberService.configure_asset_sequence(
+            db, company_id, payload.prefix, payload.separator, payload.padding
+        )
+    except SequenceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PrefixImmutabilityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    record_security_event(
+        db,
+        action='updated',
+        entity_type='AssetNumbering',
+        entity_id=str(seq.id),
+        company_id=company_id,
+        changes={'before': before, 'after': {'prefix': seq.prefix, 'separator': seq.separator, 'padding': seq.padding}},
+    )
+    db.commit()
+    db.refresh(seq)
+    return _asset_numbering_read(seq)
 
 
 @router.get('/companies/{company_id}/numbering-rules', response_model=list[NumberRuleRead], dependencies=[Depends(require_permission('organization.read'))])

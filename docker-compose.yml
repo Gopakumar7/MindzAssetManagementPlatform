@@ -32,7 +32,10 @@ services:
       APP_TITLE: ${APP_TITLE:-MindZen ALCM / ITAM}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:4200,http://127.0.0.1:4200}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # Controlled manual migration workflow:
+    # Migrations are applied manually via: docker compose exec backend alembic upgrade <target>
+    # (Original auto-migration command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000")
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     healthcheck:
       test:
         - CMD

@@ -22,6 +22,7 @@ from app.models import (
     VerificationExpectedAsset,
     VerificationObservation,
     VerificationUnregisteredAsset,
+    ReferenceSequence,
 )
 from app.schemas import (
     VerificationCampaignCreate,
@@ -42,6 +43,11 @@ from app.schemas import (
 )
 from app.security import CurrentActor, current_actor, require_permission
 from app.services import get_company, next_asset_number, record_history
+from app.reference_service import (
+    ReferenceNumberService,
+    ReservedPrefixCollisionError,
+    SequenceNotFoundError,
+)
 
 router = APIRouter(
     prefix='/companies/{company_id}',
@@ -180,9 +186,18 @@ def create_campaign(
             detail='Campaign end date must be on or after the start date',
         )
 
-    ref = payload.campaign_reference.strip()
-    if not ref:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Campaign reference cannot be blank')
+    if payload.campaign_reference is None:
+        ref = ReferenceNumberService.allocate(
+            db,
+            company_id,
+            'verification_campaign',
+            business_date=payload.start_date,
+            is_permanent=False,
+        )
+    else:
+        ref = payload.campaign_reference.strip()
+        if not ref:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Campaign reference cannot be blank')
 
     existing = db.scalar(
         select(VerificationCampaign.id).where(
@@ -457,7 +472,7 @@ def transition_campaign_status(
             # Create stable snapshot of expected assets
             asset_query = select(Asset).where(
                 Asset.company_id == company_id,
-                Asset.status != 'disposed',
+                Asset.status.notin_(['disposed', 'reversed']),
             )
             if campaign.scope_category_ids:
                 cat_uuids = [UUID(x) for x in campaign.scope_category_ids]
@@ -683,6 +698,130 @@ def list_expected_assets(
                 has_discrepancy=len(ea_discs) > 0,
                 discrepancy_types=ea_discs,
                 created_at=ea.created_at,
+            )
+        )
+    return results
+
+
+@router.get(
+    '/verification-campaigns/{campaign_id}/expected-assets-preview',
+    response_model=list[VerificationExpectedAssetRead],
+    dependencies=[Depends(require_permission('verification.read'))],
+)
+def preview_expected_assets(
+    company_id: UUID,
+    campaign_id: UUID,
+    search: str | None = Query(None),
+    category_id: UUID | None = Query(None),
+    location_id: UUID | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    get_company(db, company_id)
+    campaign = db.scalar(
+        select(VerificationCampaign).where(
+            VerificationCampaign.company_id == company_id,
+            VerificationCampaign.id == campaign_id,
+        )
+    )
+    if campaign is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Verification campaign not found')
+
+    if campaign.status != 'draft':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f'Expected assets preview is only available for draft campaigns. Current status: "{campaign.status}"',
+        )
+
+    query = (
+        select(
+            Asset,
+            AssetCategory.name.label('category_name'),
+            Site.name.label('site_name'),
+            Location.name.label('location_name'),
+            Department.name.label('department_name'),
+        )
+        .join(AssetCategory, AssetCategory.id == Asset.category_id)
+        .outerjoin(Site, Site.id == Asset.site_id)
+        .outerjoin(Location, Location.id == Asset.location_id)
+        .outerjoin(Department, Department.id == Asset.responsible_department_id)
+        .where(
+            Asset.company_id == company_id,
+            Asset.status.notin_(['disposed', 'reversed']),
+        )
+    )
+
+    if campaign.scope_category_ids:
+        cat_uuids = [UUID(x) for x in campaign.scope_category_ids]
+        query = query.where(Asset.category_id.in_(cat_uuids))
+    if campaign.scope_location_ids:
+        loc_uuids = [UUID(x) for x in campaign.scope_location_ids]
+        query = query.where(Asset.location_id.in_(loc_uuids))
+
+    if category_id:
+        query = query.where(Asset.category_id == category_id)
+    if location_id:
+        query = query.where(Asset.location_id == location_id)
+    if search:
+        s = f'%{search.strip()}%'
+        query = query.where(
+            or_(
+                Asset.asset_number.ilike(s),
+                Asset.serial_number.ilike(s),
+                Asset.model.ilike(s),
+                Asset.manufacturer.ilike(s),
+            )
+        )
+
+    query = query.order_by(Asset.asset_number.asc())
+    rows = db.execute(query).all()
+
+    results = []
+    for row in rows:
+        asset = row.Asset
+        active_assignment = db.scalar(
+            select(AssetAssignment).where(
+                AssetAssignment.company_id == company_id,
+                AssetAssignment.asset_id == asset.id,
+                AssetAssignment.status == 'active',
+            )
+        )
+        custodian_id = active_assignment.recipient_id if active_assignment else None
+        custodian_name = None
+        if custodian_id:
+            u = db.get(User, custodian_id)
+            custodian_name = u.email if u else None
+        elif asset.custodian_name:
+            custodian_name = asset.custodian_name
+
+        results.append(
+            VerificationExpectedAssetRead(
+                id=asset.id,
+                company_id=company_id,
+                campaign_id=campaign_id,
+                asset_id=asset.id,
+                asset_number=asset.asset_number,
+                category_id=asset.category_id,
+                category_name=row.category_name,
+                serial_number=asset.serial_number,
+                model=asset.model,
+                manufacturer=asset.manufacturer,
+                expected_site_id=asset.site_id,
+                site_name=row.site_name,
+                expected_location_id=asset.location_id,
+                location_name=row.location_name,
+                expected_department_id=asset.responsible_department_id,
+                department_name=row.department_name,
+                expected_custodian_id=custodian_id,
+                expected_custodian_name=custodian_name,
+                expected_condition='good',
+                expected_status=asset.status,
+                is_verified=False,
+                observation_id=None,
+                observation_found=None,
+                has_discrepancy=False,
+                discrepancy_types=[],
+                is_preview=True,
+                created_at=asset.created_at,
             )
         )
     return results
@@ -1276,16 +1415,31 @@ def register_unregistered_asset(
             detail=f'This unregistered asset has already been registered (Asset ID: {unreg.registered_asset_id})',
         )
 
-    # Use numbering sequence logic
+    # Use centralized numbering sequence logic
     category_id = unreg.category_id
     if payload.asset_number and payload.asset_number.strip():
         num = payload.asset_number.strip()
-        # Ensure not duplicate
+        try:
+            ReferenceNumberService.validate_manual_identifier(
+                db, company_id, "asset", num
+            )
+        except SequenceNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f'Company {company_id} has not been provisioned with asset numbering rules.',
+            ) from exc
+        except ReservedPrefixCollisionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+
+        # 2. Duplicate check within company
         dup = db.scalar(select(Asset.id).where(Asset.company_id == company_id, Asset.asset_number == num))
         if dup is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f'Asset number "{num}" is already in use')
     else:
-        num = next_asset_number(db, company_id, category_id)
+        num = ReferenceNumberService.allocate(db, company_id, 'asset', is_permanent=True)
 
     custodian_name = None
     if unreg.custodian_id:

@@ -1,0 +1,766 @@
+<div class="goods-return-detail-container">
+  <!-- Top Navigation & Action Header -->
+  <div class="detail-header">
+    <div class="header-left">
+      <button type="button" class="btn btn-secondary back-btn" (click)="onBack()" aria-label="Back to Goods Returns list">
+        ← Back to Returns
+      </button>
+      <div class="header-titles">
+        <h2>Goods Return {{ goodsReturn?.return_number || 'Details' }}</h2>
+        @if (goodsReturn) {
+          <span class="status-badge" [ngClass]="'badge-' + goodsReturn.status">
+            {{ goodsReturn.status | uppercase }}
+          </span>
+        }
+      </div>
+    </div>
+
+    @if (goodsReturn) {
+      <div class="header-actions">
+        <button type="button" class="btn btn-secondary" (click)="loadReturn()" [disabled]="loading" title="Refresh authoritative server state">
+          Refresh
+        </button>
+
+        @if (canReceiveWarehouse) {
+          <button
+            type="button"
+            class="btn btn-primary receive-warehouse-btn"
+            (click)="openWarehouseReceiptModal()"
+            title="Record physical receipt of returned assets into warehouse"
+          >
+            Receive into Warehouse
+          </button>
+        }
+
+        @if (canComplete) {
+          <button
+            type="button"
+            class="btn btn-success complete-return-btn"
+            (click)="openCompleteModal()"
+            title="Complete return for outstanding in-transit items accepted by vendor"
+          >
+            Complete Return (Vendor Acceptance)
+          </button>
+        }
+
+        @if (receiptsLoadedSuccessfully && !loading && !loadingReceipts && !error && !receiptsError && goodsReturn && goodsReturn.id === returnId && goodsReturn.company_id === companyId && (goodsReturn.status === 'dispatched' || goodsReturn.status === 'partially_returned_to_warehouse')) {
+          <span class="outstanding-summary-badge" [class.badge-warning]="outstandingInTransitCount > 0">
+            {{ outstandingInTransitCount }} of {{ goodsReturn.lines.length }} asset{{ goodsReturn.lines.length === 1 ? '' : 's' }} awaiting vendor acceptance
+          </span>
+        }
+
+        @if (goodsReturn.status === 'approved') {
+          <button
+            type="button"
+            class="btn btn-primary"
+            (click)="openDispatchModal()"
+            [disabled]="!canDispatch"
+            title="Dispatch return to carrier/vendor"
+          >
+            Dispatch Return
+          </button>
+        }
+
+        @if (goodsReturn.status === 'draft' || goodsReturn.status === 'approved') {
+          <button
+            type="button"
+            class="btn btn-danger"
+            (click)="openCancelModal()"
+            [disabled]="!canCancel"
+            title="Permanently cancel return and release asset reservations"
+          >
+            Cancel Return
+          </button>
+        }
+      </div>
+    }
+  </div>
+
+  <!-- Feedback / Alert Banners -->
+  @if (actionMessage) {
+    <div class="alert alert-success" role="alert">
+      {{ actionMessage }}
+    </div>
+  }
+  @if (actionError) {
+    <div class="alert alert-danger" role="alert">
+      {{ actionError }}
+    </div>
+  }
+  @if (error) {
+    <div class="alert alert-danger" role="alert">
+      {{ error }}
+    </div>
+  }
+  @if (loading) {
+    <div class="loading-indicator">
+      Loading Goods Return details from server...
+    </div>
+  }
+
+  @if (goodsReturn) {
+    <!-- Terminal Outcome Banners -->
+    @if (goodsReturn.status === 'cancelled') {
+      <div class="terminal-banner terminal-cancelled" role="alert">
+        <div class="terminal-title">⚠️ Terminal Outcome: Return Cancelled</div>
+        <p><strong>Cancellation Reason:</strong> {{ goodsReturn.cancellation_reason || 'No reason specified' }}</p>
+        <p class="meta-line">
+          Cancelled at: {{ goodsReturn.cancelled_at | date:'medium' }}
+          @if (goodsReturn.cancelled_by_id) { | By User ID: {{ goodsReturn.cancelled_by_id }} }
+        </p>
+      </div>
+    }
+
+    @if (goodsReturn.status === 'completed') {
+      <div class="terminal-banner terminal-completed" role="alert">
+        <div class="terminal-title">✅ Terminal Outcome: Return Completed</div>
+        <p>This goods return lifecycle is fully completed and archived.</p>
+        <p class="meta-line">
+          Completed at: {{ goodsReturn.completed_at | date:'medium' }}
+          @if (goodsReturn.completed_by_id) { | By User ID: {{ goodsReturn.completed_by_id }} }
+        </p>
+      </div>
+    }
+
+    @if (goodsReturn.status === 'returned_to_warehouse') {
+      <div class="terminal-banner terminal-warehouse-intake" role="alert">
+        <div class="terminal-title">📦 Terminal Physical Outcome: Returned to Warehouse</div>
+        <p>All items in this return have been physically received into warehouse inventory. This return is physically fulfilled and cannot transition to vendor completed.</p>
+      </div>
+    }
+
+    <!-- Lifecycle Visualization Stepper -->
+    <div class="card lifecycle-card">
+      <div class="card-header">
+        <h3>Canonical Lifecycle Progression</h3>
+        <span class="stepper-mode">7 Canonical States (Branching)</span>
+      </div>
+      <div class="lifecycle-container">
+        <!-- Phase 1: Sequential Initiation & In-Transit Pipeline -->
+        <div class="pipeline-section">
+          <div class="meta-badge">Phase 1: Initiation & In-Transit Pipeline</div>
+          <div class="stepper-grid pipeline-grid">
+            @for (step of initiationSteps; track step.key) {
+              <div
+                class="stepper-step"
+                [attr.data-step]="step.key"
+                [class.step-current]="step.isCurrent"
+                [class.step-completed]="step.isCompleted"
+              >
+                <div class="step-indicator">
+                  @if (step.isCompleted) { ✓ } @else if (step.isCurrent) { ● } @else { ○ }
+                </div>
+                <div class="step-body">
+                  <div class="step-label">{{ step.label }}</div>
+                  <div class="step-meta">{{ step.description }}</div>
+                  @if (step.timestamp) {
+                    <div class="step-meta">{{ step.timestamp | date:'short' }}</div>
+                  }
+                  @if (step.actorId) {
+                    <div class="step-meta" [title]="'Actor ID: ' + step.actorId">By: {{ step.actorId | slice:0:8 }}...</div>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="branch-divider">
+          <span>↳ Post-Dispatch Resolution Branches & Alternate Outcomes</span>
+        </div>
+
+        <!-- Phase 2: Post-Dispatch Resolution Branches -->
+        <div class="stepper-grid">
+          <!-- Branch A: Direct Vendor Acceptance (Terminal) -->
+          <div
+            class="branch-col branch-vendor-acceptance"
+            [class.branch-active]="vendorAcceptanceStep.isCurrent"
+          >
+            <div class="branch-header">
+              <span class="meta-badge">Branch A: Vendor Acceptance</span>
+            </div>
+            <div
+              class="stepper-step"
+              [attr.data-step]="vendorAcceptanceStep.key"
+              [class.step-current]="vendorAcceptanceStep.isCurrent"
+              [class.step-completed]="vendorAcceptanceStep.isCompleted"
+              [class.step-terminal]="vendorAcceptanceStep.isTerminal"
+            >
+              <div class="step-indicator">
+                @if (vendorAcceptanceStep.isCompleted) { ✓ } @else if (vendorAcceptanceStep.isCurrent) { ● } @else { ○ }
+              </div>
+              <div class="step-body">
+                <div class="step-label">{{ vendorAcceptanceStep.label }}</div>
+                <div class="step-meta">{{ vendorAcceptanceStep.description }}</div>
+                @if (vendorAcceptanceStep.timestamp) {
+                  <div class="step-meta">{{ vendorAcceptanceStep.timestamp | date:'short' }}</div>
+                }
+                @if (vendorAcceptanceStep.actorId) {
+                  <div class="step-meta" [title]="'Actor ID: ' + vendorAcceptanceStep.actorId">By: {{ vendorAcceptanceStep.actorId | slice:0:8 }}...</div>
+                }
+              </div>
+            </div>
+          </div>
+
+          <!-- Branch B: Warehouse Intake Track -->
+          <div
+            class="branch-col branch-warehouse-intake"
+            [class.branch-active]="goodsReturn.status === 'partially_returned_to_warehouse' || goodsReturn.status === 'returned_to_warehouse'"
+          >
+            <div class="branch-header">
+              <span class="meta-badge">Branch B: Warehouse Intake Track</span>
+            </div>
+            <div class="warehouse-steps-grid">
+              @for (step of warehouseIntakeSteps; track step.key) {
+                <div
+                  class="stepper-step"
+                  [attr.data-step]="step.key"
+                  [class.step-current]="step.isCurrent"
+                  [class.step-completed]="step.isCompleted"
+                  [class.step-terminal]="step.isTerminal"
+                >
+                  <div class="step-indicator">
+                    @if (step.isCompleted) { ✓ } @else if (step.isCurrent) { ● } @else { ○ }
+                  </div>
+                  <div class="step-body">
+                    <div class="step-label">{{ step.label }}</div>
+                    <div class="step-meta">{{ step.description }}</div>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+
+          <!-- Branch C: Cancellation Outcome (Terminal) -->
+          <div
+            class="branch-col branch-cancellation"
+            [class.branch-active]="cancellationStep.isCurrent"
+          >
+            <div class="branch-header">
+              <span class="meta-badge">Branch C: Cancellation</span>
+            </div>
+            <div
+              class="stepper-step"
+              [attr.data-step]="cancellationStep.key"
+              [class.step-current]="cancellationStep.isCurrent"
+              [class.step-terminal]="cancellationStep.isTerminal"
+            >
+              <div class="step-indicator">
+                @if (cancellationStep.isCurrent) { ✕ } @else { ⊘ }
+              </div>
+              <div class="step-body">
+                <div class="step-label">{{ cancellationStep.label }}</div>
+                <div class="step-meta">{{ cancellationStep.description }}</div>
+                @if (cancellationStep.isCurrent && cancellationStep.timestamp) {
+                  <div class="step-meta">{{ cancellationStep.timestamp | date:'short' }}</div>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section C: Approval & Segregation of Duties (shown when in draft) -->
+    @if (goodsReturn.status === 'draft') {
+      <div class="card approval-card">
+        <div class="card-header">
+          <h3>Approval & Segregation of Duties</h3>
+          <span class="policy-indicator" [class.policy-strict]="policyStrictApproval">
+            Policy: {{ policyStrictApproval ? 'Strict Segregation (Enforced)' : 'Permissive (Override)' }}
+          </span>
+        </div>
+        <div class="card-body">
+          @if (isSelfApprovalBlocked) {
+            <div class="sod-alert sod-blocked" role="alert">
+              <strong>⛔ Self-Approval Prohibited:</strong>
+              Company policy requires a different person to approve goods returns.
+              You created this return (Creator: {{ goodsReturn.created_by_id }}). Another user with procurement management permissions must approve.
+            </div>
+          } @else if (isCreator && !policyStrictApproval) {
+            <div class="sod-alert sod-warning">
+              <strong>ℹ️ Policy Override Active:</strong>
+              Company policy permits creator approval. Your approval will be recorded in the security audit log.
+            </div>
+          } @else {
+            <div class="sod-alert sod-eligible">
+              <strong>✓ Approval Eligible:</strong>
+              You are eligible to approve this return for vendor dispatch.
+            </div>
+          }
+
+          <div class="header-actions">
+            <button
+              type="button"
+              class="btn btn-primary"
+              (click)="onApprove()"
+              [disabled]="!canApprove"
+            >
+              @if (approving) { Approving Return... } @else { Approve Return }
+            </button>
+            @if (!canManage) {
+              <span class="hint-text">Requires <code>procurement.manage</code> permission.</span>
+            }
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- Section A: Return Overview -->
+    <div class="card overview-card">
+      <div class="card-header">
+        <h3>Section A — Return Overview</h3>
+      </div>
+      <div class="overview-grid">
+        <div class="overview-item">
+          <label>Return Reference</label>
+          <span class="value-highlight">{{ goodsReturn.return_number }}</span>
+        </div>
+        <div class="overview-item">
+          <label>Lifecycle Status</label>
+          <span class="status-badge" [ngClass]="'badge-' + goodsReturn.status">{{ goodsReturn.status }}</span>
+        </div>
+        <div class="overview-item">
+          <label>Supplier</label>
+          <span>{{ supplierName(goodsReturn.supplier_id) }}</span>
+        </div>
+        <div class="overview-item">
+          <label>Purchase Order</label>
+          <span>{{ purchaseOrderNumber(goodsReturn.purchase_order_id) }}</span>
+        </div>
+        <div class="overview-item">
+          <label>Source Goods Receipt ID</label>
+          <span class="code-ref" [title]="goodsReturn.original_goods_receipt_id">{{ goodsReturn.original_goods_receipt_id | slice:0:13 }}...</span>
+        </div>
+        <div class="overview-item">
+          <label>Source Reversal ID</label>
+          <span class="code-ref" [title]="goodsReturn.goods_receipt_reversal_id">{{ goodsReturn.goods_receipt_reversal_id | slice:0:13 }}...</span>
+        </div>
+        <div class="overview-item">
+          <label>Return Date</label>
+          <span>{{ goodsReturn.return_date }}</span>
+        </div>
+        <div class="overview-item">
+          <label>Vendor Reference / RMA</label>
+          <span>{{ goodsReturn.vendor_reference || '—' }}</span>
+        </div>
+        <div class="overview-item">
+          <label>Carrier / Waybill Reference</label>
+          <span>{{ goodsReturn.dispatch_reference || '—' }}</span>
+        </div>
+        <div class="overview-item">
+          <label>Transport Details</label>
+          <span>{{ goodsReturn.transport_details || '—' }}</span>
+        </div>
+        <div class="overview-item full-width">
+          <label>Return Reason</label>
+          <span class="reason-text">{{ goodsReturn.return_reason }}</span>
+        </div>
+        <div class="overview-item full-width">
+          <label>Notes</label>
+          <span>{{ goodsReturn.notes || 'None' }}</span>
+        </div>
+        <div class="overview-item full-width metadata-item">
+          <label>Audit Metadata</label>
+          <span class="hint-text">
+            Created at {{ goodsReturn.created_at | date:'medium' }} by User {{ goodsReturn.created_by_id }}.
+            @if (goodsReturn.approved_at) { Approved at {{ goodsReturn.approved_at | date:'medium' }} by User {{ goodsReturn.approved_by_id }}. }
+            @if (goodsReturn.dispatched_at) { Dispatched at {{ goodsReturn.dispatched_at | date:'medium' }} by User {{ goodsReturn.dispatched_by_id }}. }
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section B: Asset & Return Lines -->
+    <div class="card lines-card">
+      <div class="card-header">
+        <h3>Section B — Asset & Return Lines ({{ goodsReturn.lines.length }})</h3>
+        @if (goodsReturn.status === 'draft') {
+          <span class="draft-indicator">Line removal available in Draft</span>
+        }
+      </div>
+
+      <!-- Line Summary Bar -->
+      <div class="line-summary-bar">
+        <div class="summary-pill total-pill">
+          <span class="pill-label">Total Assets:</span>
+          <strong class="pill-count">{{ lineCountsSummary.total }}</strong>
+        </div>
+        @if (lineCountsSummary.inTransit > 0) {
+          <div class="summary-pill in-transit-pill">
+            <span class="pill-label">In Transit:</span>
+            <strong class="pill-count">{{ lineCountsSummary.inTransit }}</strong>
+          </div>
+        }
+        @if (lineCountsSummary.receivedWarehouse > 0) {
+          <div class="summary-pill warehouse-pill">
+            <span class="pill-label">Received in Warehouse:</span>
+            <strong class="pill-count">{{ lineCountsSummary.receivedWarehouse }}</strong>
+          </div>
+        }
+        @if (lineCountsSummary.acceptedVendor > 0) {
+          <div class="summary-pill vendor-pill">
+            <span class="pill-label">Accepted by Vendor:</span>
+            <strong class="pill-count">{{ lineCountsSummary.acceptedVendor }}</strong>
+          </div>
+        }
+        @if (lineCountsSummary.corrected > 0) {
+          <div class="summary-pill corrected-pill">
+            <span class="pill-label">Corrected Receipts:</span>
+            <strong class="pill-count">{{ lineCountsSummary.corrected }}</strong>
+          </div>
+        }
+      </div>
+
+      <div class="table-responsive">
+        <table class="detail-table">
+          <thead>
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">Asset Number</th>
+              <th scope="col">Serial Number</th>
+              <th scope="col">Lifecycle / Warehouse Status</th>
+              <th scope="col">Condition</th>
+              <th scope="col">Notes</th>
+              <th scope="col">Lineage (Reversal Asset)</th>
+              @if (goodsReturn.status === 'draft') {
+                <th scope="col">Action</th>
+              }
+            </tr>
+          </thead>
+          <tbody>
+            @for (item of classifiedLines; track item.line.id; let idx = $index) {
+              <tr [class.row-corrected-history]="item.hasCorrection">
+                <td>{{ idx + 1 }}</td>
+                <td class="asset-number-cell">
+                  <strong>{{ item.line.asset_number || 'AST-N/A' }}</strong>
+                </td>
+                <td>{{ item.line.serial_number || '—' }}</td>
+                <td>
+                  <span class="status-badge" [ngClass]="item.classificationBadgeClass">
+                    {{ item.classificationLabel }}
+                  </span>
+                  @if (item.activeReceipt) {
+                    <div class="receipt-link-meta" [title]="'Receipt: ' + item.activeReceipt.receipt_number">
+                      via {{ item.activeReceipt.receipt_number }}
+                    </div>
+                  }
+                  @if (item.hasCorrection) {
+                    <div class="correction-flag" [title]="'Correction reason: ' + item.correctionHistory[0].receiptLine.correction_reason">
+                      ⚠️ Corrected ({{ item.correctionHistory[0].receiptNumber }})
+                    </div>
+                  }
+                </td>
+                <td>
+                  <span class="condition-badge">{{ item.line.return_condition }}</span>
+                </td>
+                <td>{{ item.line.notes || '—' }}</td>
+                <td>
+                  <span class="code-ref" [title]="item.line.goods_receipt_reversal_asset_id">
+                    {{ item.line.goods_receipt_reversal_asset_id | slice:0:8 }}...
+                  </span>
+                </td>
+                @if (goodsReturn.status === 'draft') {
+                  <td>
+                    @if (confirmLineRemovalId === item.line.id) {
+                      <div class="confirm-removal-box">
+                        <span class="confirm-prompt">Remove line & release reservation?</span>
+                        <div class="confirm-buttons">
+                          <button
+                            type="button"
+                            class="btn btn-sm btn-danger"
+                            (click)="executeRemoveLine(item.line.id)"
+                            [disabled]="removingLine"
+                          >
+                            @if (removingLine) { Removing... } @else { Confirm }
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-sm btn-secondary"
+                            (click)="cancelRemoveLine()"
+                            [disabled]="removingLine"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    } @else {
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-danger"
+                        (click)="promptRemoveLine(item.line.id)"
+                        [disabled]="!canRemoveLines || removingLine"
+                        title="Remove line from draft return"
+                      >
+                        Remove Line
+                      </button>
+                    }
+                  </td>
+                }
+              </tr>
+            } @empty {
+              <tr>
+                <td [attr.colspan]="goodsReturn.status === 'draft' ? 8 : 7" class="empty-state">
+                  No return lines found.
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Section C: Warehouse Receipt History -->
+    <div class="card receipts-card" id="warehouse-receipts-section">
+      <div class="card-header">
+        <div class="header-title-group">
+          <h3>Section C — Warehouse Receipt History ({{ warehouseReceipts.length }})</h3>
+          <span class="meta-badge">Physical intake records</span>
+        </div>
+        <div class="header-actions">
+          @if (canReceiveWarehouse) {
+            <button
+              type="button"
+              class="btn btn-sm btn-primary"
+              (click)="openWarehouseReceiptModal()"
+              title="Record physical receipt of assets into warehouse"
+            >
+              + Record Intake
+            </button>
+          }
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            (click)="loadWarehouseReceipts()"
+            [disabled]="loadingReceipts || !canRead"
+            title="Refresh warehouse receipt history"
+          >
+            @if (loadingReceipts) { Refreshing... } @else { Refresh Receipts }
+          </button>
+        </div>
+      </div>
+
+      <div class="receipts-container">
+        @if (!canRead) {
+          <div class="alert alert-warning" role="alert">
+            <strong>Permission Required:</strong> Viewing warehouse receipt history requires <code>procurement.read</code> permission.
+          </div>
+        } @else if (loadingReceipts && warehouseReceipts.length === 0) {
+          <div class="loading-indicator">
+            Loading warehouse receipt records from server...
+          </div>
+        } @else if (receiptsError) {
+          <div class="alert alert-danger" role="alert">
+            <strong>Error loading receipts:</strong> {{ receiptsError }}
+            <button type="button" class="btn btn-sm btn-outline-danger retry-btn" (click)="loadWarehouseReceipts()">
+              Retry
+            </button>
+          </div>
+        } @else if (warehouseReceipts.length === 0) {
+          <div class="empty-receipts-state">
+            <div class="empty-icon">📦</div>
+            @if (goodsReturn.status === 'draft' || goodsReturn.status === 'approved') {
+              <p>No warehouse receipts exist. Return has not yet been dispatched.</p>
+            } @else if (goodsReturn.status === 'dispatched') {
+              <p>No warehouse receipts recorded yet. All {{ goodsReturn.lines.length }} dispatched asset(s) are currently in transit.</p>
+            } @else if (goodsReturn.status === 'completed') {
+              <p>No warehouse receipts recorded. In-transit items were directly accepted by the vendor.</p>
+            } @else if (goodsReturn.status === 'cancelled') {
+              <p>No warehouse receipts recorded. Return was cancelled.</p>
+            } @else {
+              <p>No warehouse receipt records found for this return.</p>
+            }
+          </div>
+        } @else {
+          <div class="receipts-list">
+            @for (receipt of warehouseReceipts; track receipt.id) {
+              <div class="receipt-item-card" [class.receipt-collapsed]="!isReceiptExpanded(receipt.id)">
+                <!-- Receipt Header Row (Collapsible) -->
+                <div
+                  class="receipt-header-row"
+                  (click)="toggleReceiptExpanded(receipt.id)"
+                  (keydown.enter)="toggleReceiptExpanded(receipt.id)"
+                  (keydown.space)="toggleReceiptExpanded(receipt.id)"
+                  tabindex="0"
+                  role="button"
+                  [attr.aria-expanded]="isReceiptExpanded(receipt.id)"
+                  [attr.aria-label]="'Toggle receipt ' + receipt.receipt_number"
+                >
+                  <div class="receipt-title-meta">
+                    <span class="expand-icon">{{ isReceiptExpanded(receipt.id) ? '▼' : '▶' }}</span>
+                    <strong class="receipt-number">{{ receipt.receipt_number }}</strong>
+                    <span class="receipt-date">Receipt Date: {{ receipt.receipt_date }}</span>
+                    <span class="receipt-received-at">Recorded: {{ receipt.received_at | date:'short' }}</span>
+                  </div>
+                  <div class="receipt-badges">
+                    <span class="badge-count">{{ receipt.lines.length }} line(s)</span>
+                    @if (hasReceiptCorrections(receipt)) {
+                      <span class="badge-corrected-count">Contains Corrected Lines</span>
+                    }
+                  </div>
+                </div>
+
+                <!-- Receipt Expanded Content -->
+                @if (isReceiptExpanded(receipt.id)) {
+                  <div class="receipt-body-content">
+                    <div class="receipt-meta-grid">
+                      <div class="meta-item">
+                        <label>Received By User ID:</label>
+                        <span class="code-ref" [title]="receipt.received_by_id">{{ receipt.received_by_id | slice:0:13 }}...</span>
+                      </div>
+                      <div class="meta-item">
+                        <label>Warehouse Location ID:</label>
+                        <span>{{ receipt.warehouse_location_id ? (receipt.warehouse_location_id | slice:0:13) + '...' : 'N/A' }}</span>
+                      </div>
+                      <div class="meta-item">
+                        <label>Carrier / Dispatch Ref:</label>
+                        <span>{{ receipt.dispatch_reference || 'N/A' }}</span>
+                      </div>
+                      <div class="meta-item full-width">
+                        <label>Receipt Reason:</label>
+                        <span class="reason-text">{{ receipt.reason }}</span>
+                      </div>
+                      @if (receipt.notes) {
+                        <div class="meta-item full-width">
+                          <label>Notes:</label>
+                          <span>{{ receipt.notes }}</span>
+                        </div>
+                      }
+                    </div>
+
+                    <div class="table-responsive">
+                      <table class="detail-table receipt-lines-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">#</th>
+                            <th scope="col">Asset Tag</th>
+                            <th scope="col">Condition on Return</th>
+                            <th scope="col">Line Status</th>
+                            <th scope="col">Receipt Notes</th>
+                            <th scope="col">Correction Details</th>
+                            <th scope="col">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (rLine of receipt.lines; track rLine.id; let idx = $index) {
+                            <tr [class.row-corrected]="rLine.is_corrected">
+                              <td>{{ idx + 1 }}</td>
+                              <td class="asset-number-cell">
+                                <strong>{{ getAssetNumberForLine(rLine.goods_return_line_id) }}</strong>
+                                <span class="code-ref-sub" [title]="rLine.asset_id">({{ rLine.asset_id | slice:0:8 }}...)</span>
+                              </td>
+                              <td>
+                                <span class="condition-badge">{{ rLine.condition_on_return }}</span>
+                              </td>
+                              <td>
+                                @if (rLine.is_corrected) {
+                                  <span class="status-badge badge-corrected">CORRECTED</span>
+                                } @else {
+                                  <span class="status-badge badge-active">ACTIVE INTAKE</span>
+                                }
+                              </td>
+                              <td>{{ rLine.notes || '—' }}</td>
+                              <td>
+                                @if (rLine.is_corrected) {
+                                  <div class="correction-details-box">
+                                    <div class="correction-reason">
+                                      <strong>Reason:</strong> {{ rLine.correction_reason || 'No reason specified' }}
+                                    </div>
+                                    <div class="correction-meta">
+                                      Corrected at: {{ rLine.corrected_at | date:'short' }}
+                                      @if (rLine.corrected_by_id) { | By: {{ rLine.corrected_by_id | slice:0:8 }}... }
+                                    </div>
+                                  </div>
+                                } @else {
+                                  <span class="hint-text">No correction</span>
+                                }
+                              </td>
+                              <td>
+                                @if (!rLine.is_corrected && canCorrectReceiptLine) {
+                                  <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-warning correct-intake-btn"
+                                    (click)="openCorrectionModal(receipt, rLine)"
+                                    title="Correct this warehouse receipt intake"
+                                  >
+                                    Correct Intake
+                                  </button>
+                                } @else if (rLine.is_corrected) {
+                                  <span class="hint-text">Corrected</span>
+                                } @else {
+                                  <span class="hint-text">—</span>
+                                }
+                              </td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  }
+
+  <!-- Modals -->
+  @if (showDispatchModal && goodsReturn) {
+    <app-goods-return-dispatch-modal
+      [companyId]="companyId"
+      [goodsReturn]="goodsReturn"
+      (dispatched)="onDispatched($event)"
+      (close)="showDispatchModal = false"
+    ></app-goods-return-dispatch-modal>
+  }
+
+  @if (showCancelModal && goodsReturn) {
+    <app-goods-return-cancel-modal
+      [companyId]="companyId"
+      [goodsReturn]="goodsReturn"
+      (cancelled)="onCancelled($event)"
+      (close)="showCancelModal = false"
+    ></app-goods-return-cancel-modal>
+  }
+
+  @if (showWarehouseReceiptModal && goodsReturn) {
+    <app-goods-return-warehouse-receipt-modal
+      [companyId]="companyId"
+      [goodsReturn]="goodsReturn"
+      [warehouseReceipts]="warehouseReceipts"
+      (receiptCreated)="onReceiptCreated($event)"
+      (conflictOccurred)="onReceiptConflict()"
+      (close)="showWarehouseReceiptModal = false"
+    ></app-goods-return-warehouse-receipt-modal>
+  }
+
+  @if (showCorrectionModal && goodsReturn && selectedReceiptForCorrection && selectedLineForCorrection) {
+    <app-goods-return-receipt-correction-modal
+      [companyId]="companyId"
+      [goodsReturn]="goodsReturn"
+      [receipt]="selectedReceiptForCorrection"
+      [receiptLine]="selectedLineForCorrection"
+      [assetNumber]="getAssetNumberForLine(selectedLineForCorrection.goods_return_line_id)"
+      [serialNumber]="getSerialNumberForLine(selectedLineForCorrection.goods_return_line_id)"
+      (corrected)="onCorrectionComplete($event)"
+      (conflictOccurred)="onCorrectionConflict()"
+      (close)="closeCorrectionModal()"
+    ></app-goods-return-receipt-correction-modal>
+  }
+
+  @if (showCompleteModal && goodsReturn) {
+    <app-goods-return-complete-modal
+      [companyId]="companyId"
+      [goodsReturn]="goodsReturn"
+      [outstandingLines]="outstandingInTransitLines"
+      [supplierName]="supplierName(goodsReturn.supplier_id)"
+      [receivedCount]="lineCountsSummary.receivedWarehouse"
+      (completed)="onCompleted($event)"
+      (conflictOccurred)="onCompleteConflict()"
+      (notFoundOccurred)="onCompleteNotFound()"
+      (close)="closeCompleteModal()"
+    ></app-goods-return-complete-modal>
+  }
+</div>

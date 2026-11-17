@@ -1,0 +1,196 @@
+<div class="goods-returns-container">
+  @if (!canRead) {
+    <div class="notice warning" role="alert">
+      You do not have permission to view Goods Returns for this company.
+    </div>
+  } @else {
+    <!-- KPI Summary Cards -->
+    <div class="kpi-grid">
+      <div class="kpi-card" [class.active-kpi]="statusFilter === 'all'" (click)="onStatusFilterChange('all')" role="button" tabindex="0">
+        <span class="kpi-label">Total Returns</span>
+        <span class="kpi-value">{{ totalCount }}</span>
+        <span class="kpi-hint">All records</span>
+      </div>
+      <div class="kpi-card kpi-draft" [class.active-kpi]="statusFilter === 'draft'" (click)="onStatusFilterChange('draft')" role="button" tabindex="0">
+        <span class="kpi-label">Draft</span>
+        <span class="kpi-value">{{ draftCount }}</span>
+        <span class="kpi-hint">Awaiting approval</span>
+      </div>
+      <div class="kpi-card kpi-active" (click)="onStatusFilterChange('approved')" role="button" tabindex="0">
+        <span class="kpi-label">Approved & Dispatched</span>
+        <span class="kpi-value">{{ activeDispatchCount }}</span>
+        <span class="kpi-hint">Vendor in transit</span>
+      </div>
+      <div class="kpi-card kpi-warehouse" (click)="onStatusFilterChange('returned_to_warehouse')" role="button" tabindex="0">
+        <span class="kpi-label">In Warehouse</span>
+        <span class="kpi-value">{{ warehouseReturnCount }}</span>
+        <span class="kpi-hint">Physical intake</span>
+      </div>
+      <div class="kpi-card kpi-completed" [class.active-kpi]="statusFilter === 'completed'" (click)="onStatusFilterChange('completed')" role="button" tabindex="0">
+        <span class="kpi-label">Completed</span>
+        <span class="kpi-value">{{ completedCount }}</span>
+        <span class="kpi-hint">Fully resolved</span>
+      </div>
+      <div class="kpi-card kpi-cancelled" [class.active-kpi]="statusFilter === 'cancelled'" (click)="onStatusFilterChange('cancelled')" role="button" tabindex="0">
+        <span class="kpi-label">Cancelled</span>
+        <span class="kpi-value">{{ cancelledCount }}</span>
+        <span class="kpi-hint">Voided returns</span>
+      </div>
+    </div>
+
+    <!-- Filter & Action Toolbar -->
+    <div class="toolbar">
+      <div class="filter-controls">
+        <div class="search-wrap">
+          <input
+            type="search"
+            [(ngModel)]="searchTerm"
+            (ngModelChange)="onSearchChange()"
+            placeholder="Search return reference, PO, RMA, supplier…"
+            aria-label="Search goods returns"
+            class="search-input" />
+        </div>
+
+        <label class="toolbar-label">
+          Status:
+          <select [(ngModel)]="statusFilter" (ngModelChange)="onStatusFilterChange($event)" class="filter-select">
+            @for (s of canonicalStatuses; track s.value) {
+              <option [value]="s.value">{{ s.label }}</option>
+            }
+          </select>
+        </label>
+
+        @if (suppliers.length > 0) {
+          <label class="toolbar-label">
+            Supplier:
+            <select [(ngModel)]="supplierFilter" (ngModelChange)="onSupplierFilterChange()" class="filter-select">
+              <option value="">All Suppliers</option>
+              @for (sup of suppliers; track sup.id) {
+                <option [value]="sup.id">{{ sup.name }} ({{ sup.code }})</option>
+              }
+            </select>
+          </label>
+        }
+
+        <button type="button" class="secondary small-btn" (click)="loadReturns()" [disabled]="loading" title="Refresh list">
+          Refresh
+        </button>
+      </div>
+
+      <div class="action-controls">
+        @if (canManage) {
+          <button type="button" class="primary" (click)="onCreateReturn()" id="btn-create-goods-return">
+            + Create Goods Return
+          </button>
+        }
+      </div>
+    </div>
+
+    <!-- States: Loading / Error / Table -->
+    @if (loading) {
+      <div class="loading">Loading goods returns…</div>
+    }
+
+    @if (error) {
+      <div class="notice error" role="alert">
+        {{ error }}
+        <button type="button" class="secondary small-btn" style="margin-left: 1rem;" (click)="loadReturns()">Retry</button>
+      </div>
+    }
+
+    @if (!loading && !error) {
+      @if (filteredReturns.length === 0) {
+        <div class="empty-state">
+          @if (searchTerm || statusFilter !== 'all' || supplierFilter) {
+            <p>No goods returns match the selected filter criteria.</p>
+            <button type="button" class="secondary small-btn" (click)="statusFilter = 'all'; supplierFilter = ''; searchTerm = ''; loadReturns()">
+              Reset Filters
+            </button>
+          } @else {
+            <p>No Goods Returns to Vendor recorded for this company.</p>
+            @if (canManage) {
+              <button type="button" class="primary small-btn" (click)="onCreateReturn()">Create First Goods Return</button>
+            }
+          }
+        </div>
+      } @else {
+        <div class="table-wrap">
+          <table class="returns-table">
+            <thead>
+              <tr>
+                <th>Return Reference</th>
+                <th>Supplier</th>
+                <th>Purchase Order</th>
+                <th>Return Date</th>
+                <th>Assets</th>
+                <th>Status</th>
+                <th>Reason / Notes</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (grr of paginatedReturns; track grr.id) {
+                <tr>
+                  <td>
+                    <strong class="return-ref">{{ grr.return_number }}</strong>
+                    @if (grr.vendor_reference) {
+                      <div class="sub-ref">RMA: {{ grr.vendor_reference }}</div>
+                    }
+                  </td>
+                  <td>{{ supplierName(grr.supplier_id) }}</td>
+                  <td>
+                    <span class="po-badge">{{ purchaseOrderNumber(grr.purchase_order_id) }}</span>
+                  </td>
+                  <td>{{ grr.return_date }}</td>
+                  <td>
+                    <span class="count-badge">{{ grr.lines?.length || 0 }} asset(s)</span>
+                  </td>
+                  <td>
+                    <span class="status-pill pill-{{ grr.status }}">
+                      {{ grr.status }}
+                    </span>
+                  </td>
+                  <td class="reason-cell">
+                    <div class="reason-text-cell" [title]="grr.return_reason">
+                      {{ grr.return_reason }}
+                    </div>
+                    @if (grr.dispatch_reference) {
+                      <div class="dispatch-ref">Dispatch: {{ grr.dispatch_reference }}</div>
+                    }
+                  </td>
+                  <td class="actions-cell">
+                    <button
+                      type="button"
+                      class="link-button"
+                      (click)="onSelectReturn(grr)"
+                      [attr.aria-label]="'View details for ' + grr.return_number">
+                      View Details
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination Controls -->
+        @if (totalPages > 1) {
+          <div class="pagination-bar">
+            <span class="pagination-info">
+              Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ (currentPage - 1) * pageSize + paginatedReturns.length }} of {{ filteredReturns.length }} returns
+            </span>
+            <div class="pagination-buttons">
+              <button type="button" class="secondary small-btn" (click)="prevPage()" [disabled]="currentPage === 1">
+                Previous
+              </button>
+              <span class="page-current">Page {{ currentPage }} of {{ totalPages }}</span>
+              <button type="button" class="secondary small-btn" (click)="nextPage()" [disabled]="currentPage === totalPages">
+                Next
+              </button>
+            </div>
+          </div>
+        }
+      }
+    }
+  }
+</div>

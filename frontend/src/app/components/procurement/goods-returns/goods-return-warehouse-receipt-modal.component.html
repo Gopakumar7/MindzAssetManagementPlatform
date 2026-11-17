@@ -1,0 +1,242 @@
+<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="receipt-modal-title">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="header-title-wrap">
+        <h3 id="receipt-modal-title">Record Warehouse Receipt</h3>
+        <span class="modal-subtitle">Physical intake of returned assets into warehouse stock</span>
+      </div>
+      <button
+        type="button"
+        class="close-btn"
+        (click)="onClose()"
+        [disabled]="submitting"
+        aria-label="Close modal"
+      >
+        ×
+      </button>
+    </div>
+
+    <div class="modal-body">
+      @if (error) {
+        <div class="error-banner" role="alert">
+          <strong>Error:</strong> {{ error }}
+        </div>
+      }
+      @if (validationError) {
+        <div class="validation-banner" role="alert">
+          {{ validationError }}
+        </div>
+      }
+
+      <!-- Context Summary -->
+      <div class="summary-box">
+        <div class="summary-line">
+          <strong>Return Reference:</strong>
+          <span>{{ goodsReturn.return_number }}</span>
+        </div>
+        <div class="summary-line">
+          <strong>Eligible in-transit assets:</strong>
+          <span>{{ totalEligibleCount }} asset(s)</span>
+        </div>
+        <div class="notice">
+          ℹ️ Recording receipt transitions received assets to <strong>reversed</strong> (warehouse stock) and releases reservations.
+        </div>
+      </div>
+
+      <!-- Receipt-Level Fields -->
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label for="wr-receipt-date">Receipt Date <span class="required">*</span></label>
+          <input
+            id="wr-receipt-date"
+            type="date"
+            class="form-control"
+            [(ngModel)]="receiptDate"
+            [disabled]="submitting"
+            required
+          />
+          <small class="form-hint">Physical intake date</small>
+        </div>
+
+        <div class="form-group flex-1">
+          <label for="wr-dispatch-ref">Dispatch / Waybill Reference</label>
+          <input
+            id="wr-dispatch-ref"
+            type="text"
+            class="form-control"
+            [(ngModel)]="dispatchReference"
+            placeholder="e.g. WB-987654"
+            maxlength="128"
+            [disabled]="submitting"
+          />
+          <small class="form-hint">Carrier delivery identifier</small>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="wr-reason">Receipt Reason <span class="required">*</span></label>
+        <textarea
+          id="wr-reason"
+          class="form-control"
+          rows="2"
+          [(ngModel)]="reason"
+          placeholder="Reason for recording warehouse intake (minimum 3 characters)..."
+          [disabled]="submitting"
+          required
+        ></textarea>
+        <small class="form-hint">Mandatory justification for physical return intake (min 3 chars).</small>
+      </div>
+
+      <div class="form-group">
+        <label for="wr-notes">Receipt Notes</label>
+        <input
+          id="wr-notes"
+          type="text"
+          class="form-control"
+          [(ngModel)]="notes"
+          placeholder="Optional general intake notes..."
+          [disabled]="submitting"
+        />
+      </div>
+
+      <!-- Asset Selection Section -->
+      <div class="asset-selection-card">
+        <div class="asset-selection-header">
+          <div class="selection-count-wrap">
+            <h4>Select Assets to Receive</h4>
+            <span class="selection-badge">
+              {{ selectedCount }} of {{ totalEligibleCount }} selected
+            </span>
+          </div>
+          <div class="selection-actions">
+            <button
+              type="button"
+              class="btn btn-sm btn-link"
+              (click)="selectAll()"
+              [disabled]="submitting || totalEligibleCount === 0"
+            >
+              Select All
+            </button>
+            <span class="divider">|</span>
+            <button
+              type="button"
+              class="btn btn-sm btn-link"
+              (click)="deselectAll()"
+              [disabled]="submitting || selectedCount === 0"
+            >
+              Deselect All
+            </button>
+          </div>
+        </div>
+
+        @if (totalEligibleCount === 0) {
+          <div class="empty-assets-state">
+            No assets currently eligible for physical warehouse intake.
+          </div>
+        } @else {
+          <div class="table-responsive asset-table-wrap">
+            <table class="asset-selection-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="th-checkbox"></th>
+                  <th scope="col">Asset Tag</th>
+                  <th scope="col">Serial No</th>
+                  <th scope="col">Condition on Return</th>
+                  <th scope="col">Intake Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (asset of eligibleAssets; track asset.lineId) {
+                  <tr [class.selected-row]="asset.selected">
+                    <td class="td-checkbox">
+                      <input
+                        type="checkbox"
+                        [id]="'check-' + asset.lineId"
+                        [(ngModel)]="asset.selected"
+                        [disabled]="submitting"
+                        [attr.aria-label]="'Select ' + asset.assetNumber"
+                      />
+                    </td>
+                    <td class="asset-tag-cell">
+                      <label [for]="'check-' + asset.lineId" class="asset-tag-label">
+                        <strong>{{ asset.assetNumber }}</strong>
+                      </label>
+                    </td>
+                    <td class="serial-cell">{{ asset.serialNumber || '—' }}</td>
+                    <td class="condition-cell">
+                      <input
+                        type="text"
+                        class="form-control form-control-sm condition-input"
+                        [(ngModel)]="asset.conditionOnReturn"
+                        list="condition-return-suggestions"
+                        placeholder="e.g. intact, damaged"
+                        maxlength="64"
+                        [disabled]="submitting || !asset.selected"
+                        [attr.aria-label]="'Condition on return for ' + asset.assetNumber"
+                      />
+                    </td>
+                    <td class="notes-cell">
+                      <input
+                        type="text"
+                        class="form-control form-control-sm notes-input"
+                        [(ngModel)]="asset.notes"
+                        placeholder="Optional line notes"
+                        [disabled]="submitting || !asset.selected"
+                        [attr.aria-label]="'Intake notes for ' + asset.assetNumber"
+                      />
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+            <!-- Common suggestions datalist (not an enforced enum; backend schema accepts any string up to 64 chars) -->
+            <datalist id="condition-return-suggestions">
+              <option value="intact">
+              <option value="damaged">
+              <option value="defective">
+              <option value="incomplete">
+            </datalist>
+          </div>
+        }
+      </div>
+
+      <!-- Confirmation Checkbox -->
+      <div class="form-check confirmation-check">
+        <label class="checkbox-label" for="wr-confirm">
+          <input
+            id="wr-confirm"
+            type="checkbox"
+            [(ngModel)]="confirmed"
+            [disabled]="submitting || selectedCount === 0"
+          />
+          <span>
+            I confirm physical receipt and inspection of the <strong>{{ selectedCount }}</strong> selected asset(s) into warehouse inventory.
+          </span>
+        </label>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button
+        type="button"
+        class="btn btn-secondary"
+        (click)="onClose()"
+        [disabled]="submitting"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="btn btn-primary submit-btn"
+        (click)="onSubmit()"
+        [disabled]="!isFormValid"
+      >
+        @if (submitting) {
+          Recording Receipt...
+        } @else {
+          Record Warehouse Receipt ({{ selectedCount }})
+        }
+      </button>
+    </div>
+  </div>
+</div>

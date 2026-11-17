@@ -6,12 +6,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 
 from app import models
+from app.reference_service import ReferenceNumberService
 from app.authentication import password_hasher
 from app.security import digest
 
 
 def _company(db_session, code: str) -> models.Company:
-    company = models.Company(code=code, name=f'{code} company')
+    company = models.Company(
+        reference_number=ReferenceNumberService.allocate_company_reference(db_session),
+        code=code,
+        name=f'{code} company',
+    )
     db_session.add(company)
     db_session.commit()
     return company

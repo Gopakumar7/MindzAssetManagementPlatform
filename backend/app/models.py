@@ -53,9 +53,11 @@ class Company(Base):
     __tablename__ = 'companies'
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    reference_number: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
     code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    settings: Mapped[dict] = mapped_column(JSON, nullable=False, server_default=text('\'{}\''), default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
@@ -349,6 +351,7 @@ class PurchaseOrder(Base):
     __tablename__ = 'purchase_orders'
     __table_args__ = (
         UniqueConstraint('company_id', 'id', name='uq_purchase_orders_company_id_id'),
+        UniqueConstraint('company_id', 'id', 'supplier_id', name='uq_purchase_orders_company_id_supplier'),
         UniqueConstraint('company_id', 'order_number', name='uq_purchase_orders_company_number'),
         CheckConstraint(
             "status IN ('open', 'partially_received', 'received', 'cancelled')",
@@ -451,11 +454,16 @@ class GoodsReceipt(Base):
             name='uq_goods_receipts_company_id_order',
         ),
         UniqueConstraint('company_id', 'receipt_number', name='uq_goods_receipts_company_number'),
+        CheckConstraint(
+            "status IN ('completed', 'partially_reversed', 'reversed')",
+            name='ck_goods_receipts_status',
+        ),
         ForeignKeyConstraint(
             ['company_id', 'purchase_order_id'],
             ['purchase_orders.company_id', 'purchase_orders.id'],
             ondelete='RESTRICT',
         ),
+        Index('ix_goods_receipts_company_status', 'company_id', 'status'),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -465,6 +473,7 @@ class GoodsReceipt(Base):
     received_date: Mapped[date] = mapped_column(Date, nullable=False)
     delivery_reference: Mapped[str | None] = mapped_column(String(160))
     notes: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default='completed')
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -476,10 +485,15 @@ class GoodsReceiptLine(Base):
             'company_id', 'goods_receipt_id', 'purchase_order_line_id',
             name='uq_goods_receipt_lines_receipt_order_line',
         ),
+        UniqueConstraint('company_id', 'id', 'goods_receipt_id', name='uq_goods_receipt_lines_company_id_receipt'),
         CheckConstraint('quantity_received > 0', name='ck_goods_receipt_lines_received'),
         CheckConstraint(
             'quantity_rejected >= 0 AND quantity_rejected <= quantity_received',
             name='ck_goods_receipt_lines_rejected',
+        ),
+        CheckConstraint(
+            'quantity_reversed >= 0 AND quantity_reversed <= (quantity_received - quantity_rejected)',
+            name='ck_goods_receipt_lines_reversed',
         ),
         ForeignKeyConstraint(
             ['company_id', 'goods_receipt_id', 'purchase_order_id'],
@@ -500,7 +514,412 @@ class GoodsReceiptLine(Base):
     purchase_order_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
     quantity_received: Mapped[int] = mapped_column(Integer, nullable=False)
     quantity_rejected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    quantity_reversed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     discrepancy_notes: Mapped[str | None] = mapped_column(Text)
+
+
+class GoodsReceiptReversal(Base):
+    __tablename__ = 'goods_receipt_reversals'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_goods_receipt_reversals_company_id'),
+        UniqueConstraint('company_id', 'id', 'goods_receipt_id', 'purchase_order_id', name='uq_goods_receipt_reversals_lineage'),
+        ForeignKeyConstraint(['company_id'], ['companies.id'], ondelete='RESTRICT'),
+        ForeignKeyConstraint(
+            ['company_id', 'goods_receipt_id', 'purchase_order_id'],
+            ['goods_receipts.company_id', 'goods_receipts.id', 'goods_receipts.purchase_order_id'],
+            ondelete='RESTRICT',
+            name='fk_goods_receipt_reversals_receipt',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'purchase_order_id'],
+            ['purchase_orders.company_id', 'purchase_orders.id'],
+            ondelete='RESTRICT',
+            name='fk_goods_receipt_reversals_order',
+        ),
+        ForeignKeyConstraint(['reversed_by_id'], ['users.id'], ondelete='RESTRICT', name='fk_goods_receipt_reversals_user'),
+        Index('ix_goods_receipt_reversals_company_receipt', 'company_id', 'goods_receipt_id'),
+        Index('ix_goods_receipt_reversals_company_order', 'company_id', 'purchase_order_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    goods_receipt_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    purchase_order_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    reversal_reference: Mapped[str | None] = mapped_column(String(80))  # Reserved for Milestone 2E.3 GRR
+    reversed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    reversed_by_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class GoodsReceiptReversalLine(Base):
+    __tablename__ = 'goods_receipt_reversal_lines'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_goods_receipt_reversal_lines_company_id'),
+        UniqueConstraint('company_id', 'id', 'goods_receipt_line_id', name='uq_goods_receipt_reversal_lines_company_id_line'),
+        ForeignKeyConstraint(['reversal_id'], ['goods_receipt_reversals.id'], ondelete='CASCADE', name='fk_goods_receipt_reversal_lines_rev'),
+        ForeignKeyConstraint(
+            ['company_id', 'goods_receipt_line_id'],
+            ['goods_receipt_lines.company_id', 'goods_receipt_lines.id'],
+            ondelete='RESTRICT',
+            name='fk_goods_receipt_reversal_lines_receipt_line',
+        ),
+        ForeignKeyConstraint(
+            ['purchase_order_line_id'],
+            ['purchase_order_lines.id'],
+            ondelete='RESTRICT',
+            name='fk_goods_receipt_reversal_lines_order_line',
+        ),
+        CheckConstraint('quantity_reversed > 0', name='ck_goods_receipt_reversal_lines_qty_gt_zero'),
+        Index('ix_goods_receipt_reversal_lines_rev', 'reversal_id'),
+        Index('ix_goods_receipt_reversal_lines_grl', 'goods_receipt_line_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    reversal_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    goods_receipt_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    purchase_order_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    quantity_reversed: Mapped[int] = mapped_column(Integer, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class GoodsReceiptReversalAsset(Base):
+    __tablename__ = 'goods_receipt_reversal_assets'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_goods_receipt_reversal_assets_company_id'),
+        UniqueConstraint('company_id', 'asset_id', name='uq_goods_receipt_reversal_assets_company_asset'),
+        UniqueConstraint('company_id', 'id', 'reversal_id', 'reversal_line_id', 'goods_receipt_line_id', 'asset_id', name='uq_goods_receipt_reversal_assets_lineage'),
+        ForeignKeyConstraint(['reversal_id'], ['goods_receipt_reversals.id'], ondelete='CASCADE', name='fk_goods_receipt_reversal_assets_rev'),
+        ForeignKeyConstraint(
+            ['company_id', 'reversal_line_id', 'goods_receipt_line_id'],
+            ['goods_receipt_reversal_lines.company_id', 'goods_receipt_reversal_lines.id', 'goods_receipt_reversal_lines.goods_receipt_line_id'],
+            ondelete='CASCADE',
+            name='fk_goods_receipt_reversal_assets_rev_line',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'goods_receipt_line_id'],
+            ['goods_receipt_lines.company_id', 'goods_receipt_lines.id'],
+            ondelete='RESTRICT',
+            name='fk_goods_receipt_reversal_assets_receipt_line',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'asset_id'],
+            ['assets.company_id', 'assets.id'],
+            ondelete='RESTRICT',
+            name='fk_goods_receipt_reversal_assets_asset',
+        ),
+        Index('ix_goods_receipt_reversal_assets_rev_line', 'reversal_line_id'),
+        Index('ix_goods_receipt_reversal_assets_asset', 'company_id', 'asset_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    reversal_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    reversal_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    goods_receipt_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    asset_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
+    asset_number: Mapped[str] = mapped_column(String(80), nullable=False)
+    serial_number: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+
+class GoodsReturn(Base):
+    __tablename__ = 'goods_returns'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_goods_returns_company_id_id'),
+        UniqueConstraint('company_id', 'return_number', name='uq_goods_returns_company_number'),
+        UniqueConstraint('company_id', 'id', 'goods_receipt_reversal_id', name='uq_goods_returns_lineage'),
+        CheckConstraint(
+            "status IN ('draft', 'approved', 'dispatched', 'partially_returned_to_warehouse', 'returned_to_warehouse', 'completed', 'cancelled')",
+            name='ck_goods_returns_status',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'goods_receipt_reversal_id', 'original_goods_receipt_id', 'purchase_order_id'],
+            ['goods_receipt_reversals.company_id', 'goods_receipt_reversals.id', 'goods_receipt_reversals.goods_receipt_id', 'goods_receipt_reversals.purchase_order_id'],
+            ondelete='RESTRICT',
+            name='fk_goods_returns_reversal_lineage',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'purchase_order_id', 'supplier_id'],
+            ['purchase_orders.company_id', 'purchase_orders.id', 'purchase_orders.supplier_id'],
+            ondelete='RESTRICT',
+            name='fk_goods_returns_po_supplier_lineage',
+        ),
+        ForeignKeyConstraint(['created_by_id'], ['users.id'], ondelete='RESTRICT', name='fk_goods_returns_created_by'),
+        ForeignKeyConstraint(['approved_by_id'], ['users.id'], ondelete='RESTRICT', name='fk_goods_returns_approved_by'),
+        ForeignKeyConstraint(['dispatched_by_id'], ['users.id'], ondelete='RESTRICT', name='fk_goods_returns_dispatched_by'),
+        ForeignKeyConstraint(['completed_by_id'], ['users.id'], ondelete='RESTRICT', name='fk_goods_returns_completed_by'),
+        ForeignKeyConstraint(['cancelled_by_id'], ['users.id'], ondelete='RESTRICT', name='fk_goods_returns_cancelled_by'),
+        Index('ix_goods_returns_company_id', 'company_id'),
+        Index('ix_goods_returns_company_status', 'company_id', 'status'),
+        Index('ix_goods_returns_company_reversal', 'company_id', 'goods_receipt_reversal_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    return_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    purchase_order_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    original_goods_receipt_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    goods_receipt_reversal_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    return_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default='draft')
+    return_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    vendor_reference: Mapped[str | None] = mapped_column(String(128))
+    dispatch_reference: Mapped[str | None] = mapped_column(String(128))
+    transport_details: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    policy_strict_approval_applied: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
+
+    created_by_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    approved_by_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatched_by_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_by_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_by_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancellation_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class GoodsReturnLine(Base):
+    __tablename__ = 'goods_return_lines'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_goods_return_lines_company_id_id'),
+        UniqueConstraint('company_id', 'id', 'goods_return_id', 'asset_id', name='uq_goods_return_lines_receipt_lineage'),
+        ForeignKeyConstraint(
+            ['company_id', 'goods_return_id', 'goods_receipt_reversal_id'],
+            ['goods_returns.company_id', 'goods_returns.id', 'goods_returns.goods_receipt_reversal_id'],
+            ondelete='RESTRICT',
+            name='fk_goods_return_lines_grr_lineage',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'goods_receipt_reversal_asset_id', 'goods_receipt_reversal_id', 'goods_receipt_reversal_line_id', 'goods_receipt_line_id', 'asset_id'],
+            ['goods_receipt_reversal_assets.company_id', 'goods_receipt_reversal_assets.id', 'goods_receipt_reversal_assets.reversal_id', 'goods_receipt_reversal_assets.reversal_line_id', 'goods_receipt_reversal_assets.goods_receipt_line_id', 'goods_receipt_reversal_assets.asset_id'],
+            ondelete='RESTRICT',
+            name='fk_goods_return_lines_reversal_asset_lineage',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'asset_id'],
+            ['assets.company_id', 'assets.id'],
+            ondelete='RESTRICT',
+            name='fk_goods_return_lines_asset',
+        ),
+        Index('ix_goods_return_lines_company_id', 'company_id'),
+        Index('ix_goods_return_lines_return', 'goods_return_id'),
+        Index('ix_goods_return_lines_asset', 'company_id', 'asset_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    goods_return_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    goods_receipt_reversal_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    goods_receipt_reversal_asset_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    goods_receipt_reversal_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    goods_receipt_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    asset_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    return_condition: Mapped[str] = mapped_column(String(64), nullable=False, default='as_received')
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class GoodsReturnAssetReservation(Base):
+    __tablename__ = 'goods_return_asset_reservations'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_goods_return_asset_reservations_company_id'),
+        ForeignKeyConstraint(
+            ['company_id', 'goods_return_id'],
+            ['goods_returns.company_id', 'goods_returns.id'],
+            ondelete='RESTRICT',
+            name='fk_gr_reservations_return',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'asset_id'],
+            ['assets.company_id', 'assets.id'],
+            ondelete='RESTRICT',
+            name='fk_gr_reservations_asset',
+        ),
+        ForeignKeyConstraint(['released_by_id'], ['users.id'], ondelete='RESTRICT', name='fk_gr_reservations_released_by'),
+        Index(
+            'uq_gr_asset_active_reservation',
+            'company_id',
+            'asset_id',
+            unique=True,
+            postgresql_where=text("released_at IS NULL"),
+            sqlite_where=text("released_at IS NULL"),
+        ),
+        CheckConstraint(
+            "((released_at IS NULL) AND (release_reason IS NULL) AND (released_by_id IS NULL)) OR "
+            "((released_at IS NOT NULL) AND (release_reason IS NOT NULL) AND (released_by_id IS NOT NULL))",
+            name='ck_gr_reservations_release_state',
+        ),
+        CheckConstraint(
+            "(release_reason IS NULL) OR (release_reason IN ('cancelled', 'deselected', 'returned_to_warehouse', 'fulfilled'))",
+            name='ck_gr_reservations_release_reason',
+        ),
+        CheckConstraint(
+            "(released_at IS NULL) OR (released_at >= reserved_at)",
+            name='ck_gr_reservations_chronology',
+        ),
+        Index('ix_gr_reservations_company_id', 'company_id'),
+        Index('ix_gr_reservations_return', 'goods_return_id'),
+        Index('ix_gr_reservations_active', 'company_id', 'asset_id', 'released_at'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    asset_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    goods_return_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    reserved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    release_reason: Mapped[str | None] = mapped_column(String(32))
+    released_by_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+
+
+class GoodsReturnWarehouseReceipt(Base):
+    __tablename__ = 'goods_return_warehouse_receipts'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_gr_wr_company_id_id'),
+        UniqueConstraint('company_id', 'receipt_number', name='uq_gr_wr_company_number'),
+        UniqueConstraint('company_id', 'id', 'goods_return_id', name='uq_gr_wr_lineage'),
+        ForeignKeyConstraint(
+            ['company_id', 'goods_return_id'],
+            ['goods_returns.company_id', 'goods_returns.id'],
+            ondelete='RESTRICT',
+            name='fk_gr_wr_return',
+        ),
+        ForeignKeyConstraint(['received_by_id'], ['users.id'], ondelete='RESTRICT', name='fk_gr_wr_received_by'),
+        Index('ix_gr_wr_company_id', 'company_id'),
+        Index('ix_gr_wr_company_return', 'company_id', 'goods_return_id'),
+        Index('ix_gr_wr_company_date', 'company_id', 'receipt_date'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    goods_return_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    receipt_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    receipt_date: Mapped[date] = mapped_column(Date, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    received_by_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    warehouse_location_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    dispatch_reference: Mapped[str | None] = mapped_column(String(160))
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class GoodsReturnWarehouseReceiptLine(Base):
+    __tablename__ = 'goods_return_warehouse_receipt_lines'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_gr_wr_lines_company_id_id'),
+        ForeignKeyConstraint(
+            ['company_id', 'warehouse_receipt_id', 'goods_return_id'],
+            ['goods_return_warehouse_receipts.company_id', 'goods_return_warehouse_receipts.id', 'goods_return_warehouse_receipts.goods_return_id'],
+            ondelete='RESTRICT',
+            name='fk_gr_wr_lines_receipt_lineage',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'goods_return_line_id', 'goods_return_id', 'asset_id'],
+            ['goods_return_lines.company_id', 'goods_return_lines.id', 'goods_return_lines.goods_return_id', 'goods_return_lines.asset_id'],
+            ondelete='RESTRICT',
+            name='fk_gr_wr_lines_return_line_lineage',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'asset_id'],
+            ['assets.company_id', 'assets.id'],
+            ondelete='RESTRICT',
+            name='fk_gr_wr_lines_asset',
+        ),
+        Index(
+            'uq_gr_wr_lines_return_line',
+            'company_id',
+            'goods_return_line_id',
+            unique=True,
+            postgresql_where=text("is_corrected IS FALSE"),
+            sqlite_where=text("is_corrected = 0"),
+        ),
+        Index('ix_gr_wr_lines_company_id', 'company_id'),
+        Index('ix_gr_wr_lines_receipt', 'warehouse_receipt_id'),
+        Index('ix_gr_wr_lines_asset', 'company_id', 'asset_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    warehouse_receipt_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    goods_return_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    goods_return_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    asset_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    condition_on_return: Mapped[str] = mapped_column(String(64), nullable=False, default='intact')
+    notes: Mapped[str | None] = mapped_column(Text)
+    is_corrected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    correction_reason: Mapped[str | None] = mapped_column(Text)
+    corrected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    corrected_by_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+
+class GoodsReturnWarehouseReceiptCorrection(Base):
+    __tablename__ = 'goods_return_warehouse_receipt_corrections'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_gr_wr_corrections_company_id_id'),
+        ForeignKeyConstraint(
+            ['company_id', 'goods_return_id'],
+            ['goods_returns.company_id', 'goods_returns.id'],
+            ondelete='RESTRICT',
+            name='fk_gr_wr_corr_return',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'warehouse_receipt_id'],
+            ['goods_return_warehouse_receipts.company_id', 'goods_return_warehouse_receipts.id'],
+            ondelete='RESTRICT',
+            name='fk_gr_wr_corr_receipt',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'warehouse_receipt_line_id'],
+            ['goods_return_warehouse_receipt_lines.company_id', 'goods_return_warehouse_receipt_lines.id'],
+            ondelete='RESTRICT',
+            name='fk_gr_wr_corr_line',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'asset_id'],
+            ['assets.company_id', 'assets.id'],
+            ondelete='RESTRICT',
+            name='fk_gr_wr_corr_asset',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'new_reservation_id'],
+            ['goods_return_asset_reservations.company_id', 'goods_return_asset_reservations.id'],
+            ondelete='RESTRICT',
+            name='fk_gr_wr_corr_new_reservation',
+        ),
+        ForeignKeyConstraint(['corrected_by_id'], ['users.id'], ondelete='RESTRICT', name='fk_gr_wr_corr_user'),
+        Index('ix_gr_wr_corr_company_id', 'company_id'),
+        Index('ix_gr_wr_corr_receipt', 'warehouse_receipt_id'),
+        Index('ix_gr_wr_corr_line', 'warehouse_receipt_line_id'),
+        Index('ix_gr_wr_corr_asset', 'company_id', 'asset_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False)
+    goods_return_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    warehouse_receipt_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    warehouse_receipt_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    asset_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    correction_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    corrected_by_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    corrected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    previous_asset_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    resulting_asset_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    previous_reservation_state: Mapped[str] = mapped_column(String(64), nullable=False)
+    reservation_outcome: Mapped[str] = mapped_column(String(64), nullable=False)
+    new_reservation_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
 
 
 class AssetServiceContract(Base):
@@ -1112,10 +1531,18 @@ class ReferenceSequence(Base):
     __table_args__ = (
         UniqueConstraint('company_id', 'entity_type', 'fiscal_year', name='uq_reference_sequences_company_entity_fy'),
         Index('ix_reference_sequences_lookup', 'company_id', 'entity_type', 'is_active'),
+        Index(
+            'uq_reference_sequences_system_entity_fy',
+            'entity_type',
+            'fiscal_year',
+            unique=True,
+            postgresql_where=text('company_id IS NULL'),
+            sqlite_where=text('company_id IS NULL'),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
-    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    company_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='CASCADE'), nullable=True)
     entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
     fiscal_year: Mapped[str] = mapped_column(String(10), nullable=False)
     prefix: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -1136,7 +1563,7 @@ class ReferenceSequenceAudit(Base):
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     sequence_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('reference_sequences.id', ondelete='CASCADE'), nullable=False)
-    company_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    company_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey('companies.id', ondelete='CASCADE'), nullable=True)
     entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
     fiscal_year: Mapped[str] = mapped_column(String(10), nullable=False)
     old_prefix: Mapped[str] = mapped_column(String(32), nullable=False)

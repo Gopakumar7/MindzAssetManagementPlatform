@@ -67,7 +67,7 @@ from app.models import (
 from app.notification_service import NotificationService
 from app.security_seed import seed_security_defaults
 from app.services import INITIAL_CATEGORIES, next_asset_number
-from app.reference_service import ReferenceNumberService
+from app.reference_service import ReferenceNumberService, normalize_company_prefix_base
 
 logger = logging.getLogger('demo_seeder')
 
@@ -128,6 +128,16 @@ def _mask_url(url: str) -> str:
     return re.sub(r':([^@/?]+)@', ':***@', url)
 
 
+def _new_demo_company(db: Session) -> Company:
+    """New demo company with a platform-generated reference (CMP-xxxx); code never drives numbering."""
+    return Company(
+        reference_number=ReferenceNumberService.allocate_company_reference(db),
+        code=DEMO_COMPANY_CODE,
+        name=DEMO_COMPANY_NAME,
+        is_active=True,
+    )
+
+
 def _resolve_target_company(db: Session, options: SeederOptions) -> tuple[Company, bool]:
     """Resolves target company or safely provisions the demo company."""
     if options.company_id:
@@ -142,6 +152,7 @@ def _resolve_target_company(db: Session, options: SeederOptions) -> tuple[Compan
             return company, False
         if options.create_company or options.company_code.strip() == DEMO_COMPANY_CODE:
             company = Company(
+                reference_number=ReferenceNumberService.allocate_company_reference(db),
                 code=options.company_code.strip(),
                 name=f"{options.company_code.strip()} (MindZen ALCM)",
                 is_active=True,
@@ -176,7 +187,7 @@ def _resolve_target_company(db: Session, options: SeederOptions) -> tuple[Compan
         print(f"  [0] Create dedicated demo company ({DEMO_COMPANY_CODE})")
         choice = input(f"Select company to populate [1-{len(active_companies)}] or 0: ").strip()
         if choice == '0':
-            company = Company(code=DEMO_COMPANY_CODE, name=DEMO_COMPANY_NAME, is_active=True)
+            company = _new_demo_company(db)
             db.add(company)
             db.flush()
             return company, True
@@ -189,7 +200,7 @@ def _resolve_target_company(db: Session, options: SeederOptions) -> tuple[Compan
         raise ValueError("Invalid company selection.")
 
     # No companies in database at all
-    company = Company(code=DEMO_COMPANY_CODE, name=DEMO_COMPANY_NAME, is_active=True)
+    company = _new_demo_company(db)
     db.add(company)
     db.flush()
     return company, True
@@ -212,7 +223,8 @@ def seed_demo_data(db: Session, options: SeederOptions) -> SeedingSummary:
     today = date.today()
     now = datetime.now(timezone.utc)
 
-    # 1. Numbering rule
+    # 1. Numbering rule (derived from company.code)
+    company_prefix = normalize_company_prefix_base(company.code, company_code=company.code)
     default_rule = db.scalar(
         select(AssetNumberRule).where(
             AssetNumberRule.company_id == company.id,
@@ -222,7 +234,7 @@ def seed_demo_data(db: Session, options: SeederOptions) -> SeedingSummary:
     if not default_rule:
         default_rule = AssetNumberRule(
             company_id=company.id,
-            prefix=DEMO_PREFIX,
+            prefix=company_prefix,
             separator='-',
             padding=6,
             next_value=1,
@@ -241,7 +253,7 @@ def seed_demo_data(db: Session, options: SeederOptions) -> SeedingSummary:
         )
     )
     if not ref_seq:
-        ReferenceNumberService.provision_company_sequences(db, company.id, prefix_base=DEMO_PREFIX)
+        ReferenceNumberService.provision_company_sequences(db, company.id, prefix_base=company_prefix)
         db.flush()
         summary.record('Reference Sequence', created=True)
     else:

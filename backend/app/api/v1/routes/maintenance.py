@@ -314,6 +314,8 @@ def create_maintenance_request(
     )
     if asset is None:
         raise HTTPException(status_code=404, detail='Asset not found in this company')
+    if asset.status == 'reversed':
+        raise HTTPException(status_code=409, detail='Reversed assets cannot be submitted for maintenance')
     if payload.assignee_id is not None:
         validate_active_member(db, company_id, payload.assignee_id)
     request = MaintenanceRequest(

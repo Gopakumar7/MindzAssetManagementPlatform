@@ -1,0 +1,181 @@
+<div class="modal-backdrop" (click)="onClose()">
+  <div class="modal-dialog reversal-dialog" (click)="$event.stopPropagation()" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-header">
+      <div class="modal-title-group">
+        <p class="eyebrow">Goods Receipt Note Reversal</p>
+        <h3 id="modal-title">Reverse Goods Receipt: {{ receipt.receipt_number }}</h3>
+      </div>
+      <button type="button" class="close-btn" (click)="onClose()" [disabled]="submitting" aria-label="Close dialog">✕</button>
+    </div>
+
+    @if (loading) {
+      <div class="modal-body">
+        <div class="loading">Loading reversal eligibility check…</div>
+      </div>
+    }
+
+    @if (error) {
+      <div class="notice error" role="alert">
+        {{ error }}
+      </div>
+    }
+
+    @if (!loading && checkResult) {
+      <div class="modal-body">
+        <div class="eligibility-summary-grid">
+          <div class="metric-card">
+            <span class="metric-label">Total Accepted</span>
+            <span class="metric-value">{{ checkResult.total_accepted_quantity }}</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Already Reversed</span>
+            <span class="metric-value">{{ checkResult.total_quantity_reversed }}</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Remaining Reversible</span>
+            <span class="metric-value" [class.highlight-green]="checkResult.unreversed_accepted_quantity > 0">
+              {{ checkResult.unreversed_accepted_quantity }}
+            </span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Eligible Assets</span>
+            <span class="metric-value" [class.highlight-green]="eligibleAssetIds.length > 0">
+              {{ eligibleAssetIds.length }} / {{ checkResult.assets.length }}
+            </span>
+          </div>
+        </div>
+
+        @if (!checkResult.is_reversible) {
+          <div class="notice warning" role="alert">
+            @if (checkResult.unreversed_accepted_quantity === 0) {
+              <strong>Fully Reversed:</strong> All accepted items on this goods receipt note have already been reversed. No remaining quantity is available.
+            } @else {
+              <strong>Reversal Blocked:</strong> 0 of {{ checkResult.unreversed_accepted_quantity }} remaining accepted assets are currently eligible for reversal. All remaining assets are locked by active user assignments, open maintenance tickets, or financial locks.
+            }
+          </div>
+        }
+
+        <div class="assets-selection-section">
+          <div class="section-toolbar">
+            <h4>Select Assets to Reverse</h4>
+            @if (eligibleAssetIds.length > 0) {
+              <button
+                type="button"
+                class="link-button select-all-btn"
+                (click)="selectAllEligible()"
+                [disabled]="submitting">
+                {{ areAllEligibleSelected() ? 'Deselect All' : 'Select All Eligible (' + eligibleAssetIds.length + ')' }}
+              </button>
+            }
+          </div>
+
+          <div class="table-wrap">
+            <table class="assets-table">
+              <thead>
+                <tr>
+                  <th style="width: 48px;">Select</th>
+                  <th>Asset Number</th>
+                  <th>Serial Number</th>
+                  <th>Status</th>
+                  <th>Eligibility & Preconditions</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (asset of checkResult.assets; track asset.asset_id) {
+                  <tr [class.selected-row]="isAssetSelected(asset.asset_id)" [class.ineligible-row]="!asset.is_eligible">
+                    <td>
+                      <input
+                        type="checkbox"
+                        [checked]="isAssetSelected(asset.asset_id)"
+                        (change)="toggleAsset(asset.asset_id)"
+                        [disabled]="!asset.is_eligible || submitting"
+                        [attr.aria-label]="'Select ' + asset.asset_number">
+                    </td>
+                    <td><strong>{{ asset.asset_number }}</strong></td>
+                    <td>{{ asset.serial_number || '—' }}</td>
+                    <td><span class="status-pill pill-{{ asset.status }}">{{ asset.status }}</span></td>
+                    <td>
+                      @if (asset.is_eligible) {
+                        <span class="badge badge-success">✓ Eligible</span>
+                      } @else {
+                        <span class="badge badge-danger">✕ Ineligible</span>
+                        <div class="blocking-reasons-list">
+                          @for (reason of asset.blocking_reasons; track reason) {
+                            <span class="reason-pill">{{ reason }}</span>
+                          }
+                        </div>
+                      }
+                    </td>
+                  </tr>
+                }
+                @if (checkResult.assets.length === 0) {
+                  <tr>
+                    <td colspan="5" class="empty">No assets found associated with this goods receipt.</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        @if (checkResult.is_reversible && eligibleAssetIds.length > 0) {
+          <div class="form-section">
+            <label class="form-label" for="reversal-reason">
+              Reversal reason (mandatory)
+              <span class="required-indicator">*</span>
+            </label>
+            <textarea
+              id="reversal-reason"
+              name="reversalReason"
+              [(ngModel)]="reversalReason"
+              rows="3"
+              placeholder="Provide a clear operational reason for reversing these assets (e.g., incorrect specification received, defective unit batch, damaged during transit)..."
+              required
+              maxlength="2000"
+              [disabled]="submitting"
+              class="form-textarea">
+            </textarea>
+
+            <div class="consequence-box">
+              <p class="consequence-title">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16" aria-hidden="true">
+                  <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                </svg>
+                Consequence Summary
+              </p>
+              <ul>
+                <li><strong>{{ selectedAssetIds.size }}</strong> selected asset(s) will transition status to <code>reversed</code> and become available for Goods Return to Vendor (GRR).</li>
+                <li>Receipt line quantity reversed will be incremented.</li>
+                <li>Purchase order status will be recalculated and reopened if necessary.</li>
+                <li>An immutable security audit event (<code>goods_receipt_reversed</code>) will be recorded.</li>
+              </ul>
+            </div>
+          </div>
+        }
+      </div>
+    }
+
+    <div class="modal-footer">
+      <button type="button" class="secondary" (click)="onClose()" [disabled]="submitting">
+        Cancel
+      </button>
+      @if (checkResult?.is_reversible && eligibleAssetIds.length > 0) {
+        <button
+          type="button"
+          class="primary danger-btn"
+          (click)="submitReversal()"
+          [disabled]="!canSubmit()">
+          @if (submitting) {
+            Executing Reversal…
+          } @else if (selectedAssetIds.size === 0) {
+            Select at least 1 asset
+          } @else if (!reversalReason.trim()) {
+            Enter reversal reason
+          } @else {
+            Execute Reversal ({{ selectedAssetIds.size }} {{ selectedAssetIds.size === 1 ? 'Asset' : 'Assets' }})
+          }
+        </button>
+      }
+    </div>
+  </div>
+</div>

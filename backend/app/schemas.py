@@ -3,7 +3,9 @@ from decimal import Decimal
 from typing import Annotated, Any, Generic, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
+
+from app.reference_service import build_entity_prefix, normalize_company_prefix_base, validate_numbering_format
 
 
 class HealthResponse(BaseModel):
@@ -108,21 +110,62 @@ class CompanyCreate(BaseModel):
     code: str = Field(min_length=1, max_length=32, pattern=r'^[A-Za-z0-9_-]+$')
     name: str = Field(min_length=1, max_length=160)
     is_active: bool = True
-    number_prefix: str = Field(default='AST', min_length=1, max_length=24, pattern=r'^[A-Za-z0-9]+$')
+    number_prefix: str | None = Field(default=None, max_length=28)
     number_separator: str = Field(default='-', max_length=3)
     number_padding: int = Field(default=6, ge=1, le=12)
+    reference_number: str | None = Field(default=None)
+
+    @model_validator(mode='after')
+    def validate_numbering(self):
+        if self.number_prefix is not None and not self.number_prefix.strip():
+            raise ValueError('number_prefix cannot be blank; operational numbering is derived from company code.')
+        base = normalize_company_prefix_base(self.code, company_code=self.code)
+        validate_numbering_format(
+            build_entity_prefix(base, 'AST'), self.number_separator, self.number_padding, entity_suffix='AST'
+        )
+        return self
+
+    @field_validator('reference_number')
+    @classmethod
+    def reject_client_reference(cls, v: str | None) -> str | None:
+        if v is not None:
+            raise ValueError('Company reference number is system-generated and cannot be configured by client.')
+        return v
 
 
 class CompanyUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     is_active: bool | None = None
+    code: str | None = Field(default=None)
+    reference_number: str | None = Field(default=None)
+
+    @field_validator('code')
+    @classmethod
+    def reject_code_update(cls, v: str | None) -> str | None:
+        if v is not None:
+            raise ValueError('Company code is locked during normal company editing.')
+        return v
+
+    @field_validator('reference_number')
+    @classmethod
+    def reject_reference_update(cls, v: str | None) -> str | None:
+        if v is not None:
+            raise ValueError('Company reference number is system-generated and immutable.')
+        return v
+
+
+class CompanySettingsUpdate(BaseModel):
+    procurement_different_person_return_approval: bool | None = None
+    reason: str = Field(min_length=10, description='Mandatory business reason for changing company policy')
 
 
 class CompanyRead(Record):
     id: UUID
+    reference_number: str
     code: str
     name: str
     is_active: bool
+    settings: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 
@@ -236,9 +279,28 @@ class CategoryUpdate(BaseModel):
 
 
 class NumberRuleWrite(BaseModel):
-    prefix: str = Field(min_length=1, max_length=24, pattern=r'^[A-Za-z0-9]+$')
+    prefix: str = Field(min_length=1, max_length=28)
     separator: str = Field(default='-', max_length=3)
     padding: int = Field(default=6, ge=1, le=12)
+
+    @model_validator(mode='after')
+    def validate_numbering(self):
+        self.prefix, self.separator = validate_numbering_format(
+            self.prefix, self.separator, self.padding, entity_suffix=None
+        )
+        return self
+
+
+class AssetNumberingRead(BaseModel):
+    prefix: str
+    separator: str
+    padding: int
+    next_number: int
+    next_reference_preview: str
+    issued_count: int
+    is_locked: bool
+    allowed_separators: list[str]
+    lock_note: str | None = None
 
 
 class NumberRuleRead(Record):
@@ -615,6 +677,7 @@ class GoodsReceiptLineRead(BaseModel):
     purchase_order_line_id: UUID
     quantity_received: int
     quantity_rejected: int
+    quantity_reversed: int = 0
     discrepancy_notes: str | None
     assets: list[ReceivedAssetRead]
 
@@ -627,8 +690,88 @@ class GoodsReceiptRead(Record):
     received_date: date
     delivery_reference: str | None
     notes: str | None
+    status: str = 'completed'
     created_at: datetime
     lines: list[GoodsReceiptLineRead]
+
+
+class ReversalLineItem(BaseModel):
+    goods_receipt_line_id: UUID
+    asset_ids: list[UUID] = Field(min_length=1, max_length=10000)
+    notes: str | None = None
+
+
+class GoodsReceiptReversalCreate(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
+    lines: list[ReversalLineItem] = Field(min_length=1, max_length=100)
+
+
+class ReversalAssetRead(BaseModel):
+    id: UUID
+    company_id: UUID
+    reversal_id: UUID
+    reversal_line_id: UUID
+    goods_receipt_line_id: UUID
+    asset_id: UUID
+    asset_number: str
+    serial_number: str | None
+    created_at: datetime
+
+
+class ReversalLineRead(BaseModel):
+    id: UUID
+    company_id: UUID
+    reversal_id: UUID
+    goods_receipt_line_id: UUID
+    purchase_order_line_id: UUID
+    quantity_reversed: int
+    notes: str | None
+    created_at: datetime
+    assets: list[ReversalAssetRead] = []
+
+
+class GoodsReceiptReversalRead(Record):
+    id: UUID
+    company_id: UUID
+    goods_receipt_id: UUID
+    purchase_order_id: UUID
+    reversal_reference: str | None
+    reversed_at: datetime
+    reversed_by_id: UUID
+    reason: str
+    created_at: datetime
+    lines: list[ReversalLineRead] = []
+
+
+class AssetEligibilityCheckItem(BaseModel):
+    asset_id: UUID
+    asset_number: str
+    serial_number: str | None
+    status: str
+    is_eligible: bool
+    blocking_reasons: list[str] = []
+
+
+class GoodsReceiptLineEligibilitySummary(BaseModel):
+    goods_receipt_line_id: UUID
+    purchase_order_line_id: UUID
+    quantity_received: int
+    quantity_rejected: int
+    quantity_reversed: int
+    unreversed_accepted_quantity: int
+    eligible_asset_count: int
+
+
+class GoodsReceiptReversalEligibilityResponse(BaseModel):
+    goods_receipt_id: UUID
+    receipt_number: str
+    status: str
+    is_reversible: bool
+    total_accepted_quantity: int
+    total_quantity_reversed: int
+    unreversed_accepted_quantity: int
+    lines: list[GoodsReceiptLineEligibilitySummary]
+    assets: list[AssetEligibilityCheckItem]
 
 
 class UsageCreate(BaseModel):
@@ -993,7 +1136,7 @@ class ProcurementReportItem(BaseModel):
 
 
 class VerificationCampaignCreate(BaseModel):
-    campaign_reference: str = Field(min_length=1, max_length=64)
+    campaign_reference: str | None = Field(default=None, max_length=64)
     name: str = Field(min_length=1, max_length=160)
     description: str | None = None
     start_date: date
@@ -1069,6 +1212,7 @@ class VerificationExpectedAssetRead(Record):
     observation_found: bool | None = None
     has_discrepancy: bool = False
     discrepancy_types: list[str] = Field(default_factory=list)
+    is_preview: bool = False
     created_at: datetime
 
 
@@ -1523,4 +1667,167 @@ class NotificationDeliveryRead(BaseModel):
 
 
 
+
+
+
+# ============================================================================
+# Goods Return to Vendor (GRR) Schemas - Milestone 2E.3
+# ============================================================================
+
+class GoodsReturnLineCreate(BaseModel):
+    goods_receipt_reversal_asset_id: UUID
+    return_condition: str = Field(default="as_received", max_length=64)
+    notes: str | None = None
+
+
+class GoodsReturnLineRead(BaseModel):
+    id: UUID
+    company_id: UUID
+    goods_return_id: UUID
+    goods_receipt_reversal_id: UUID
+    goods_receipt_reversal_asset_id: UUID
+    goods_receipt_reversal_line_id: UUID
+    goods_receipt_line_id: UUID
+    asset_id: UUID
+    asset_number: str | None = None
+    serial_number: str | None = None
+    return_condition: str
+    notes: str | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GoodsReturnCreate(BaseModel):
+    goods_receipt_reversal_id: UUID
+    return_date: date
+    return_reason: str
+    vendor_reference: str | None = None
+    dispatch_reference: str | None = None
+    transport_details: str | None = None
+    notes: str | None = None
+    lines: list[GoodsReturnLineCreate] = Field(min_length=1)
+
+
+class GoodsReturnUpdate(BaseModel):
+    return_date: date | None = None
+    return_reason: str | None = None
+    vendor_reference: str | None = None
+    dispatch_reference: str | None = None
+    transport_details: str | None = None
+    notes: str | None = None
+    lines: list[GoodsReturnLineCreate] | None = None
+
+
+class GoodsReturnDispatch(BaseModel):
+    dispatch_reference: str = Field(min_length=1, max_length=128)
+    transport_details: str | None = None
+    notes: str | None = None
+
+
+class GoodsReturnCancel(BaseModel):
+    cancellation_reason: str = Field(min_length=3)
+
+
+class GoodsReturnRead(BaseModel):
+    id: UUID
+    company_id: UUID
+    return_number: str
+    supplier_id: UUID
+    purchase_order_id: UUID
+    original_goods_receipt_id: UUID
+    goods_receipt_reversal_id: UUID
+    return_date: date
+    status: str
+    return_reason: str
+    vendor_reference: str | None = None
+    dispatch_reference: str | None = None
+    transport_details: str | None = None
+    notes: str | None = None
+    policy_strict_approval_applied: bool | None = None
+    created_by_id: UUID
+    created_at: datetime
+    approved_by_id: UUID | None = None
+    approved_at: datetime | None = None
+    dispatched_by_id: UUID | None = None
+    dispatched_at: datetime | None = None
+    completed_by_id: UUID | None = None
+    completed_at: datetime | None = None
+    cancelled_by_id: UUID | None = None
+    cancelled_at: datetime | None = None
+    cancellation_reason: str | None = None
+    lines: list[GoodsReturnLineRead] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GoodsReturnWarehouseReceiptLineCreate(BaseModel):
+    goods_return_line_id: UUID
+    condition_on_return: str = Field(default="intact", max_length=64)
+    notes: str | None = None
+
+
+class GoodsReturnWarehouseReceiptCreate(BaseModel):
+    receipt_date: date
+    warehouse_location_id: UUID | None = None
+    dispatch_reference: str | None = None
+    reason: str = Field(min_length=3)
+    notes: str | None = None
+    lines: list[GoodsReturnWarehouseReceiptLineCreate] = Field(min_length=1)
+
+
+class GoodsReturnWarehouseReceiptLineRead(BaseModel):
+    id: UUID
+    company_id: UUID
+    warehouse_receipt_id: UUID
+    goods_return_id: UUID
+    goods_return_line_id: UUID
+    asset_id: UUID
+    condition_on_return: str
+    notes: str | None = None
+    is_corrected: bool
+    correction_reason: str | None = None
+    corrected_at: datetime | None = None
+    corrected_by_id: UUID | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GoodsReturnWarehouseReceiptRead(BaseModel):
+    id: UUID
+    company_id: UUID
+    goods_return_id: UUID
+    receipt_number: str
+    receipt_date: date
+    received_at: datetime
+    received_by_id: UUID
+    warehouse_location_id: UUID | None = None
+    dispatch_reference: str | None = None
+    reason: str
+    notes: str | None = None
+    created_at: datetime
+    lines: list[GoodsReturnWarehouseReceiptLineRead] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WarehouseReceiptCorrectionCreate(BaseModel):
+    correction_reason: str = Field(min_length=5)
+    notes: str | None = None
+
+
+class ReturnEligibleAssetItem(BaseModel):
+    goods_receipt_reversal_asset_id: UUID
+    reversal_id: UUID
+    reversal_line_id: UUID
+    goods_receipt_line_id: UUID
+    asset_id: UUID
+    asset_number: str
+    serial_number: str | None = None
+    is_actively_reserved: bool = False
+    active_reservation_return_id: UUID | None = None
+    active_reservation_return_number: str | None = None
+    is_eligible: bool = True
+    ineligibility_reason: str | None = None
 

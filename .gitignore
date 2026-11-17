@@ -19,3 +19,7 @@ frontend/.sass-cache/
 
 # Docker
 *.log
+
+# Backups & Database dumps
+backups/
+*.sql

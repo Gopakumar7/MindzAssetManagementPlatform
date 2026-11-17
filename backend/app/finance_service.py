@@ -234,6 +234,8 @@ def post_single_depreciation(
     )
     if asset is None:
         raise HTTPException(status_code=404, detail='Asset not found')
+    if asset.status == 'reversed':
+        raise HTTPException(status_code=409, detail='Cannot post depreciation for a reversed asset')
 
     financial = db.scalar(
         select(AssetFinancial)
@@ -539,6 +541,8 @@ def dispose_asset(
     )
     if asset is None:
         raise HTTPException(status_code=404, detail='Asset not found')
+    if asset.status == 'reversed':
+        raise HTTPException(status_code=409, detail='Cannot dispose a reversed asset')
     if asset.status == 'disposed':
         raise HTTPException(status_code=409, detail='Asset is already disposed')
 
